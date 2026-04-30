@@ -6,6 +6,7 @@ import argparse
 import threading
 import random
 from datetime import datetime
+import numpy as np
 from collections import defaultdict
 
 from core import (
@@ -14,65 +15,14 @@ from core import (
     HumanTracker,
     FaceAnalyzer,
     PoseAnalyzer,
-    FaceRecognizer,
     is_suspicious_behavior,
 )
+from core.face_recognizer_db import FaceRecognizerDB
 from utils import logger
+from utils.evidence_db import save_evidence_db
 
 # Re-run face recognition every N frames per track ID
 RERECOGNIZE_EVERY = 30
-
-
-def save_evidence(evidence_dir, camera_location, track_id, name,
-                  is_criminal, weapon_present, is_suspicious,
-                  reasons, frame, roi):
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
-    if is_criminal:
-        subfolder = os.path.join(evidence_dir, "criminals")
-    elif weapon_present:
-        subfolder = os.path.join(evidence_dir, "weapons")
-    else:
-        subfolder = os.path.join(evidence_dir, "suspicious")
-
-    os.makedirs(subfolder, exist_ok=True)
-
-    frame_path = os.path.join(
-        subfolder, f"{timestamp}_{camera_location}_id{track_id}_frame.jpg"
-    )
-    roi_path = os.path.join(
-        subfolder, f"{timestamp}_{camera_location}_id{track_id}_roi.jpg"
-    )
-
-    cv2.imwrite(frame_path, frame)
-    cv2.imwrite(roi_path, roi)
-
-    reason_str = ",".join(reasons) if reasons else "none"
-    log_path = os.path.join(evidence_dir, "log.csv")
-    write_header = not os.path.exists(log_path)
-
-    with open(log_path, "a") as f:
-        if write_header:
-            f.write(
-                "timestamp,location,track_id,name,"
-                "is_criminal,weapon_present,is_suspicious,"
-                "reasons,frame_path,roi_path\n"
-            )
-        f.write(
-            f"{timestamp},{camera_location},{track_id},"
-            f"{name},{is_criminal},{weapon_present},"
-            f"{is_suspicious},{reason_str},"
-            f"{frame_path},{roi_path}\n"
-        )
-
-    logger.warning(
-        f"ALERT SAVED | ID:{track_id} name:{name} "
-        f"criminal:{is_criminal} weapon:{weapon_present} "
-        f"suspicious:{is_suspicious} ({reason_str})"
-    )
-
-    return frame_path, roi_path
 
 
 def draw_sci_fi_box(frame, x1, y1, x2, y2, color, thickness=1, length=20):
@@ -159,11 +109,11 @@ def run_boot_sequence(frame_shape):
     h, w = frame_shape[:2]
     messages = [
         "INITIATING SECURE UPLINK...",
-        "BYPASSING FIREWALL PROXY...",
-        "CONNECTING TO NATIONAL SECURITY MAINFRAME...",
-        "DECRYPTING NEURAL NETWORK WEIGHTS...",
-        "LOADING GLOBAL THREAT DATABASE...",
-        "SYSTEM ONLINE. ENGAGING TARGET ACQUISITION."
+        "CONNECTING TO POSTGRESQL DATABASE...",
+        "LOADING FACE ENCODINGS FROM DB...",
+        "INITIALIZING ENCRYPTION MODULE...",
+        "STARTING AUDIT LOGGING...",
+        "SYSTEM ONLINE. PHASE 1 SECURITY ENABLED."
     ]
     
     boot_frame = np.zeros((h, w, 3), dtype=np.uint8)
@@ -277,7 +227,7 @@ def draw_threat_level(frame, score):
         level = "LOW"
         color = (50, 200, 50)
         
-    text = f"GLOBAL THREAT LEVEL: {level}"
+    text = f"GLOBAL THREAT LEVEL: {level} | PHASE 1 SECURITY ACTIVE"
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
     cv2.putText(frame, text, (w // 2 - tw // 2, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     
@@ -352,7 +302,6 @@ def draw_flash_effect(frame, flash_time, current_time):
     return frame
 
 def main():
-    import numpy as np
     parser = argparse.ArgumentParser(description="Advanced National Security System")
     parser.add_argument("--video", type=str, default="", help="Path to video file fallback if camera fails.")
     args = parser.parse_args()
@@ -372,9 +321,9 @@ def main():
     model_dir         = os.path.join(base_dir, cfg.get("model_dir", "models"))
     human_model_path  = os.path.join(model_dir, cfg.get("human_model", "yolov8x.pt"))
     weapon_model_path = os.path.join(model_dir, cfg.get("weapon_model", "weapon_yolo.pt"))
-    evidence_dir      = os.path.join(base_dir, "evidence")
-    encoding_file     = os.path.join(base_dir, "face_encodings.pkl")
 
+    # Create evidence directories (still used for file storage with DB metadata)
+    evidence_dir = os.path.join(base_dir, "evidence")
     for d in ["criminals", "weapons", "suspicious"]:
         os.makedirs(os.path.join(evidence_dir, d), exist_ok=True)
 
@@ -416,7 +365,7 @@ def main():
     tracker         = HumanTracker()
     face_analyzer   = FaceAnalyzer()
     pose_analyzer   = PoseAnalyzer()
-    face_recognizer = FaceRecognizer(encoding_file, tolerance=face_tolerance)
+    face_recognizer = FaceRecognizerDB(tolerance=face_tolerance)
 
     # Per-track state
     id_name_map        = {}   # track_id → name
@@ -578,13 +527,16 @@ def main():
 
             # Save evidence (throttled: once per 10s per ID)
             if alert and (now - last_saved.get(track_id, 0) >= 10):
-                save_evidence(
-                    evidence_dir, camera_location, track_id, name,
-                    is_criminal, weapon_present, is_suspicious,
-                    reasons, frame.copy(), roi.copy()
-                )
-                last_saved[track_id] = now
-                last_flash_time = now
+                try:
+                    save_evidence_db(
+                        camera_location, track_id, name,
+                        is_criminal, weapon_present, is_suspicious,
+                        reasons, frame.copy(), roi.copy()
+                    )
+                    last_saved[track_id] = now
+                    last_flash_time = now
+                except Exception as e:
+                    logger.warning(f"Failed to save evidence: {e}")
 
             try:
                 face_result = face_analyzer.analyze(roi)
@@ -636,7 +588,7 @@ def main():
             0.4, (150, 150, 150), 1,
         )
 
-        cv2.imshow("Human Analysis System", frame)
+        cv2.imshow("Human Analysis System - Phase 1", frame)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
