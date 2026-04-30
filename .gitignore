@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Models
+models/*.pt
+
+# OS
+.DS_Store
+*.DS_Store
+
+# Evidence
+evidence/criminals/
+evidence/suspicious/
+evidence/weapons/
+evidence/log.csv
+
+# Face encodings
+*.pkl

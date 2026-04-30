@@ -1,0 +1,17 @@
+camera_index: 0
+# Example RTSP:
+# camera_index: "rtsp://user:password@192.168.0.100:554/h264Preview_01_main"
+
+model_dir: "models"
+human_model: "yolov8x.pt"
+weapon_model: "weapon_yolo.pt"
+
+confidence_threshold: 0.5
+weapon_conf_threshold: 0.4
+face_tolerance: 0.45
+
+camera_location: "Gate_1"
+
+criminal_names:
+  - "CRIMINAL_001_Sadik"
+  - "CRIMINAL_002_Tarik"
