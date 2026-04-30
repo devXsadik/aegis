@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: surveillance_db
+    environment:
+      POSTGRES_DB: surveillance_db
+      POSTGRES_USER: surveillance
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-surveillance}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U surveillance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: surveillance_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: surveillance_backend
+    environment:
+      DATABASE_URL: postgresql://surveillance:${DB_PASSWORD:-surveillance}@db:5432/surveillance_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-too}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./evidence:/app/evidence
+      - ./models:/app/models
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Surveillance System (with GPU support if available)
+  surveillance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: surveillance_main
+    environment:
+      DATABASE_URL: postgresql://surveillance:${DB_PASSWORD:-surveillance}@db:5432/surveillance_db
+      CAMERA_INDEX: ${CAMERA_INDEX:-0}
+      MODEL_DIR: /app/models
+    volumes:
+      - /dev/video0:/dev/video0  # Camera access (Linux)
+      - ./config:/app/config
+      - ./known_person:/app/known_person
+      - ./evidence:/app/evidence
+    devices:
+      - /dev/video0:/dev/video0  # Camera device
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Nginx Reverse Proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: surveillance_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: surveillance_network

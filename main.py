@@ -18,11 +18,24 @@ from core import (
     is_suspicious_behavior,
 )
 from core.face_recognizer_db import FaceRecognizerDB
+from core.anpr import LicensePlateRecognizer, LicensePlateDatabase
+from core.vehicle_detector import VehicleDetector, VehicleTracker
 from utils import logger
 from utils.evidence_db import save_evidence_db
+from utils.alerts import AlertOrchestrator
+from utils.performance import FrameSkipper, ResourceMonitor
 
 # Re-run face recognition every N frames per track ID
 RERECOGNIZE_EVERY = 30
+
+
+def draw_box(frame, x1, y1, x2, y2, label, color):
+    """Draw bounding box with label"""
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+    cv2.rectangle(frame, (x1, y1 - lh - 10), (x1 + lw + 10, y1), color, -1)
+    cv2.putText(frame, label, (x1 + 5, y1 - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+    return frame
 
 
 def draw_sci_fi_box(frame, x1, y1, x2, y2, color, thickness=1, length=20):
@@ -35,7 +48,7 @@ def draw_sci_fi_box(frame, x1, y1, x2, y2, color, thickness=1, length=20):
     cv2.line(frame, (x1, y2), (x1, y2 - length), color, thickness + 1)
     cv2.line(frame, (x2, y2), (x2 - length, y2), color, thickness + 1)
     cv2.line(frame, (x2, y2), (x2, y2 - length), color, thickness + 1)
-    
+
     # Draw thin full box
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
     return frame
@@ -367,11 +380,30 @@ def main():
     pose_analyzer   = PoseAnalyzer()
     face_recognizer = FaceRecognizerDB(tolerance=face_tolerance)
 
+    # Phase 3: ANPR and Vehicle Detection
+    anpr = LicensePlateRecognizer(languages=['en'], gpu=False)
+    plate_db = LicensePlateDatabase()
+    vehicle_detector = None
+    vehicle_model_path = os.path.join(model_dir, "yolov8l.pt")
+    if os.path.exists(vehicle_model_path):
+        try:
+            vehicle_detector = VehicleDetector(vehicle_model_path, conf_threshold)
+            logger.info("Vehicle detector: ENABLED")
+        except Exception as e:
+            logger.warning(f"Vehicle detector DISABLED: {e}")
+    vehicle_tracker = VehicleTracker()
+    alert_orchestrator = AlertOrchestrator()
+
     # Per-track state
     id_name_map        = {}   # track_id → name
     id_frame_count     = defaultdict(int)   # track_id → frames seen
     track_history      = defaultdict(list)  # track_id → [(t, cx, cy)]
     last_saved         = {}   # track_id → last save timestamp
+
+    # Phase 4: Performance optimizations
+    frame_skipper = FrameSkipper(target_fps=30)
+    resource_monitor = ResourceMonitor()
+    perf_enabled = os.getenv('PERF_MONITOR', 'false').lower() == 'true'
 
     logger.info("System Started — press Q to quit. Press T for Thermal Mode.")
     frame_count = 0
@@ -385,12 +417,15 @@ def main():
         if not ret:
             logger.error("Failed to read frame")
             break
-            
+
+        # Performance: Skip frames if needed
+        if not frame_skipper.should_process():
+            continue
+
         if thermal_mode:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             frame = cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
 
-        frame_count += 1
         now = time.time()
 
         detections = detector.detect(frame)
@@ -419,6 +454,49 @@ def main():
                 frame, wx1, wy1, wx2, wy2,
                 f"WEAPON {w['score']:.0%}", (0, 0, 255)
             )
+
+        # Phase 3: Vehicle detection and ANPR
+        vehicles = []
+        if vehicle_detector is not None:
+            try:
+                vehicles = vehicle_detector.detect(frame)
+            except Exception as e:
+                logger.warning(f"Vehicle detection error: {e}")
+
+        for v in vehicles:
+            vx1, vy1, vx2, vy2 = v['bbox']
+            cv2.rectangle(frame, (vx1, vy1), (vx2, vy2), (255, 165, 0), 2)
+            label = f"{v['class_name'].upper()} {v['score']:.0%}"
+            cv2.putText(frame, label, (vx1, vy1 - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 165, 0), 2)
+
+            # Run ANPR on vehicle ROI
+            vehicle_roi = frame[vy1:vy2, vx1:vx2]
+            if vehicle_roi.size > 0:
+                plates = anpr.detect_plates(vehicle_roi)
+                for plate in plates:
+                    px1, py1, px2, py2 = plate['bbox'][0:4]
+                    px1 += vx1; py1 += vy1; px2 += vx1; py2 += vy1
+                    cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 255, 255), 2)
+                    cv2.putText(frame, plate['plate_number'], (px1, py1 - 5),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                    # Check if watchlisted
+                    if plate_db.is_watchlisted(plate['plate_number']):
+                        cv2.putText(frame, "WATCHLISTED", (px1, py2 + 20),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        logger.warning(f"WATCHLISTED PLATE: {plate['plate_number']}")
+
+                        # Send alert
+                        try:
+                            alert_orchestrator.send_suspicious_vehicle_alert(
+                                plate['plate_number'],
+                                v['class_name'],
+                                camera_location,
+                                "Watchlisted plate detected"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Alert failed: {e}")
 
         # Count active criminals this frame for HUD
         active_criminals = []
@@ -495,14 +573,32 @@ def main():
             # Color and label
             if is_criminal:
                 color      = (0, 0, 255)       # red
-                status     = "Loser"
+                status     = "CRIMINAL"
                 # Play alarm every 5 seconds if still detected
                 if now - last_alarm_time > 5.0:
                     play_alarm()
                     last_alarm_time = now
+                    # Phase 3: Send alert to law enforcement
+                    try:
+                        alert_orchestrator.send_criminal_alert(
+                            criminal_name=name,
+                            camera_location=camera_location,
+                            track_id=track_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Alert failed: {e}")
             elif weapon_present:
                 color      = (0, 0, 255)       # red
                 status     = "Armed"
+                # Phase 3: Send weapon alert
+                if now - last_alarm_time > 5.0:
+                    try:
+                        alert_orchestrator.send_weapon_alert(
+                            camera_location=camera_location,
+                            track_id=track_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Weapon alert failed: {e}")
             elif is_suspicious:
                 color      = (0, 165, 255)     # orange
                 status     = "Suspicious"
@@ -528,11 +624,17 @@ def main():
             # Save evidence (throttled: once per 10s per ID)
             if alert and (now - last_saved.get(track_id, 0) >= 10):
                 try:
-                    save_evidence_db(
-                        camera_location, track_id, name,
-                        is_criminal, weapon_present, is_suspicious,
-                        reasons, frame.copy(), roi.copy()
+                    # Async evidence saving to avoid blocking
+                    evidence_thread = threading.Thread(
+                        target=save_evidence_db,
+                        args=(
+                            camera_location, track_id, name,
+                            is_criminal, weapon_present, is_suspicious,
+                            reasons, frame.copy(), roi.copy()
+                        ),
+                        daemon=True
                     )
+                    evidence_thread.start()
                     last_saved[track_id] = now
                     last_flash_time = now
                 except Exception as e:
@@ -556,6 +658,8 @@ def main():
         fps = frame_count / elapsed if elapsed > 0 else 0
 
         hud_h = 30 + 20 * max(1, len(active_criminals) + 3)
+        if perf_enabled:
+            hud_h += 20  # Extra space for perf stats
         cv2.rectangle(frame, (0, 0), (350, hud_h), (0, 0, 0), -1)
 
         cv2.putText(
@@ -574,6 +678,23 @@ def main():
             (0, 0, 255) if active_criminals else (200, 200, 200), 1,
         )
 
+        # Performance monitoring
+        if perf_enabled:
+            perf_stats = resource_monitor.get_stats()
+            if 'error' not in perf_stats:
+                cv2.putText(
+                    frame, f"CPU: {perf_stats['cpu_percent']:.1f}%  "
+                           f"MEM: {perf_stats['memory_mb']:.0f}MB",
+                    (10, 84), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                    (200, 200, 200), 1,
+                )
+            skip_stats = frame_skipper.get_stats()
+            cv2.putText(
+                frame, f"Skip: {skip_stats['skip_rate']}",
+                (10, 104), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                (200, 200, 200), 1,
+            )
+
         # List each criminal name on HUD
         for i, cname in enumerate(active_criminals):
             cv2.putText(
@@ -588,7 +709,7 @@ def main():
             0.4, (150, 150, 150), 1,
         )
 
-        cv2.imshow("Human Analysis System - Phase 1", frame)
+        cv2.imshow("Human Analysis System - Phase 3 (ANPR+Vehicle)", frame)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
