@@ -41,11 +41,11 @@ pip3 install -r requirements.txt
 
 echo ""
 echo "4. Initializing database schema..."
-cd backend && python3 init_db.py && cd ..
+python3 -m backend.init_db
 
 echo ""
 echo "5. Running data migration (pickle -> PostgreSQL)..."
-cd backend && python3 migrate.py && cd ..
+python3 -m backend.migrate
 
 echo ""
 echo "6. Creating admin user..."

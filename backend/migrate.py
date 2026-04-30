@@ -21,15 +21,48 @@ def migrate_face_encodings():
             data = pickle.load(f)
 
         count = 0
+        if data and isinstance(data, tuple) and len(data) == 2 and isinstance(data[0], list) and isinstance(data[1], list):
+            print("Detected (encodings, names) tuple format, zipping...")
+            data = [{"encoding": e, "name": n} for e, n in zip(data[0], data[1])]
+        elif data and isinstance(data, tuple) and len(data) >= 2 and isinstance(data[0], str):
+            print("Detected single entry tuple format, wrapping in list")
+            data = [data]
+        
         for item in data:
-            encoding = FaceEncoding(
-                person_name=item.get("name", "Unknown"),
-                person_id=item.get("name", "Unknown"),
-                encoding=FaceEncoding.serialize_encoding(item.get("encoding")),
-                image_path=item.get("image_path", "")
-            )
-            db.add(encoding)
-            count += 1
+            if isinstance(item, dict):
+                person_name = item.get("name", "Unknown")
+                person_id = item.get("name", "Unknown")
+                encoding_data = item.get("encoding")
+                image_path = item.get("image_path", "")
+            elif isinstance(item, (list, tuple)):
+                # Fallback for list/tuple format [name, encoding, image_path]
+                # Some formats have [name, [encoding1, encoding2, ...], image_path]
+                person_name = item[0] if len(item) > 0 else "Unknown"
+                person_id = person_name
+                encoding_data = None
+                if len(item) > 1:
+                    encs = item[1]
+                    if isinstance(encs, (list, tuple)) and len(encs) > 0:
+                        encoding_data = encs[0] # Take first encoding
+                    else:
+                        encoding_data = encs
+                image_path = item[2] if len(item) > 2 else ""
+            else:
+                print(f"Skipping unknown item format: {type(item)}")
+                continue
+
+            try:
+                encoding = FaceEncoding(
+                    person_name=person_name,
+                    person_id=person_id,
+                    encoding=FaceEncoding.serialize_encoding(encoding_data),
+                    image_path=image_path
+                )
+                db.add(encoding)
+                count += 1
+            except Exception as e:
+                print(f"Error migrating face encoding for {person_name}: {e}")
+                print(f"Data was: name={person_name}, enc_type={type(encoding_data)}")
 
         db.commit()
         print(f"Migrated {count} face encodings to PostgreSQL")
@@ -55,16 +88,16 @@ def migrate_evidence_logs():
             for row in reader:
                 evidence = Evidence(
                     timestamp=row.get("timestamp"),
-                    camera_location=row.get("camera_location"),
-                    track_id=int(row.get("track_id", 0)),
-                    person_name=row.get("name"),
-                    is_criminal=row.get("is_criminal", "").lower() == "true",
-                    weapon_present=row.get("weapon_present", "").lower() == "true",
-                    is_suspicious=row.get("is_suspicious", "").lower() == "true",
+                    camera_location=row.get("camera_location") or "Unknown",
+                    track_id=int(row.get("track_id") or 0),
+                    person_name=row.get("name") or "Unknown",
+                    is_criminal=str(row.get("is_criminal", "")).lower() == "true",
+                    weapon_present=str(row.get("weapon_present", "")).lower() == "true",
+                    is_suspicious=str(row.get("is_suspicious", "")).lower() == "true",
                     reasons=row.get("reasons"),
                     frame_path=row.get("frame_path"),
                     roi_path=row.get("roi_path"),
-                    category=row.get("category", "unknown")
+                    category=row.get("category") or "unknown"
                 )
                 db.add(evidence)
                 count += 1

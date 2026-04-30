@@ -1,14 +1,23 @@
-import os
 import cv2
+import numpy as np
 from datetime import datetime
 from sqlalchemy.orm import Session
 from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
-from backend.utils.encryption import EncryptionManager
 from backend.utils.audit import AuditLogger
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _encode_image_to_bytes(image) -> bytes:
+    """Encode a numpy frame to JPEG bytes in-memory (no disk write)."""
+    if image is None:
+        return b""
+    success, buffer = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not success:
+        return b""
+    return buffer.tobytes()
 
 
 def save_evidence_db(
@@ -25,14 +34,13 @@ def save_evidence_db(
     username: str = None
 ):
     """
-    Save evidence to PostgreSQL with optional encryption.
-    Returns (frame_path, roi_path) or (None, None) on failure.
+    Save evidence to PostgreSQL.
+    Images (frame and ROI) are stored as JPEG bytes directly in the DB.
+    No files are written to disk.
+    Returns (evidence_id, None, None) on success or (None, None, None) on failure.
     """
     db = SessionLocal()
     try:
-        timestamp = datetime.now()
-        ts_str = timestamp.strftime("%Y%m%d_%H%M%S_%f")
-
         # Determine category
         if is_criminal:
             category = "criminals"
@@ -41,31 +49,14 @@ def save_evidence_db(
         elif is_suspicious:
             category = "suspicious"
 
-        # Save frame and ROI images
-        evidence_dir = os.path.join("evidence", category)
-        os.makedirs(evidence_dir, exist_ok=True)
-
-        frame_path = os.path.join(evidence_dir, f"{ts_str}_{camera_location}_id{track_id}_frame.jpg")
-        roi_path = os.path.join(evidence_dir, f"{ts_str}_{camera_location}_id{track_id}_roi.jpg")
-
-        cv2.imwrite(frame_path, frame)
-        cv2.imwrite(roi_path, roi)
-
-        # Encrypt files if configured
-        encrypted = False
-        if os.getenv("ENCRYPTION_KEY", "default") != "default":
-            try:
-                enc_manager = EncryptionManager()
-                frame_path = enc_manager.encrypt_file(frame_path)
-                roi_path = enc_manager.encrypt_file(roi_path)
-                encrypted = True
-            except Exception as e:
-                print(f"Encryption failed: {e}")
+        # Encode images to JPEG bytes in-memory
+        frame_data = _encode_image_to_bytes(frame)
+        roi_data = _encode_image_to_bytes(roi)
 
         # Save to database
         reason_str = ",".join(reasons) if reasons else "none"
         evidence = Evidence(
-            timestamp=timestamp,
+            timestamp=datetime.now(),
             camera_location=camera_location,
             track_id=track_id,
             person_name=name,
@@ -73,14 +64,17 @@ def save_evidence_db(
             weapon_present=weapon_present,
             is_suspicious=is_suspicious,
             reasons=reason_str,
-            frame_path=frame_path,
-            roi_path=roi_path,
-            encrypted=encrypted,
-            created_by=username,
+            frame_path=None,
+            roi_path=None,
+            frame_data=frame_data,
+            roi_data=roi_data,
+            encrypted=False,
+            created_by=None,
             category=category
         )
         db.add(evidence)
         db.commit()
+        db.refresh(evidence)
 
         # Audit log
         try:
@@ -95,11 +89,11 @@ def save_evidence_db(
         except Exception:
             pass
 
-        return frame_path, roi_path
+        return evidence.id, None, None
 
     except Exception as e:
         print(f"Error saving evidence: {e}")
         db.rollback()
-        return None, None
+        return None, None, None
     finally:
         db.close()
