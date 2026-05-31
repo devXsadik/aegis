@@ -25,5 +25,5 @@ def get_db():
 
 
 def init_db():
-    from backend.models import user, face_encoding, evidence, audit_log
+    from backend.models import user, face_encoding, evidence, audit_log, alert, camera, config_entry, vehicle
     Base.metadata.create_all(bind=engine)

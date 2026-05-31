@@ -5,6 +5,7 @@ import os
 import argparse
 import threading
 import random
+import json
 from datetime import datetime
 import numpy as np
 from collections import defaultdict
@@ -20,13 +21,17 @@ from core import (
 from core.face_recognizer_db import FaceRecognizerDB
 from core.anpr import LicensePlateRecognizer, LicensePlateDatabase
 from core.vehicle_detector import VehicleDetector, VehicleTracker
+from core.cross_camera_tracker import CrossCameraTracker
+from core.anomaly_detector import AnomalyDetector
+from core.analytics import HeatmapGenerator, DwellTimeAnalyzer
+from core.stream_manager import StreamManager, CameraFeed
 from utils import logger
 from utils.evidence_db import save_evidence_db
 from utils.alerts import AlertOrchestrator
 from utils.performance import FrameSkipper, ResourceMonitor
 
 # Re-run face recognition every N frames per track ID
-RERECOGNIZE_EVERY = 30
+RERECOGNIZE_EVERY = 90
 
 
 def draw_box(frame, x1, y1, x2, y2, label, color):
@@ -316,6 +321,7 @@ def draw_flash_effect(frame, flash_time, current_time):
 
 def main():
     parser = argparse.ArgumentParser(description="Advanced National Security System")
+    parser.add_argument("--camera", type=str, default="", help="RTSP URL or camera index (overrides config camera_index).")
     parser.add_argument("--video", type=str, default="", help="Path to video file fallback if camera fails.")
     args = parser.parse_args()
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -330,6 +336,7 @@ def main():
     face_tolerance    = cfg.get("face_tolerance", 0.45)
     camera_location   = cfg.get("camera_location", "Camera_1")
     criminal_names    = set(cfg.get("criminal_names", []))
+    simple_hud        = cfg.get("performance", {}).get("simple_hud", True)
 
     model_dir         = os.path.join(base_dir, cfg.get("model_dir", "models"))
     human_model_path  = os.path.join(model_dir, cfg.get("human_model", "yolov8x.pt"))
@@ -344,22 +351,24 @@ def main():
     logger.info(f"Weapon model : {weapon_model_path}")
     logger.info(f"Criminal list: {criminal_names}")
 
-    if args.video:
-        cap = cv2.VideoCapture(args.video)
-        logger.info(f"Using video file: {args.video}")
+    if args.camera:
+        camera_source = args.camera
+        logger.info(f"Using camera from --camera arg: {camera_source}")
+    elif args.video:
+        camera_source = args.video
+        logger.info(f"Using video file: {camera_source}")
     else:
-        cap = cv2.VideoCapture(camera_index)
-        logger.info(f"Using camera: {camera_index}")
-        
+        camera_source = camera_index
+        logger.info(f"Using camera index: {camera_source}")
+
+    cap = cv2.VideoCapture(camera_source)
+
     if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video source (Camera {camera_index} or File {args.video})")
+        raise RuntimeError(f"Cannot open video source: {camera_source}")
         
     ret, initial_frame = cap.read()
     if ret:
         run_boot_sequence(initial_frame.shape)
-
-    if not os.path.exists(human_model_path):
-        raise FileNotFoundError(f"Human model not found: {human_model_path}")
 
     detector = HumanDetector(human_model_path, conf_threshold)
 
@@ -405,12 +414,46 @@ def main():
     resource_monitor = ResourceMonitor()
     perf_enabled = os.getenv('PERF_MONITOR', 'false').lower() == 'true'
 
+    # ── Cross-camera tracking ──
+    cross_camera_enabled = cfg.get("cross_camera", {}).get("enabled", True)
+    cross_camera_tracker = CrossCameraTracker(
+        similarity_threshold=cfg.get("cross_camera", {}).get("similarity_threshold", 0.6)
+    ) if cross_camera_enabled else None
+
+    # ── Anomaly detection ──
+    analytics_enabled = cfg.get("analytics", {}).get("enabled", True)
+    anomaly_detector = AnomalyDetector() if analytics_enabled else None
+    heatmap_gen = HeatmapGenerator(
+        frame_width=640, frame_height=480,
+        grid_size=cfg.get("analytics", {}).get("heatmap_grid_size", 50)
+    ) if analytics_enabled else None
+    dwell_analyzer = DwellTimeAnalyzer() if analytics_enabled else None
+
+    # ── Multi-camera stream manager ──
+    cameras_cfg = cfg.get("cameras", [])
+    stream_mgr = StreamManager()
+    for cam_cfg in cameras_cfg:
+        feed = CameraFeed(
+            camera_id=cam_cfg.get("id", ""),
+            name=cam_cfg.get("name", ""),
+            uri=cam_cfg.get("uri", 0),
+            location=cam_cfg.get("location", ""),
+            lat=cam_cfg.get("lat", 0.0),
+            lng=cam_cfg.get("lng", 0.0),
+        )
+        stream_mgr.add_camera(feed)
+    if stream_mgr.feeds:
+        stream_mgr.start_all()
+
     logger.info("System Started — press Q to quit. Press T for Thermal Mode.")
     frame_count = 0
     start_time  = time.time()
     last_alarm_time = 0
     thermal_mode = False
     last_flash_time = 0
+
+    # Analytics accumulators
+    analytics_start = time.time()
 
     while True:
         ret, frame = cap.read()
@@ -426,6 +469,7 @@ def main():
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             frame = cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
 
+        frame_count += 1
         now = time.time()
 
         detections = detector.detect(frame)
@@ -434,9 +478,10 @@ def main():
         elapsed = now - start_time
         
         # Advanced HUD Background Elements
-        frame = draw_data_stream(frame, elapsed)
-        frame = draw_crosshairs(frame)
-        frame = draw_rec_indicator(frame, elapsed)
+        if not simple_hud:
+            frame = draw_data_stream(frame, elapsed)
+            frame = draw_crosshairs(frame)
+            frame = draw_rec_indicator(frame, elapsed)
 
         # Weapon detection
         weapons        = []
@@ -470,33 +515,34 @@ def main():
             cv2.putText(frame, label, (vx1, vy1 - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 165, 0), 2)
 
-            # Run ANPR on vehicle ROI
-            vehicle_roi = frame[vy1:vy2, vx1:vx2]
-            if vehicle_roi.size > 0:
-                plates = anpr.detect_plates(vehicle_roi)
-                for plate in plates:
-                    px1, py1, px2, py2 = plate['bbox'][0:4]
-                    px1 += vx1; py1 += vy1; px2 += vx1; py2 += vy1
-                    cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 255, 255), 2)
-                    cv2.putText(frame, plate['plate_number'], (px1, py1 - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            # Run ANPR on vehicle ROI (throttled: every 30 frames)
+            if frame_count % 30 == 0:
+                vehicle_roi = frame[vy1:vy2, vx1:vx2]
+                if vehicle_roi.size > 0:
+                    plates = anpr.detect_plates(vehicle_roi)
+                    for plate in plates:
+                        px1, py1, px2, py2 = plate['bbox'][0:4]
+                        px1 += vx1; py1 += vy1; px2 += vx1; py2 += vy1
+                        cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 255, 255), 2)
+                        cv2.putText(frame, plate['plate_number'], (px1, py1 - 5),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-                    # Check if watchlisted
-                    if plate_db.is_watchlisted(plate['plate_number']):
-                        cv2.putText(frame, "WATCHLISTED", (px1, py2 + 20),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                        logger.warning(f"WATCHLISTED PLATE: {plate['plate_number']}")
+                        # Check if watchlisted
+                        if plate_db.is_watchlisted(plate['plate_number']):
+                            cv2.putText(frame, "WATCHLISTED", (px1, py2 + 20),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                            logger.warning(f"WATCHLISTED PLATE: {plate['plate_number']}")
 
-                        # Send alert
-                        try:
-                            alert_orchestrator.send_suspicious_vehicle_alert(
-                                plate['plate_number'],
-                                v['class_name'],
-                                camera_location,
-                                "Watchlisted plate detected"
-                            )
-                        except Exception as e:
-                            logger.warning(f"Alert failed: {e}")
+                            # Send alert
+                            try:
+                                alert_orchestrator.send_suspicious_vehicle_alert(
+                                    plate['plate_number'],
+                                    v['class_name'],
+                                    camera_location,
+                                    "Watchlisted plate detected"
+                                )
+                            except Exception as e:
+                                logger.warning(f"Alert failed: {e}")
 
         # Count active criminals this frame for HUD
         active_criminals = []
@@ -525,11 +571,13 @@ def main():
                 p for p in track_history[track_id] if now - p[0] <= 30
             ]
 
+            # Analytics: heatmap + dwell time
+            if heatmap_gen is not None:
+                heatmap_gen.add_detection((x1 + x2) // 2, (y1 + y2) // 2, datetime.utcnow())
+            if dwell_analyzer is not None:
+                dwell_analyzer.update_track(track_id, datetime.utcnow(), ((x1 + x2) // 2, (y1 + y2) // 2))
+
             # Face recognition:
-            # - First time: always recognize
-            # - After that: re-recognize every RERECOGNIZE_EVERY frames
-            #   so criminals who turned away get caught when they face camera
-            id_frame_count[track_id] += 1
             should_recognize = (
                 track_id not in id_name_map
                 or id_frame_count[track_id] % RERECOGNIZE_EVERY == 0
@@ -543,10 +591,21 @@ def main():
                     name = None
 
                 if name:
-                    # Only update if we got a real match
                     id_name_map[track_id] = name
                     if name in criminal_names:
                         logger.info(f"CRIMINAL DETECTED: {name} | ID:{track_id}")
+
+                    # Cross-camera tracking
+                    if cross_camera_tracker is not None:
+                        try:
+                            cross_camera_tracker.identify_person(
+                                camera_id=camera_location,
+                                face_roi=roi,
+                                body_roi=roi,
+                                timestamp=datetime.utcnow(),
+                            )
+                        except Exception as e:
+                            logger.warning(f"Cross-camera tracking error: {e}")
                 elif track_id not in id_name_map:
                     # First time and no match → Unknown
                     id_name_map[track_id] = "Unknown"
@@ -620,11 +679,29 @@ def main():
                 import random
                 conf = 98.7 if is_criminal else 75.0 + random.random() * 20.0
                 frame = draw_hud_panel(frame, name, status, is_criminal, conf, roi)
+                try:
+                    face_result = face_analyzer.analyze(roi)
+                    if face_result and face_result.multi_face_landmarks:
+                        face_analyzer.draw_mesh(roi, face_result.multi_face_landmarks[0])
+                except Exception:
+                    pass
+
+            # Anomaly detection
+            if anomaly_detector is not None and alert:
+                try:
+                    anomaly_detector.record_detection(
+                        camera_id=camera_location,
+                        detection_type=category if alert else "normal",
+                        confidence=0.5,
+                        location=((x1 + x2) // 2, (y1 + y2) // 2),
+                        timestamp=datetime.utcnow(),
+                    )
+                except Exception as e:
+                    logger.warning(f"Anomaly detection error: {e}")
 
             # Save evidence (throttled: once per 10s per ID)
             if alert and (now - last_saved.get(track_id, 0) >= 10):
                 try:
-                    # Async evidence saving to avoid blocking
                     evidence_thread = threading.Thread(
                         target=save_evidence_db,
                         args=(
@@ -640,18 +717,13 @@ def main():
                 except Exception as e:
                     logger.warning(f"Failed to save evidence: {e}")
 
-            try:
-                face_result = face_analyzer.analyze(roi)
-                if face_result and face_result.multi_face_landmarks:
-                    face_analyzer.draw_mesh(roi, face_result.multi_face_landmarks[0])
-            except Exception as e:
-                pass
                 
         # Draw Ultimate Tactical HUD elements
         score = min(100, len(tracks)*5 + weapon_present*40 + len(active_criminals)*50)
         frame = draw_threat_level(frame, score)
-        frame = draw_radar(frame, tracks, frame.shape[1], frame.shape[0], elapsed, criminal_ids)
-        frame = draw_flash_effect(frame, last_flash_time, now)
+        if not simple_hud:
+            frame = draw_radar(frame, tracks, frame.shape[1], frame.shape[0], elapsed, criminal_ids)
+            frame = draw_flash_effect(frame, last_flash_time, now)
 
         # Basic HUD overlay
         elapsed = now - start_time

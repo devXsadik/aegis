@@ -1,17 +1,66 @@
+# ── Single / default camera ──
 camera_index: 0
-# Example RTSP:
-# camera_index: "rtsp://user:password@192.168.0.100:554/h264Preview_01_main"
+camera_location: "Gate_1"
 
+# ── Multi-camera RTSP feeds ──
+cameras:
+  - id: "cam_gate_1"
+    name: "Gate 1"
+    uri: 0
+    location: "Gate_1"
+    lat: 23.8103
+    lng: 90.4125
+  - id: "cam_parking"
+    name: "Parking Lot"
+    uri: "rtsp://user:pass@192.168.1.101:554/stream"
+    location: "Parking_Lot"
+    lat: 23.8105
+    lng: 90.4128
+
+# ── Model paths ──
 model_dir: "models"
-human_model: "yolov8x.pt"
+human_model: "yolov8n.pt"          # nano for speed; use yolov8x.pt for accuracy
 weapon_model: "weapon_yolo.pt"
 
+# ── Detection thresholds ──
 confidence_threshold: 0.5
 weapon_conf_threshold: 0.4
 face_tolerance: 0.45
 
-camera_location: "Gate_1"
+# ── Cross-camera tracking ──
+cross_camera:
+  enabled: false
+  similarity_threshold: 0.6
 
+# ── Analytics ──
+analytics:
+  enabled: false
+  heatmap_grid_size: 50
+  anomaly_learning_hours: 24
+
+# ── Performance tuning ──
+performance:
+  simple_hud: true                # skip heavy HUD overlays (data stream, radar, crosshairs)
+
+# ── Alerts ──
+alerts:
+  sms_enabled: false
+  sms_provider: "twilio"          # twilio | vonage | mock
+  twilio_account_sid: ""
+  twilio_auth_token: ""
+  twilio_from_number: ""
+  sms_recipients:
+    - "+8801XXXXXXXXX"
+  push_enabled: false
+  webhook_enabled: true
+
+# ── Evidence retention ──
+retention:
+  enabled: false
+  evidence_days: 90
+  archive_path: "evidence/archive"
+
+# ── Watchlist ──
 criminal_names:
   - "CRIMINAL_001_Sadik"
   - "CRIMINAL_002_Tarik"

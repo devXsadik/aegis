@@ -134,6 +134,34 @@ def get_person_image(
     return Response(content=img.image_data, media_type="image/jpeg")
 
 
+@router.get("/calibration")
+def get_face_calibration(
+    user: User = Depends(operator_or_admin),
+):
+    """Get current face recognition tolerance setting."""
+    return {"face_tolerance": 0.45}
+
+
+@router.put("/calibration")
+def set_face_calibration(
+    tolerance: float,
+    db: Session = Depends(get_db),
+    user: User = Depends(admin_only),
+):
+    """Update face recognition tolerance (0.3 = strict, 0.6 = lenient)."""
+    if not 0.3 <= tolerance <= 0.6:
+        raise HTTPException(status_code=400, detail="Tolerance must be between 0.3 and 0.6")
+    from backend.models.config_entry import ConfigEntry
+    entry = db.query(ConfigEntry).filter(ConfigEntry.key == "face_tolerance").first()
+    if entry:
+        entry.value = str(tolerance)
+    else:
+        entry = ConfigEntry(key="face_tolerance", value=str(tolerance), description="Face recognition tolerance (0.3-0.6)")
+        db.add(entry)
+    db.commit()
+    return {"status": "updated", "face_tolerance": tolerance}
+
+
 @router.post("/encode")
 def encode_faces_legacy(
     db: Session = Depends(get_db),

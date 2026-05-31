@@ -4,7 +4,7 @@ from ultralytics import YOLO
 
 
 class HumanDetector:
-    def __init__(self, model_path, conf, iou=0.45, imgsz=640):
+    def __init__(self, model_path, conf, iou=0.45, imgsz=416):
         self.conf = conf
         self.iou = iou
         self.imgsz = imgsz
@@ -14,25 +14,13 @@ class HumanDetector:
 
         self.model = YOLO(model_path)
 
-    def preprocess(self, frame):
-        # Improve contrast for low-light/dark frames
-        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        l = clahe.apply(l)
-        enhanced = cv2.merge((l, a, b))
-        return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-
     def detect(self, frame):
-        enhanced = self.preprocess(frame)
-
         results = self.model(
-            enhanced,
+            frame,
             conf=self.conf,
             iou=self.iou,
             imgsz=self.imgsz,
             verbose=False,
-            augment=True,     # test-time augmentation for better accuracy
         )
 
         detections = []

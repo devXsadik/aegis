@@ -5,6 +5,9 @@ from .face import FaceAnalyzer
 from .pose import PoseAnalyzer
 from .face_recognizer import FaceRecognizer
 from .behavior import is_suspicious_behavior
+from .cross_camera_tracker import CrossCameraTracker
+from .anomaly_detector import AnomalyDetector
+from .stream_manager import StreamManager, CameraFeed
 
 __all__ = [
     "HumanDetector",
@@ -14,4 +17,8 @@ __all__ = [
     "PoseAnalyzer",
     "FaceRecognizer",
     "is_suspicious_behavior",
+    "CrossCameraTracker",
+    "AnomalyDetector",
+    "StreamManager",
+    "CameraFeed",
 ]
