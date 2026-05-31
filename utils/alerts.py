@@ -60,7 +60,11 @@ class AlertOrchestrator:
             'emergency': os.getenv('EMERGENCY_WEBHOOK'),
             'security_team': os.getenv('SECURITY_TEAM_WEBHOOK')
         }
-        self.enabled = os.getenv('ALERTS_ENABLED', 'false').lower() == 'true'
+        self.enabled = os.getenv('ALERTS_ENABLED', 'true').lower() == 'true'
+        if not self.enabled:
+            print("[alerts] WARNING: ALERTS_ENABLED=false — detection events logged but no notifications sent")
+        elif not any(self.webhook_urls.values()):
+            print("[alerts] WARNING: Alerts enabled but no webhook URLs configured (LAW_ENFORCEMENT_WEBHOOK, etc.)")
         self.sms = SMSProvider(provider=os.getenv("SMS_PROVIDER", "mock"))
         self.push = PushProvider()
         self.sms_recipients = json.loads(os.getenv("SMS_RECIPIENTS", "[]"))

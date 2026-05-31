@@ -5,9 +5,19 @@ from sqlalchemy.orm import Session
 from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
 from backend.utils.audit import AuditLogger
+from backend.utils.encryption import EncryptionManager
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_enc_mgr = None
+
+
+def _get_encryption_manager():
+    global _enc_mgr
+    if _enc_mgr is None:
+        _enc_mgr = EncryptionManager()
+    return _enc_mgr
 
 
 def _encode_image_to_bytes(image) -> bytes:
@@ -49,9 +59,14 @@ def save_evidence_db(
         elif is_suspicious:
             category = "suspicious"
 
-        # Encode images to JPEG bytes in-memory
+        # Encode images to JPEG bytes in-memory and encrypt
         frame_data = _encode_image_to_bytes(frame)
         roi_data = _encode_image_to_bytes(roi)
+        enc = _get_encryption_manager()
+        if frame_data:
+            frame_data = enc.encrypt(frame_data)
+        if roi_data:
+            roi_data = enc.encrypt(roi_data)
 
         # Save to database
         reason_str = ",".join(reasons) if reasons else "none"
@@ -68,7 +83,7 @@ def save_evidence_db(
             roi_path=None,
             frame_data=frame_data,
             roi_data=roi_data,
-            encrypted=False,
+            encrypted=True,
             created_by=None,
             category=category
         )
