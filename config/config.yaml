@@ -29,12 +29,12 @@ face_tolerance: 0.45
 
 # ── Cross-camera tracking ──
 cross_camera:
-  enabled: false
+  enabled: true
   similarity_threshold: 0.6
 
 # ── Analytics ──
 analytics:
-  enabled: false
+  enabled: true
   heatmap_grid_size: 50
   anomaly_learning_hours: 24
 

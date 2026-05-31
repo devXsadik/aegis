@@ -47,6 +47,12 @@
   .btn:hover { background: #0f0; color: #000; }
   .btn.danger { border-color: #f00; color: #f00; }
   .btn.danger:hover { background: #f00; color: #fff; }
+  .tab-bar { display: flex; gap: 0; border-bottom: 1px solid #1a3a1a; margin-bottom: 8px; }
+  .tab { padding: 6px 12px; font-size: 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; color: #555; border: none; background: none; font-family: inherit; }
+  .tab:hover { color: #0f0; }
+  .tab.active { color: #0f0; border-bottom: 2px solid #0f0; }
+  .tab-content { display: none; font-size: 12px; }
+  .tab-content.active { display: block; }
   #toast { position: fixed; bottom: 20px; right: 20px; background: #111; border: 1px solid #1a3a1a; padding: 12px 16px; font-size: 12px; border-radius: 4px; display: none; max-width: 400px; z-index: 100; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #0a0a0a; }
@@ -57,12 +63,16 @@
 <div id="sidebar">
   <h1>Surveillance OS</h1>
   <div class="stat"><span class="label">System</span><span class="value" id="sys-status">...</span></div>
+  <div class="stat"><span class="label">CPU</span><span class="value" id="sys-cpu">--</span></div>
+  <div class="stat"><span class="label">Memory</span><span class="value" id="sys-mem">--</span></div>
+  <div class="stat"><span class="label">Uptime</span><span class="value" id="sys-uptime">--</span></div>
   <div class="stat"><span class="label">Cameras</span><span class="value" id="cam-count">0</span></div>
   <div class="stat"><span class="label">Active Alerts</span><span class="value critical" id="alert-count">0</span></div>
   <div class="stat"><span class="label">Detections (24h)</span><span class="value" id="det-total">0</span></div>
   <div class="stat"><span class="label">Criminals</span><span class="value critical" id="det-criminal">0</span></div>
   <div class="stat"><span class="label">Weapons</span><span class="value warning" id="det-weapon">0</span></div>
   <div class="stat"><span class="label">Vehicles</span><span class="value" id="det-vehicle">0</span></div>
+  <div class="stat"><span class="label">Watchlist</span><span class="value critical" id="watchlist-count">0</span></div>
   <div style="margin-top: auto; padding-top: 12px; border-top: 1px solid #1a3a1a; display: flex; gap: 6px;">
     <button class="btn" onclick="refreshSummary()" style="flex:1">Refresh</button>
     <button class="btn danger" onclick="ackAll()" style="flex:1">Ack All</button>
@@ -77,9 +87,20 @@
     </div>
   </div>
   <div id="content">
-    <div id="alerts-panel">
-      <h3>Alerts <span style="color:#555;font-weight:normal">(click to ack)</span></h3>
-      <div id="alert-list"></div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+      <div class="tab-bar">
+        <button class="tab active" onclick="switchTab('alerts',this)">Alerts</button>
+        <button class="tab" onclick="switchTab('watchlist',this)">Watchlist</button>
+      </div>
+      <div id="tab-alerts" class="tab-content active">
+        <div id="alerts-panel" style="flex:1;border:none;border-radius:0;">
+          <div id="alert-list"></div>
+        </div>
+      </div>
+      <div id="tab-watchlist" class="tab-content">
+        <div style="padding:8px 0;font-size:12px;color:#555;">Wanted persons in database</div>
+        <div id="watchlist-items"></div>
+      </div>
     </div>
     <div id="camera-section">
       <div id="camera-list-panel">
@@ -117,6 +138,31 @@ function connectWS() {
   ws.onmessage = (e) => {
     try { const d = JSON.parse(e.data); addAlert(d); } catch(_) {}
   };
+}
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'watchlist') loadWatchlist();
+}
+
+async function loadWatchlist() {
+  try {
+    const r = await fetch(`${API}/faces/watchlist`);
+    const items = await r.json();
+    const list = document.getElementById('watchlist-items');
+    list.innerHTML = '';
+    items.forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'alert-item';
+      const tl = p.threat_level >= 7 ? 'critical' : p.threat_level >= 4 ? 'warning' : '';
+      el.innerHTML = `<div class="type">${p.name}</div><div class="loc">${p.category||'Unknown'} | Threat: <span class="${tl}">${p.threat_level}/10</span></div>`;
+      list.appendChild(el);
+    });
+    document.getElementById('watchlist-count').textContent = items.length;
+  } catch(e) {}
 }
 
 function addAlert(data) {
@@ -244,6 +290,16 @@ async function loadCameras() {
   } catch(e) {}
 }
 
+async function refreshHealth() {
+  try {
+    const r = await fetch(`${API}/system/health`);
+    const h = await r.json();
+    document.getElementById('sys-cpu').textContent = h.cpu_percent + '%';
+    document.getElementById('sys-mem').textContent = h.memory_percent + '%';
+    document.getElementById('sys-uptime').textContent = h.uptime;
+  } catch(e) {}
+}
+
 async function refreshSummary() {
   try {
     const r = await fetch(`${API}/analytics/summary?days=1`);
@@ -259,11 +315,13 @@ async function refreshSummary() {
   }
 }
 
-loadAlerts(); loadCameras(); refreshSummary();
+loadAlerts(); loadCameras(); refreshSummary(); refreshHealth(); loadWatchlist();
 connectWS();
 setInterval(loadAlerts, 10000);
 setInterval(loadCameras, 30000);
 setInterval(refreshSummary, 60000);
+setInterval(refreshHealth, 15000);
+setInterval(loadWatchlist, 60000);
 </script>
 </body>
 </html>
