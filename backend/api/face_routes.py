@@ -162,6 +162,63 @@ def set_face_calibration(
     return {"status": "updated", "face_tolerance": tolerance}
 
 
+@router.get("/watchlist")
+def list_watchlist(
+    db: Session = Depends(get_db),
+    user: User = Depends(operator_or_admin),
+):
+    persons = db.query(KnownPerson).filter(
+        KnownPerson.criminal_status.in_(["unknown", "wanted"])
+    ).all()
+    return [
+        {
+            "person_id": p.person_id,
+            "name": p.name,
+            "category": p.category,
+            "criminal_status": p.criminal_status,
+            "threat_level": p.threat_level,
+        }
+        for p in persons
+    ]
+
+
+@router.post("/watchlist")
+def add_to_watchlist(
+    person_id: str,
+    threat_level: int = 5,
+    db: Session = Depends(get_db),
+    user: User = Depends(admin_only),
+):
+    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    person.criminal_status = "wanted"
+    person.threat_level = max(1, min(10, threat_level))
+    db.commit()
+    return {
+        "status": "added",
+        "person_id": person_id,
+        "name": person.name,
+        "criminal_status": "wanted",
+        "threat_level": person.threat_level,
+    }
+
+
+@router.delete("/watchlist/{person_id}")
+def remove_from_watchlist(
+    person_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(admin_only),
+):
+    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    person.criminal_status = "cleared"
+    person.threat_level = 0
+    db.commit()
+    return {"status": "removed", "person_id": person_id, "name": person.name}
+
+
 @router.post("/encode")
 def encode_faces_legacy(
     db: Session = Depends(get_db),

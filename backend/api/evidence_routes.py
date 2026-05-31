@@ -6,11 +6,21 @@ from backend.db.database import get_db
 from backend.models.evidence import Evidence
 from backend.auth.auth import operator_or_admin, admin_only
 from backend.models.user import User
+from backend.utils.encryption import EncryptionManager
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
+
+_enc_mgr = None
+
+
+def _get_enc():
+    global _enc_mgr
+    if _enc_mgr is None:
+        _enc_mgr = EncryptionManager()
+    return _enc_mgr
 
 
 class EvidenceResponse(BaseModel):
@@ -65,6 +75,14 @@ def get_evidence(
     return evidence
 
 
+def _decrypt_if_needed(data: bytes, encrypted: bool) -> bytes:
+    if not data:
+        return b""
+    if encrypted:
+        return _get_enc().decrypt(data)
+    return data
+
+
 @router.get("/{evidence_id}/frame")
 def get_evidence_frame(
     evidence_id: int,
@@ -77,7 +95,8 @@ def get_evidence_frame(
         raise HTTPException(status_code=404, detail="Evidence not found")
     if not evidence.frame_data:
         raise HTTPException(status_code=404, detail="No frame image stored for this evidence")
-    return Response(content=evidence.frame_data, media_type="image/jpeg")
+    img = _decrypt_if_needed(evidence.frame_data, evidence.encrypted)
+    return Response(content=img, media_type="image/jpeg")
 
 
 @router.get("/{evidence_id}/roi")
@@ -92,7 +111,8 @@ def get_evidence_roi(
         raise HTTPException(status_code=404, detail="Evidence not found")
     if not evidence.roi_data:
         raise HTTPException(status_code=404, detail="No ROI image stored for this evidence")
-    return Response(content=evidence.roi_data, media_type="image/jpeg")
+    img = _decrypt_if_needed(evidence.roi_data, evidence.encrypted)
+    return Response(content=img, media_type="image/jpeg")
 
 
 @router.get("/{evidence_id}/report")
