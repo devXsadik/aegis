@@ -3,10 +3,13 @@ Database Initialization Script
 Creates all tables and sets up initial data
 """
 from backend.db.database import Base, engine
-from backend.models.all_models import (
-    User, KnownPerson, FaceEncoding, Evidence,
-    AuditLog, LicensePlate, VehicleDetection, AlertLog
-)
+from backend.models.user import User
+from backend.models.known_person import KnownPerson
+from backend.models.face_encoding import FaceEncoding
+from backend.models.evidence import Evidence
+from backend.models.audit_log import AuditLog
+from backend.models.vehicle import LicensePlate, VehicleDetection
+from backend.models.alert import Alert as AlertLog
 
 
 def init_db():
@@ -14,6 +17,22 @@ def init_db():
     print("Creating database tables...")
     Base.metadata.create_all(bind=engine)
     print("✓ All tables created successfully!")
+
+    # Migrate: add columns that may not exist on existing tables
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_hash VARCHAR(64)",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS hash VARCHAR(64)",
+    ]
+    with engine.connect() as conn:
+        for stmt in migrations:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception as e:
+                print(f"  Migration skipped ({e})")
 
     # List created tables
     from sqlalchemy import inspect
