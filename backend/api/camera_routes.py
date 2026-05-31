@@ -13,7 +13,7 @@ from backend.auth.auth import verify_token, operator_or_admin, admin_only
 from backend.models.user import User
 from backend.utils.websocket import manager
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
@@ -294,6 +294,23 @@ def discover_cameras(
 
 # ── PTZ ──
 
+_ptz_controllers: dict = {}
+
+
+def _get_ptz(cam) -> Any:
+    from core.ptz_controller import PTZController
+    cid = cam.camera_id
+    if cid not in _ptz_controllers:
+        ctrl = PTZController(
+            camera_uri=cam.uri,
+            protocol="onvif",
+            username=getattr(cam, 'username', '') or '',
+            password=getattr(cam, 'password', '') or '',
+        )
+        ctrl.connect()
+        _ptz_controllers[cid] = ctrl
+    return _ptz_controllers.get(cid)
+
 
 @router.post("/{camera_id}/ptz")
 def ptz_command(
@@ -311,6 +328,21 @@ def ptz_command(
     valid = {"pan_left", "pan_right", "tilt_up", "tilt_down", "zoom_in", "zoom_out", "stop"}
     if command not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid PTZ command. Valid: {valid}")
+    ctrl = _get_ptz(cam)
+    if command == "stop":
+        ctrl.stop()
+    elif command == "pan_left":
+        ctrl.pan_left(value)
+    elif command == "pan_right":
+        ctrl.pan_right(value)
+    elif command == "tilt_up":
+        ctrl.tilt_up(value)
+    elif command == "tilt_down":
+        ctrl.tilt_down(value)
+    elif command == "zoom_in":
+        ctrl.zoom_in(value)
+    elif command == "zoom_out":
+        ctrl.zoom_out(value)
     return {"status": f"PTZ {command} {value}", "camera_id": camera_id}
 
 

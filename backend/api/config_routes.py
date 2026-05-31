@@ -1,3 +1,5 @@
+import os
+import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.db.database import get_db
@@ -59,3 +61,15 @@ def update_config(
     entry.updated_by = user.id
     db.commit()
     return {"status": "updated", "key": key, "value": body.value}
+
+
+@router.post("/reload")
+def reload_config(user: User = Depends(admin_only)):
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(base_dir, "config", "config.yaml")
+    try:
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="config.yaml not found")
+    return {"status": "reloaded", "keys_loaded": list(cfg.keys()) if cfg else []}
