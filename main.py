@@ -6,6 +6,8 @@ import argparse
 import threading
 import random
 import json
+import urllib.request
+import urllib.error
 from datetime import datetime
 import numpy as np
 from collections import defaultdict
@@ -32,6 +34,26 @@ from utils.performance import FrameSkipper, ResourceMonitor
 
 # Re-run face recognition every N frames per track ID
 RERECOGNIZE_EVERY = 90
+
+_BACKEND_URL = ""
+
+
+def _send_event(event_type: str, severity: str, **kwargs):
+    """Fire-and-forget POST to backend /events/live."""
+    if not _BACKEND_URL:
+        return
+    payload = {"event_type": event_type, "severity": severity, **kwargs}
+    data = json.dumps(payload).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            f"{_BACKEND_URL}/events/live",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass
 
 
 def draw_box(frame, x1, y1, x2, y2, label, color):
@@ -323,8 +345,12 @@ def main():
     parser = argparse.ArgumentParser(description="Advanced National Security System")
     parser.add_argument("--camera", type=str, default="", help="RTSP URL or camera index (overrides config camera_index).")
     parser.add_argument("--video", type=str, default="", help="Path to video file fallback if camera fails.")
+    parser.add_argument("--backend-url", type=str, default="", help="Backend API URL (e.g. http://localhost:8000) for live events.")
     args = parser.parse_args()
     base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    global _BACKEND_URL
+    _BACKEND_URL = args.backend_url.rstrip("/") if args.backend_url else ""
 
     config_path = os.path.join(base_dir, "config", "config.yaml")
     with open(config_path, "r") as f:
@@ -638,6 +664,7 @@ def main():
                     play_alarm()
                     last_alarm_time = now
                     # Phase 3: Send alert to law enforcement
+                    _send_event("criminal_detected", "high", camera_location=camera_location, track_id=track_id, person_name=name)
                     try:
                         alert_orchestrator.send_criminal_alert(
                             criminal_name=name,
@@ -651,6 +678,7 @@ def main():
                 status     = "Armed"
                 # Phase 3: Send weapon alert
                 if now - last_alarm_time > 5.0:
+                    _send_event("weapon_detected", "high", camera_location=camera_location, track_id=track_id)
                     try:
                         alert_orchestrator.send_weapon_alert(
                             camera_location=camera_location,

@@ -36,6 +36,7 @@ print_usage() {
     echo "  --camera URL     RTSP URL or camera index (passed to main.py)"
     echo "  --video  FILE    Video file path (passed to main.py)"
     echo "  --port   PORT    Backend port (default: 8000)"
+    echo "  --ssl            Enable HTTPS (generates self-signed certs if missing)"
     echo "  --no-backend     Skip starting the API backend"
     echo "  --no-pipeline    Skip starting the surveillance pipeline"
     echo "  --help           Show this help"
@@ -45,6 +46,7 @@ print_usage() {
     echo "  $0 --camera \"rtsp://admin:pass@10.0.0.1:554/stream\""
     echo "  $0 --no-backend                       # Detection only, no UI"
     echo "  $0 --no-pipeline --port 8080          # Backend only on port 8080"
+    echo "  $0 --ssl                              # HTTPS + pipeline"
     echo ""
 }
 
@@ -53,12 +55,14 @@ RUN_BACKEND=true
 RUN_PIPELINE=true
 CAMERA_ARG=""
 VIDEO_ARG=""
+SSL_ENABLED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --camera)   CAMERA_ARG="--camera $2"; shift 2 ;;
         --video)    VIDEO_ARG="--video $2"; shift 2 ;;
         --port)     BACKEND_PORT="$2"; shift 2 ;;
+        --ssl)      SSL_ENABLED=true; shift ;;
         --no-backend)   RUN_BACKEND=false; shift ;;
         --no-pipeline)  RUN_PIPELINE=false; shift ;;
         --help)     print_usage; exit 0 ;;
@@ -81,19 +85,33 @@ fi
 # ── Start Backend (FastAPI) ──
 if [ "$RUN_BACKEND" = true ]; then
     echo -e "${GREEN}[1/2]${NC} Starting backend on port ${BACKEND_PORT}..."
-    uvicorn backend.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload &
+
+    if [ "$SSL_ENABLED" = true ]; then
+        CERT_DIR="$SCRIPT_DIR/certs"
+        if [ ! -f "$CERT_DIR/server.crt" ]; then
+            bash "$SCRIPT_DIR/scripts/generate_certs.sh"
+        fi
+        UVICORN_CMD="uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT --ssl-keyfile $CERT_DIR/server.key --ssl-certfile $CERT_DIR/server.crt"
+        PROTO="https"
+    else
+        UVICORN_CMD="uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT --reload"
+        PROTO="http"
+    fi
+
+    $UVICORN_CMD &
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$PID_FILE"
-    echo -e "      PID ${BACKEND_PID}  |  API: ${CYAN}http://localhost:${BACKEND_PORT}${NC}"
-    echo -e "      Dashboard: ${CYAN}http://localhost:${BACKEND_PORT}/dashboard${NC}"
-    echo -e "      Docs:      ${CYAN}http://localhost:${BACKEND_PORT}/docs${NC}"
+    echo -e "      PID ${BACKEND_PID}  |  API: ${CYAN}${PROTO}://localhost:${BACKEND_PORT}${NC}"
+    echo -e "      Dashboard: ${CYAN}${PROTO}://localhost:${BACKEND_PORT}/dashboard${NC}"
+    echo -e "      Docs:      ${CYAN}${PROTO}://localhost:${BACKEND_PORT}/docs${NC}"
     sleep 2
 fi
 
 # ── Start Pipeline (main.py) ──
 if [ "$RUN_PIPELINE" = true ]; then
     echo -e "${GREEN}[2/2]${NC} Starting surveillance pipeline..."
-    PYTHONPATH="$SCRIPT_DIR" python3 main.py $CAMERA_ARG $VIDEO_ARG &
+    BACKEND_URL="${PROTO:-http}://localhost:${BACKEND_PORT}"
+    PYTHONPATH="$SCRIPT_DIR" python3 main.py $CAMERA_ARG $VIDEO_ARG --backend-url "$BACKEND_URL" &
     PIPELINE_PID=$!
     echo "$PIPELINE_PID" >> "$PID_FILE"
     echo -e "      PID ${PIPELINE_PID}  |  Press ${RED}Ctrl+C${NC} to stop all"
