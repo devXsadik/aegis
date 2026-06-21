@@ -4,6 +4,7 @@ Recognition Stage
 Face recognition + identity management for tracked persons.
 """
 
+import cv2
 import logging
 from collections import defaultdict
 from core.pipeline.base import PipelineStage, FrameContext
@@ -50,7 +51,16 @@ class RecognitionStage(PipelineStage):
 
             if should_recognize:
                 try:
-                    name = self.face_recognizer.recognize_person(roi)
+                    # Resize ROI if it's too large to prevent CPU bottleneck in HOG
+                    MAX_ROI_HEIGHT = 400
+                    h, w = roi.shape[:2]
+                    if h > MAX_ROI_HEIGHT:
+                        scale = MAX_ROI_HEIGHT / h
+                        proc_roi = cv2.resize(roi, (int(w * scale), MAX_ROI_HEIGHT))
+                    else:
+                        proc_roi = roi
+
+                    name = self.face_recognizer.recognize_person(proc_roi)
                 except Exception as e:
                     logger.warning(f"Face recog failed ID {track_id}: {e}")
                     name = None

@@ -24,7 +24,7 @@ class FaceRecognizerDB:
                 enc = FaceEncoding.deserialize_encoding(rec.encoding)
                 if enc.size > 0:
                     encodings.append(enc)
-                    names.append(rec.person_id)
+                    names.append(rec.person.person_id)
             self._cache = (encodings, names)
             return self._cache
         finally:

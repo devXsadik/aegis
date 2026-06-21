@@ -117,8 +117,7 @@ def ingest():
                     continue
 
                 enc_record = FaceEncoding(
-                    person_name=folder_name,
-                    person_id=folder_name,
+                    person_id=person.id,
                     encoding=FaceEncoding.serialize_encoding(encodings[0]),
                 )
                 db.add(enc_record)

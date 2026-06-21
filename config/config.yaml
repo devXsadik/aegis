@@ -12,14 +12,14 @@ target_fps: 30
 
 # --- Model Paths ---
 model_dir: "models"
-human_model: "yolov8x.pt"         # Upgrade to yolov11x.pt when available
+human_model: "yolov8s.pt"         # Upgrade to yolov11x.pt when available
 weapon_model: "weapon_yolo.pt"
 # vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
 
 # --- Detection Thresholds ---
 confidence_threshold: 0.5
 weapon_conf_threshold: 0.4
-face_tolerance: 0.45
+face_tolerance: 0.55
 
 # --- Recognition ---
 rerecognize_every: 30              # Re-run face recognition every N frames per track
