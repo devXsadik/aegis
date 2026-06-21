@@ -30,7 +30,7 @@ from core.pipeline.stages import (
     DetectionStage, TrackingStage, RecognitionStage,
     BehaviorStage, AnalyticsStage, OutputStage,
 )
-from core.visualization.hud import render_full_hud, run_boot_sequence
+from core.visualization.hud import render_full_hud
 from utils import logger
 from utils.alerts import AlertOrchestrator
 from utils.performance import FrameSkipper, ResourceMonitor
@@ -160,8 +160,6 @@ def main():
         raise RuntimeError(f"Cannot open video source")
 
     ret, initial_frame = cap.read()
-    if ret:
-        run_boot_sequence(initial_frame.shape)
 
     # --- Performance ---
     frame_skipper = FrameSkipper(target_fps=cfg.get("target_fps", 30))

@@ -47,13 +47,21 @@ def draw_sci_fi_box(frame, x1, y1, x2, y2, color, thickness=1, length=20):
 # HUD Panel (right side — face recognition info)
 # ---------------------------------------------------------------------------
 
-def draw_hud_panel(frame, person_name, status, is_criminal, confidence, face_crop):
+def draw_hud_panel(frame, person_name, status, is_criminal, confidence, face_crop, panel_index=0, total_panels=1):
     """Draw the facial recognition HUD panel on the right side."""
     fh, fw = frame.shape[:2]
     panel_w = 300
+    
+    # Determine mode
+    is_compact = total_panels > 1
+    panel_h = 160 if is_compact else 450
+    
     panel_x = fw - panel_w - 20
-    panel_y = 20
-    panel_h = 450
+    panel_y = 20 + panel_index * (panel_h + 10)
+    
+    # If the panel would be drawn off-screen, skip it to prevent crashing or hiding
+    if panel_y + panel_h > fh:
+        return frame
 
     # Semi-transparent panel
     overlay = frame.copy()
@@ -69,7 +77,7 @@ def draw_hud_panel(frame, person_name, status, is_criminal, confidence, face_cro
 
     # Face crop
     if face_crop is not None and face_crop.size > 0:
-        crop_size = 180
+        crop_size = 100 if is_compact else 180
         ch, cw = face_crop.shape[:2]
         scale = crop_size / min(ch, cw)
         resized_crop = cv2.resize(face_crop, (int(cw * scale), int(ch * scale)))
@@ -78,38 +86,52 @@ def draw_hud_panel(frame, person_name, status, is_criminal, confidence, face_cro
         start_x = (rcw - crop_size) // 2
         final_crop = resized_crop[start_y:start_y + crop_size, start_x:start_x + crop_size]
 
-        crop_x = panel_x + (panel_w - crop_size) // 2
-        crop_y = panel_y + 60
+        if is_compact:
+            crop_x = panel_x + 15
+            crop_y = panel_y + 45
+        else:
+            crop_x = panel_x + (panel_w - crop_size) // 2
+            crop_y = panel_y + 60
 
         frame[crop_y:crop_y + crop_size, crop_x:crop_x + crop_size] = final_crop
         draw_sci_fi_box(frame, crop_x - 5, crop_y - 5,
                         crop_x + crop_size + 5, crop_y + crop_size + 5,
-                        (100, 200, 100), length=15)
+                        (100, 200, 100), length=15 if not is_compact else 8)
 
     # Details
-    text_y = panel_y + 280
-    cv2.putText(frame, "NAME:", (panel_x + 20, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-    cv2.putText(frame, person_name, (panel_x + 20, text_y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
+    if is_compact:
+        text_x = panel_x + 130
+        text_y = panel_y + 60
+        
+        cv2.putText(frame, "NAME:", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+        cv2.putText(frame, person_name, (text_x, text_y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 255, 150), 1)
 
-    cv2.putText(frame, "AGE:", (panel_x + 20, text_y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-    fake_age = 20 + (int(hashlib.md5(person_name.encode()).hexdigest(), 16) % 30)
-    cv2.putText(frame, str(fake_age), (panel_x + 20, text_y + 85), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 255, 150), 1)
+        cv2.putText(frame, "STATUS:", (text_x, text_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+        color = (0, 0, 255) if is_criminal else (150, 255, 150)
+        cv2.putText(frame, status, (text_x, text_y + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-    cv2.putText(frame, "STATUS:", (panel_x + 20, text_y + 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-    color = (0, 0, 255) if is_criminal else (150, 255, 150)
-    cv2.putText(frame, status, (panel_x + 20, text_y + 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        cv2.putText(frame, f"CONFIDENCE: {confidence:.1f}%",
+                    (text_x, text_y + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150, 150, 150), 1)
+    else:
+        text_y = panel_y + 280
+        cv2.putText(frame, "NAME:", (panel_x + 20, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+        cv2.putText(frame, person_name, (panel_x + 20, text_y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
 
-    # Match confidence bar
-    cv2.putText(frame, f"MATCH CONFIDENCE:    {confidence:.1f}%",
-                (panel_x + 20, text_y + 190), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+        cv2.putText(frame, "STATUS:", (panel_x + 20, text_y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+        color = (0, 0, 255) if is_criminal else (150, 255, 150)
+        cv2.putText(frame, status, (panel_x + 20, text_y + 95), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-    bar_w = 260
-    bar_h = 10
-    bar_x = panel_x + 20
-    bar_y = text_y + 200
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (50, 50, 50), 1)
-    fill_w = int(bar_w * (confidence / 100.0))
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), (50, 200, 50), -1)
+        # Match confidence bar
+        cv2.putText(frame, f"MATCH CONFIDENCE:    {confidence:.1f}%",
+                    (panel_x + 20, text_y + 190), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+
+        bar_w = 260
+        bar_h = 10
+        bar_x = panel_x + 20
+        bar_y = text_y + 200
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (50, 50, 50), 1)
+        fill_w = int(bar_w * (confidence / 100.0))
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), (50, 200, 50), -1)
 
     return frame
 
@@ -117,52 +139,6 @@ def draw_hud_panel(frame, person_name, status, is_criminal, confidence, face_cro
 # ---------------------------------------------------------------------------
 # HUD Elements
 # ---------------------------------------------------------------------------
-
-def draw_data_stream(frame, time_elapsed):
-    """Draw scrolling encrypted data stream on the left."""
-    h, w = frame.shape[:2]
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (180, h), (5, 10, 5), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-    cv2.putText(frame, "ENCRYPTED DATALINK", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1)
-    cv2.line(frame, (10, 40), (170, 40), (0, 200, 0), 1)
-
-    num_lines = h // 20 - 3
-    random.seed(int(time_elapsed * 10))
-    for i in range(num_lines):
-        hex_str = "".join([random.choice("0123456789ABCDEF") for _ in range(16)])
-        y = 60 + i * 20
-        cv2.putText(frame, hex_str, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 150, 0), 1)
-
-    return frame
-
-
-def draw_crosshairs(frame):
-    """Draw center crosshairs."""
-    h, w = frame.shape[:2]
-    cx, cy = w // 2, h // 2
-    color = (150, 255, 150)
-
-    cv2.circle(frame, (cx, cy), 2, color, -1)
-    length, gap = 20, 10
-    cv2.line(frame, (cx, cy - gap), (cx, cy - gap - length), color, 1)
-    cv2.line(frame, (cx, cy + gap), (cx, cy + gap + length), color, 1)
-    cv2.line(frame, (cx - gap, cy), (cx - gap - length, cy), color, 1)
-    cv2.line(frame, (cx + gap, cy), (cx + gap + length, cy), color, 1)
-
-    b_len, b_gap = 15, 50
-    cv2.line(frame, (cx - b_gap, cy - b_gap), (cx - b_gap + b_len, cy - b_gap), color, 1)
-    cv2.line(frame, (cx - b_gap, cy - b_gap), (cx - b_gap, cy - b_gap + b_len), color, 1)
-    cv2.line(frame, (cx + b_gap, cy - b_gap), (cx + b_gap - b_len, cy - b_gap), color, 1)
-    cv2.line(frame, (cx + b_gap, cy - b_gap), (cx + b_gap, cy - b_gap + b_len), color, 1)
-    cv2.line(frame, (cx - b_gap, cy + b_gap), (cx - b_gap + b_len, cy + b_gap), color, 1)
-    cv2.line(frame, (cx - b_gap, cy + b_gap), (cx - b_gap, cy + b_gap - b_len), color, 1)
-    cv2.line(frame, (cx + b_gap, cy + b_gap), (cx + b_gap - b_len, cy + b_gap), color, 1)
-    cv2.line(frame, (cx + b_gap, cy + b_gap), (cx + b_gap, cy + b_gap - b_len), color, 1)
-
-    return frame
-
 
 def draw_rec_indicator(frame, time_elapsed):
     """Draw blinking REC indicator."""
@@ -252,51 +228,6 @@ def draw_flash_effect(frame, flash_time, current_time):
     return frame
 
 
-def run_boot_sequence(frame_shape):
-    """Simulate a mainframe boot sequence."""
-    h, w = frame_shape[:2]
-    messages = [
-        "INITIATING SECURE UPLINK...",
-        "CONNECTING TO POSTGRESQL DATABASE...",
-        "LOADING FACE ENCODINGS FROM DB...",
-        "INITIALIZING ENCRYPTION MODULE...",
-        "STARTING AUDIT LOGGING...",
-        "LOADING PIPELINE STAGES...",
-        "SYSTEM ONLINE. AI-SSS v5.0 ACTIVE."
-    ]
-
-    boot_frame = np.zeros((h, w, 3), dtype=np.uint8)
-    for i, msg in enumerate(messages):
-        boot_frame.fill(0)
-        for j in range(i):
-            cv2.putText(boot_frame, messages[j] + " [OK]", (50, 100 + j * 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (50, 255, 50), 2)
-
-        current_text = ""
-        for char in msg:
-            current_text += char
-            temp_frame = boot_frame.copy()
-            cv2.putText(temp_frame, current_text, (50, 100 + i * 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
-            cv2.imshow("AI-SSS v5.0", temp_frame)
-            cv2.waitKey(15)
-
-        for _ in range(3):
-            temp_frame = boot_frame.copy()
-            cv2.putText(temp_frame, current_text + " _", (50, 100 + i * 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
-            cv2.imshow("AI-SSS v5.0", temp_frame)
-            cv2.waitKey(150)
-
-            temp_frame = boot_frame.copy()
-            cv2.putText(temp_frame, current_text, (50, 100 + i * 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
-            cv2.imshow("AI-SSS v5.0", temp_frame)
-            cv2.waitKey(150)
-
-    time.sleep(0.5)
-
-
 # ---------------------------------------------------------------------------
 # High-Level Render (uses FrameContext)
 # ---------------------------------------------------------------------------
@@ -313,8 +244,6 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
     fh, fw = frame.shape[:2]
 
     # Background elements
-    frame = draw_data_stream(frame, elapsed)
-    frame = draw_crosshairs(frame)
     frame = draw_rec_indicator(frame, elapsed)
 
     # Weapon boxes
@@ -340,6 +269,10 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
         px1, py1, px2, py2 = plate["bbox"]
         cv2.putText(frame, "WATCHLISTED", (px1, py2 + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+    # Count total panels needed for POIs
+    poi_count = sum(1 for t in ctx.tracks if t.is_confirmed() and (t.track_id in ctx.criminal_ids or t.track_id in ctx.suspicious_tracks))
+    current_panel_index = 0
 
     # Person boxes + HUD panels
     for track in ctx.tracks:
@@ -379,7 +312,8 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
             roi = frame[y1:y2, x1:x2]
             if roi.size > 0:
                 conf = 98.7 if is_criminal else 75.0 + random.random() * 20.0
-                frame = draw_hud_panel(frame, name, status, is_criminal, conf, roi)
+                frame = draw_hud_panel(frame, name, status, is_criminal, conf, roi, current_panel_index, poi_count)
+                current_panel_index += 1
 
     # Global HUD elements
     frame = draw_threat_level(frame, ctx.threat_score)
