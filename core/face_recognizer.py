@@ -1,50 +1,41 @@
 import os
 import pickle
-import cv2
-import numpy as np
 import face_recognition
+import numpy as np
+from pathlib import Path
 
 
 class FaceRecognizer:
-    def __init__(self, encoding_file="face_encodings.pkl", tolerance=0.45):
-        if not os.path.exists(encoding_file):
-            raise FileNotFoundError(
-                f"Encoding file not found: {encoding_file}. Run encode_faces.py first."
-            )
-        with open(encoding_file, "rb") as f:
-            self.known_encodings, self.known_names = pickle.load(f)
+    def __init__(self, encodings_path: str = "face_encodings.pkl", tolerance: float = 0.45):
         self.tolerance = tolerance
+        self.known_encodings = []
+        self.known_names = []
+        if os.path.exists(encodings_path):
+            self._load(encodings_path)
 
-    def _best_match(self, face_enc):
-        if len(self.known_encodings) == 0:
-            return None
-        distances = face_recognition.face_distance(self.known_encodings, face_enc)
-        best_idx = int(np.argmin(distances))
-        if distances[best_idx] <= self.tolerance:
-            return self.known_names[best_idx]
-        return None
+    def _load(self, path: str):
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        for item in data:
+            self.known_encodings.append(item["encoding"])
+            self.known_names.append(item["name"])
 
-    def recognize_person(self, roi):
-        if roi is None or roi.size == 0:
+    def recognize(self, face_roi):
+        rgb = face_recognition.load_image_file(face_roi) if isinstance(face_roi, str) else \
+              cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB) if hasattr(face_roi, 'shape') else None
+        if rgb is None:
             return None
-        rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb, model="hog")
-        if not locations:
+        boxes = face_recognition.face_locations(rgb, model="hog")
+        if not boxes:
             return None
-        encodings = face_recognition.face_encodings(rgb, locations, num_jitters=2)
+        encodings = face_recognition.face_encodings(rgb, boxes)
         if not encodings:
             return None
-        return self._best_match(encodings[0])
-
-    def recognize_all(self, frame):
-        """Recognize all faces in a full frame. Returns list of (name, bbox)."""
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb, model="hog")
-        if not locations:
-            return []
-        encodings = face_recognition.face_encodings(rgb, locations, num_jitters=2)
-        results = []
-        for (top, right, bottom, left), enc in zip(locations, encodings):
-            name = self._best_match(enc) or "Unknown"
-            results.append({"name": name, "bbox": (left, top, right, bottom)})
-        return results
+        matches = face_recognition.compare_faces(self.known_encodings, encodings[0], self.tolerance)
+        if not any(matches):
+            return None
+        face_distances = face_recognition.face_distance(self.known_encodings, encodings[0])
+        best_idx = np.argmin(face_distances)
+        if matches[best_idx]:
+            return self.known_names[best_idx]
+        return None

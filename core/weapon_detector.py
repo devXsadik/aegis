@@ -1,37 +1,23 @@
-import os
+import numpy as np
 from ultralytics import YOLO
 
 
 class WeaponDetector:
-    def __init__(self, model_path, conf):
-        self.conf = conf
-        self.model_path = model_path
-
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Weapon model not found: {model_path}")
-
-        if os.path.getsize(model_path) == 0:
-            raise ValueError(f"Weapon model file is empty: {model_path}")
-
+    def __init__(self, model_path: str, conf_threshold: float = 0.4):
         self.model = YOLO(model_path)
+        self.conf_threshold = conf_threshold
 
-    def detect(self, frame):
-        results = self.model(frame, conf=self.conf, verbose=False)
+    def detect(self, frame: np.ndarray):
+        results = self.model(frame, conf=self.conf_threshold, verbose=False)
         weapons = []
-
-        for r in results:
-            for box in r.boxes:
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = float(box.conf[0])
                 cls_id = int(box.cls[0])
-                # Adjust according to your trained weapon model classes
-                if cls_id in [0, 1]:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    score = float(box.conf[0])
-                    weapons.append(
-                        {
-                            "bbox": [x1, y1, x2, y2],
-                            "score": score,
-                            "cls_id": cls_id,
-                        }
-                    )
-
+                weapons.append({
+                    "bbox": (x1, y1, x2, y2),
+                    "score": conf,
+                    "class_id": cls_id,
+                })
         return weapons

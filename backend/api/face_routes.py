@@ -1,234 +1,76 @@
-import io
-import numpy as np
+import os
 import face_recognition
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import Response
-from pydantic import BaseModel
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
 from backend.db.database import get_db
 from backend.models.face_encoding import FaceEncoding
 from backend.models.known_person import KnownPerson
 from backend.models.person_image import PersonImage
-from backend.auth.auth import admin_only, operator_or_admin
 from backend.models.user import User
-import cv2
+from backend.auth.auth import operator_or_admin, admin_only
 
-router = APIRouter(prefix="/faces", tags=["face-recognition"])
+router = APIRouter(prefix="/faces", tags=["faces"])
 
 
 class FaceEncodingResponse(BaseModel):
     id: int
-    person_name: str
     person_id: str
-    created_at: str
+    person_name: Optional[str]
+    encoding_version: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+
+class KnownPersonResponse(BaseModel):
+    id: int
+    person_id: str
+    name: str
+    category: str
+    criminal_status: str
+    threat_level: int
+    notes: Optional[str]
+
+    class Config:
+        from_attributes = True
 
 
 @router.get("/", response_model=list[FaceEncodingResponse])
-def list_faces(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
-    return db.query(FaceEncoding).all()
+def list_encodings(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
+                   user: User = Depends(operator_or_admin)):
+    return db.query(FaceEncoding).offset(skip).limit(limit).all()
 
 
-@router.post("/enroll")
-async def enroll_face(
-    person_id: str,
-    person_name: str,
-    category: str = "criminal",
-    image: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(admin_only)
-):
-    """
-    Enroll a new person by uploading their face image directly.
-    The image and face encoding are both stored in the database — no disk writes.
-    """
-    # Read uploaded image bytes
-    raw_bytes = await image.read()
-    np_arr = np.frombuffer(raw_bytes, np.uint8)
-    img_bgr = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if img_bgr is None:
-        raise HTTPException(status_code=400, detail="Could not decode image")
-
-    # Convert to RGB for face_recognition
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    encodings = face_recognition.face_encodings(img_rgb, num_jitters=3)
-    if not encodings:
-        raise HTTPException(status_code=400, detail="No face detected in the uploaded image")
-
-    # Re-encode to JPEG bytes for storage
-    success, buffer = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
-    stored_bytes = buffer.tobytes() if success else raw_bytes
-
-    # Get or create KnownPerson record
-    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
-    if not person:
-        person = KnownPerson(
-            person_id=person_id,
-            name=person_name,
-            category=category,
-            criminal_status="unknown" if category == "criminal" else "cleared",
-            threat_level=5 if category == "criminal" else 0,
-        )
-        db.add(person)
-        db.flush()
-
-    # Store face encoding
-    enc_record = FaceEncoding(
-        person_name=person_id,
-        person_id=person_id,
-        encoding=FaceEncoding.serialize_encoding(encodings[0]),
-        image_path=None,
-    )
-    db.add(enc_record)
-
-    # Store image bytes
-    img_record = PersonImage(
-        person_id=person.id,
-        image_data=stored_bytes,
-        image_type="face",
-        filename=image.filename,
-        image_path=None,
-    )
-    db.add(img_record)
-
-    db.commit()
-    return {
-        "status": "success",
-        "person_id": person_id,
-        "person_name": person_name,
-        "encoding_stored": True,
-        "image_stored": True,
-        "message": "Face enrolled successfully. Reload the recognizer to activate."
-    }
-
-
-@router.get("/{person_id}/images")
-def list_person_images(
-    person_id: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(operator_or_admin)
-):
-    """List all images stored for a given person."""
-    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    images = db.query(PersonImage).filter(PersonImage.person_id == person.id).all()
-    return [{"id": img.id, "filename": img.filename, "image_type": img.image_type,
-             "has_data": bool(img.image_data), "created_at": str(img.created_at)} for img in images]
-
-
-@router.get("/images/{image_id}/photo")
-def get_person_image(
-    image_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(operator_or_admin)
-):
-    """Serve a person's face image stored in DB."""
-    img = db.query(PersonImage).filter(PersonImage.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    if not img.image_data:
-        raise HTTPException(status_code=404, detail="No image data stored")
-    return Response(content=img.image_data, media_type="image/jpeg")
-
-
-@router.get("/calibration")
-def get_face_calibration(
-    user: User = Depends(operator_or_admin),
-):
-    """Get current face recognition tolerance setting."""
-    return {"face_tolerance": 0.45}
-
-
-@router.put("/calibration")
-def set_face_calibration(
-    tolerance: float,
-    db: Session = Depends(get_db),
-    user: User = Depends(admin_only),
-):
-    """Update face recognition tolerance (0.3 = strict, 0.6 = lenient)."""
-    if not 0.3 <= tolerance <= 0.6:
-        raise HTTPException(status_code=400, detail="Tolerance must be between 0.3 and 0.6")
-    from backend.models.config_entry import ConfigEntry
-    entry = db.query(ConfigEntry).filter(ConfigEntry.key == "face_tolerance").first()
-    if entry:
-        entry.value = str(tolerance)
-    else:
-        entry = ConfigEntry(key="face_tolerance", value=str(tolerance), description="Face recognition tolerance (0.3-0.6)")
-        db.add(entry)
-    db.commit()
-    return {"status": "updated", "face_tolerance": tolerance}
-
-
-@router.get("/watchlist")
-def list_watchlist(
-    db: Session = Depends(get_db),
-    user: User = Depends(operator_or_admin),
-):
-    persons = db.query(KnownPerson).filter(
-        KnownPerson.criminal_status.in_(["unknown", "wanted"])
-    ).all()
-    return [
-        {
-            "person_id": p.person_id,
-            "name": p.name,
-            "category": p.category,
-            "criminal_status": p.criminal_status,
-            "threat_level": p.threat_level,
-        }
-        for p in persons
-    ]
-
-
-@router.post("/watchlist")
-def add_to_watchlist(
-    person_id: str,
-    threat_level: int = 5,
-    db: Session = Depends(get_db),
-    user: User = Depends(admin_only),
-):
-    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    person.criminal_status = "wanted"
-    person.threat_level = max(1, min(10, threat_level))
-    db.commit()
-    return {
-        "status": "added",
-        "person_id": person_id,
-        "name": person.name,
-        "criminal_status": "wanted",
-        "threat_level": person.threat_level,
-    }
-
-
-@router.delete("/watchlist/{person_id}")
-def remove_from_watchlist(
-    person_id: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(admin_only),
-):
-    person = db.query(KnownPerson).filter(KnownPerson.person_id == person_id).first()
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    person.criminal_status = "cleared"
-    person.threat_level = 0
-    db.commit()
-    return {"status": "removed", "person_id": person_id, "name": person.name}
+@router.get("/known-persons", response_model=list[KnownPersonResponse])
+def list_known_persons(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
+                       user: User = Depends(operator_or_admin)):
+    return db.query(KnownPerson).offset(skip).limit(limit).all()
 
 
 @router.post("/encode")
-def encode_faces_legacy(
-    db: Session = Depends(get_db),
-    user: User = Depends(admin_only)
-):
-    """
-    Legacy endpoint — use POST /faces/enroll instead.
-    Kept for backwards compatibility.
-    """
-    raise HTTPException(
-        status_code=410,
-        detail="This endpoint is deprecated. Use POST /faces/enroll to enroll faces directly via upload."
-    )
+def reencode_faces(db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    persons = db.query(KnownPerson).all()
+    results = {"encoded": 0, "errors": 0}
+    for person in persons:
+        images = db.query(PersonImage).filter(PersonImage.person_id == person.id).all()
+        for img in images:
+            try:
+                arr = np.frombuffer(img.image_data, dtype=np.uint8)
+                import cv2
+                decoded = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+                encodings = face_recognition.face_encodings(rgb, num_jitters=3)
+                if encodings:
+                    enc_record = FaceEncoding(
+                        person_id=person.person_id,
+                        encoding=FaceEncoding.serialize_encoding(encodings[0]),
+                    )
+                    db.add(enc_record)
+                    results["encoded"] += 1
+            except Exception:
+                results["errors"] += 1
+    db.commit()
+    return results

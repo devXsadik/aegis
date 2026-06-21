@@ -24,7 +24,7 @@ class LicensePlateResponse(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 @router.get("/plates", response_model=List[LicensePlateResponse])

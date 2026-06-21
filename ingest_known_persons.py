@@ -3,14 +3,14 @@ ingest_known_persons.py
 -----------------------
 Replaces encode_faces.py.
 
-Reads images from known_person/, generates face encodings, and stores BOTH
-the encoding AND the raw image bytes directly into PostgreSQL.
-No pickle files, no on-disk storage needed after this runs.
+Reads images from known_person/ + optional manifest.json metadata,
+generates face encodings, and stores both encoding + raw image bytes
+directly into PostgreSQL.
 
 Usage:
     python3 ingest_known_persons.py
 """
-import os
+import json
 import cv2
 import face_recognition
 from pathlib import Path
@@ -31,6 +31,32 @@ def _read_image_bytes(path: str) -> bytes:
     return buffer.tobytes() if success else b""
 
 
+def _load_manifest() -> dict:
+    manifest_path = KNOWN_DIR / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    with open(manifest_path) as f:
+        data = json.load(f)
+    return {p["person_id"]: p for p in data.get("persons", [])}
+
+
+def _folder_metadata(folder_name: str):
+    parts = folder_name.split("_", 2)
+    if len(parts) >= 3:
+        name = parts[2].replace("_", " ")
+        category = "criminal" if parts[0].upper() == "CRIMINAL" else "civilian"
+    else:
+        name = folder_name
+        category = "civilian"
+    return {
+        "name": name,
+        "category": category,
+        "criminal_status": "unknown" if category == "criminal" else "cleared",
+        "threat_level": 5 if category == "criminal" else 0,
+        "notes": None,
+    }
+
+
 def ingest():
     if not KNOWN_DIR.exists():
         print(f"❌ known_person/ directory not found at {KNOWN_DIR}")
@@ -38,6 +64,9 @@ def ingest():
 
     init_db()
     db = SessionLocal()
+    manifest = _load_manifest()
+    if manifest:
+        print(f"✓ Loaded {len(manifest)} entries from manifest.json")
 
     total_persons = 0
     total_images = 0
@@ -49,32 +78,26 @@ def ingest():
                 continue
 
             folder_name = person_dir.name
-            parts = folder_name.split("_", 2)
-            if len(parts) >= 3:
-                name = parts[2].replace("_", " ")
-                category = "criminal" if parts[0].upper() == "CRIMINAL" else "civilian"
-            else:
-                name = folder_name
-                category = "civilian"
+            meta = manifest.get(folder_name, _folder_metadata(folder_name))
 
             print(f"\n[{folder_name}]")
 
-            # Get or create KnownPerson
             person = db.query(KnownPerson).filter(
                 KnownPerson.person_id == folder_name
             ).first()
             if not person:
                 person = KnownPerson(
                     person_id=folder_name,
-                    name=name,
-                    category=category,
-                    criminal_status="unknown" if category == "criminal" else "cleared",
-                    threat_level=5 if category == "criminal" else 0,
+                    name=meta["name"],
+                    category=meta["category"],
+                    criminal_status=meta["criminal_status"],
+                    threat_level=meta["threat_level"],
+                    notes=meta.get("notes"),
                 )
                 db.add(person)
                 db.flush()
                 total_persons += 1
-                print(f"  ✓ Created person record: {name}")
+                print(f"  ✓ Created person record: {meta['name']}")
 
             for img_file in sorted(person_dir.iterdir()):
                 if img_file.suffix.lower() not in (".jpg", ".jpeg", ".png"):
@@ -82,7 +105,6 @@ def ingest():
 
                 img_path = str(img_file)
 
-                # Generate face encoding
                 try:
                     image = face_recognition.load_image_file(img_path)
                     encodings = face_recognition.face_encodings(image, num_jitters=5)
@@ -94,17 +116,14 @@ def ingest():
                     print(f"  ✗ No face found in: {img_file.name}")
                     continue
 
-                # Store face encoding in DB
                 enc_record = FaceEncoding(
                     person_name=folder_name,
                     person_id=folder_name,
                     encoding=FaceEncoding.serialize_encoding(encodings[0]),
-                    image_path=None,
                 )
                 db.add(enc_record)
                 total_encodings += 1
 
-                # Store image bytes in DB
                 image_bytes = _read_image_bytes(img_path)
                 if image_bytes:
                     img_record = PersonImage(
@@ -112,7 +131,6 @@ def ingest():
                         image_data=image_bytes,
                         image_type="face",
                         filename=img_file.name,
-                        image_path=None,
                     )
                     db.add(img_record)
                     total_images += 1

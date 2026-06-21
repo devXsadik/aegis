@@ -1,104 +1,60 @@
-"""
-ANPR (Automatic Number Plate Recognition) Module
-Uses EasyOCR for license plate detection and recognition
-"""
 import cv2
 import numpy as np
 import re
-from typing import List, Dict, Optional
+from sqlalchemy.orm import Session
+from backend.db.database import SessionLocal
+from backend.models.vehicle import LicensePlate
 
 
 class LicensePlateRecognizer:
-    """License plate recognition using OCR"""
-
-    def __init__(self, languages: List[str] = None, gpu: bool = False):
-        if languages is None:
-            languages = ['en']
-        self.languages = languages
+    def __init__(self, languages: list = None, gpu: bool = False):
+        self.languages = languages or ["en"]
         self.gpu = gpu
-        self.reader = None
-        self._init_reader()
+        self._reader = None
 
-    def _init_reader(self):
-        """Initialize EasyOCR reader (lazy loading)"""
-        try:
+    @property
+    def reader(self):
+        if self._reader is None:
             import easyocr
-            self.reader = easyocr.Reader(self.languages, gpu=self.gpu)
-            print("ANPR: EasyOCR initialized")
-        except Exception as e:
-            print(f"ANPR: Failed to initialize EasyOCR: {e}")
-            self.reader = None
+            self._reader = easyocr.Reader(self.languages, gpu=self.gpu)
+        return self._reader
 
-    def detect_plates(self, frame) -> List[Dict]:
-        """
-        Detect and recognize license plates in frame
-        Returns list of dicts: {bbox, text, confidence, plate_number}
-        """
-        if self.reader is None:
-            self._init_reader()
-            if self.reader is None:
-                return []
-
-        try:
-            # Run OCR on the frame
-            results = self.reader.readtext(frame)
-
-            plates = []
-            for (bbox, text, conf) in results:
-                # Clean and validate license plate format
-                cleaned = self._clean_plate_number(text)
-                if cleaned and self._validate_plate(cleaned):
-                    plates.append({
-                        'bbox': [int(x) for x in np.array(bbox).flatten()],
-                        'text': text,
-                        'plate_number': cleaned,
-                        'confidence': float(conf)
-                    })
-
-            return plates
-
-        except Exception as e:
-            print(f"ANPR error: {e}")
-            return []
-
-    def _clean_plate_number(self, text: str) -> str:
-        """Clean OCR output to extract plate number"""
-        # Remove spaces, special chars, convert to uppercase
-        cleaned = re.sub(r'[^A-Z0-9]', '', text.upper())
-        return cleaned
-
-    def _validate_plate(self, plate: str) -> bool:
-        """Validate if string looks like a license plate"""
-        # Basic validation: 5-10 alphanumeric characters
-        if len(plate) < 5 or len(plate) > 10:
-            return False
-        # Should have mix of letters and numbers
-        has_letter = any(c.isalpha() for c in plate)
-        has_number = any(c.isdigit() for c in plate)
-        return has_letter and has_number
+    def detect_plates(self, roi):
+        results = self.reader.readtext(roi)
+        plates = []
+        for bbox, text, conf in results:
+            if conf < 0.3:
+                continue
+            cleaned = re.sub(r"[^A-Z0-9]", "", text.upper())
+            if len(cleaned) < 3:
+                continue
+            x_coords = [int(p[0]) for p in bbox]
+            y_coords = [int(p[1]) for p in bbox]
+            plates.append({
+                "bbox": (min(x_coords), min(y_coords), max(x_coords), max(y_coords)),
+                "plate_number": cleaned,
+                "confidence": float(conf),
+            })
+        return plates
 
 
 class LicensePlateDatabase:
-    """Database of watchlisted license plates"""
+    def __init__(self):
+        self._cached = None
 
-    def __init__(self, db_path: str = "data/watchlisted_plates.txt"):
-        self.db_path = db_path
-        self.watchlisted = self._load_plates()
-
-    def _load_plates(self) -> set:
-        """Load watchlisted plates from file"""
+    def _load_watchlist(self):
+        if self._cached is not None:
+            return self._cached
+        db: Session = SessionLocal()
         try:
-            with open(self.db_path, 'r') as f:
-                return set(line.strip().upper() for line in f if line.strip())
-        except FileNotFoundError:
-            return set()
+            plates = db.query(LicensePlate).filter(LicensePlate.watchlisted == True).all()
+            self._cached = {p.plate_number for p in plates}
+            return self._cached
+        finally:
+            db.close()
 
     def is_watchlisted(self, plate_number: str) -> bool:
-        """Check if plate is in watchlist"""
-        return plate_number.upper() in self.watchlisted
+        return plate_number.upper() in self._load_watchlist()
 
-    def add_plate(self, plate_number: str, reason: str = "suspicious"):
-        """Add plate to watchlist"""
-        self.watchlisted.add(plate_number.upper())
-        with open(self.db_path, 'a') as f:
-            f.write(f"\n{plate_number.upper()}")
+    def invalidate_cache(self):
+        self._cached = None

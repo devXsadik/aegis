@@ -1,134 +1,106 @@
 import os
-import yaml
-import threading
-import time
-import json
-import psutil
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from backend.db.database import init_db, SessionLocal
-from backend.models.camera import Camera
-from backend.api import (
-    auth_routes, face_routes, evidence_routes, audit_routes,
-    camera_routes, vehicle_routes, analytics_routes,
-    alert_routes, config_routes, map_routes, events_routes,
-)
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from backend.db.database import init_db
+from backend.api import alert_routes, audit_routes, events_routes, map_routes, vehicle_routes
+from backend.api.auth_routes import router as auth_router
+from backend.api.face_routes import router as face_router
+from backend.api.evidence_routes import router as evidence_router
+from backend.api.camera_routes import router as camera_router
+from backend.api.analytics_routes import router as analytics_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
+logger = logging.getLogger("HumanAnalysis")
+
+# ---------------------------------------------------------------------------
+# Security: Validate critical secrets on startup
+# ---------------------------------------------------------------------------
+_INSECURE_DEFAULTS = {
+    "change-me-in-production",
+    "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION_64_CHARS_MIN",
+    "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION_32_CHARS_MIN",
+    "",
+}
+
+
+def _validate_secrets():
+    """Warn (dev) or refuse to start (prod) with default secrets."""
+    secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
+    encryption_key = os.getenv("ENCRYPTION_KEY", "default-key-change-in-prod")
+    env = os.getenv("ENVIRONMENT", "development")
+
+    warnings = []
+    if secret_key in _INSECURE_DEFAULTS:
+        warnings.append("SECRET_KEY is using an insecure default value")
+    if encryption_key in {"default-key-change-in-prod", "CHANGE_THIS_ENCRYPTION_KEY_32_CHARS", ""}:
+        warnings.append("ENCRYPTION_KEY is using an insecure default value")
+
+    for w in warnings:
+        if env == "production":
+            raise RuntimeError(f"SECURITY ERROR: {w}. Set a strong value in .env before running in production.")
+        logger.warning(f"⚠️  SECURITY WARNING: {w}. Set a strong value in .env before deploying.")
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 app = FastAPI(
-    title="AI Surveillance System API",
-    description="Phase 4: Intelligence Layer with Analytics and Cross-Camera Tracking",
-    version="4.0.0",
+    title="AI Smart Surveillance System API",
+    description="Intelligent surveillance platform with face recognition, ANPR, "
+                "anomaly detection, cross-camera tracking, and analytics.",
+    version="5.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
+_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in _cors_origins],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.add_middleware(RateLimitMiddleware)
 
-app.include_router(auth_routes.router)
-app.include_router(face_routes.router)
-app.include_router(evidence_routes.router)
-app.include_router(audit_routes.router)
-app.include_router(camera_routes.router)
-app.include_router(vehicle_routes.router)
-app.include_router(analytics_routes.router)
-app.include_router(alert_routes.router)
-app.include_router(config_routes.router)
-app.include_router(map_routes.router)
-app.include_router(events_routes.router)
+# ---------------------------------------------------------------------------
+# Routes (prefixed under /api/v1 for versioning)
+# ---------------------------------------------------------------------------
+API_V1 = "/api/v1"
 
-try:
-    app.mount("/dashboard", StaticFiles(directory="frontend", html=True), name="dashboard")
-except RuntimeError:
-    pass
-
-
-_start_time = time.time()
+app.include_router(auth_router, prefix=API_V1)
+app.include_router(face_router, prefix=API_V1)
+app.include_router(evidence_router, prefix=API_V1)
+app.include_router(audit_routes.router, prefix=API_V1)
+app.include_router(camera_router, prefix=API_V1)
+app.include_router(vehicle_routes.router, prefix=API_V1)
+app.include_router(analytics_router, prefix=API_V1)
+app.include_router(alert_routes.router, prefix=API_V1)
+app.include_router(events_routes.router, prefix=API_V1)
+app.include_router(map_routes.router, prefix=API_V1)
 
 
-def _retention_worker():
-    """Run evidence retention every 24 hours in background."""
-    while True:
-        try:
-            time.sleep(86400)  # 24 hours
-            from utils.retention import run_retention
-            result = run_retention(dry_run=False)
-            print(f"[retention] Auto-cleanup: {json.dumps(result)}")
-        except Exception as e:
-            print(f"[retention] Worker error: {e}")
-
-
-def sync_cameras_from_config():
-    """Load cameras from config.yaml into DB on startup."""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(base_dir, "config", "config.yaml")
-    try:
-        with open(config_path) as f:
-            cfg = yaml.safe_load(f)
-    except FileNotFoundError:
-        return
-
-    cameras_cfg = cfg.get("cameras", [])
-    db = SessionLocal()
-    try:
-        for cam_cfg in cameras_cfg:
-            cid = cam_cfg.get("id", "")
-            if not cid:
-                continue
-            existing = db.query(Camera).filter(Camera.camera_id == cid).first()
-            if existing:
-                existing.uri = str(cam_cfg.get("uri", existing.uri))
-                existing.location = cam_cfg.get("location", existing.location)
-                existing.name = cam_cfg.get("name", existing.name)
-                if cam_cfg.get("lat"):
-                    existing.lat = cam_cfg["lat"]
-                if cam_cfg.get("lng"):
-                    existing.lng = cam_cfg["lng"]
-            else:
-                cam = Camera(
-                    camera_id=cid,
-                    name=cam_cfg.get("name", cid),
-                    uri=str(cam_cfg.get("uri", "")),
-                    location=cam_cfg.get("location", ""),
-                    lat=cam_cfg.get("lat", 0.0),
-                    lng=cam_cfg.get("lng", 0.0),
-                    ptz_supported=cam_cfg.get("ptz_supported", False),
-                )
-                db.add(cam)
-        db.commit()
-    except Exception as e:
-        print(f"Config sync error: {e}")
-    finally:
-        db.close()
-
-
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup_event():
+    _validate_secrets()
     init_db()
-    sync_cameras_from_config()
-    thread = threading.Thread(target=_retention_worker, daemon=True)
-    thread.start()
+    logger.info("✅ AI-SSS Backend started successfully")
 
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "phase": "4 - Intelligence Layer"}
-
-
-@app.get("/system/health")
-def system_health(request: Request):
-    import psutil
-    mem = psutil.virtual_memory()
-    cpu = psutil.cpu_percent(interval=0.5)
-    disk = psutil.disk_usage("/")
-    uptime_seconds = int(time.time() - _start_time)
-    hours, remainder = divmod(uptime_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
     return {
         "status": "healthy",
-        "uptime": f"{hours}h {minutes}m {seconds}s",
-        "cpu_percent": cpu,
-        "memory_percent": mem.percent,
-        "memory_used_mb": round(mem.used / 1024 / 1024, 1),
-        "disk_percent": disk.percent,
-        "disk_free_gb": round(disk.free / 1024 / 1024 / 1024, 1),
-        "python_version": __import__("sys").version,
+        "version": "5.0.0",
+        "phase": "5 - Production Architecture",
     }

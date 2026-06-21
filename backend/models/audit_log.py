@@ -15,11 +15,8 @@ class AuditLog(Base):
     resource_id = Column(String(50), nullable=True)
     details = Column(Text, nullable=True)
     ip_address = Column(String(45), nullable=True)
-    user_agent = Column(String(255), nullable=True)
-    previous_hash = Column(String(64), nullable=True)
-    hash = Column(String(64), nullable=True, index=True)
 
     __table_args__ = (
-        Index("idx_user_action", "user_id", "action"),
-        Index("idx_timestamp_action", "timestamp", "action"),
+        Index("idx_audit_timestamp", "timestamp"),
+        Index("idx_audit_action", "action"),
     )

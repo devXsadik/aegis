@@ -1,0 +1,37 @@
+# ============================================================
+# Multi-Camera Configuration
+# ============================================================
+# Define all camera feeds for the surveillance system.
+# Each camera runs in its own processing thread.
+
+cameras:
+  - id: gate_1
+    name: "Main Gate Camera 1"
+    source: 0                          # Webcam index or RTSP URL
+    # source: "rtsp://admin:pass@192.168.0.100:554/stream1"
+    location: "Main Gate"
+    lat: 23.8103                       # GPS latitude (for map view)
+    lng: 90.4125                       # GPS longitude (for map view)
+    enabled: true
+    fps_limit: 15                      # Max FPS to process
+    priority: high                     # high | medium | low (GPU scheduling)
+
+  # - id: parking_1
+  #   name: "Parking Lot A"
+  #   source: "rtsp://admin:pass@192.168.0.101:554/stream1"
+  #   location: "Parking A"
+  #   lat: 23.8105
+  #   lng: 90.4127
+  #   enabled: true
+  #   fps_limit: 10
+  #   priority: medium
+
+  # - id: lobby_1
+  #   name: "Main Lobby"
+  #   source: "rtsp://admin:pass@192.168.0.102:554/stream1"
+  #   location: "Lobby"
+  #   lat: 23.8104
+  #   lng: 90.4126
+  #   enabled: true
+  #   fps_limit: 15
+  #   priority: high

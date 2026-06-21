@@ -23,7 +23,7 @@ class AuditLogResponse(BaseModel):
     ip_address: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 @router.get("/", response_model=list[AuditLogResponse])
