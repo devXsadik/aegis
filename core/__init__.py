@@ -1,11 +1,4 @@
-from core.detectors import HumanDetector, WeaponDetector, VehicleDetector, VehicleTracker
-from core.tracking import HumanTracker
-from core.recognition import FaceRecognizerDB
-from core.analysis import (
-    is_suspicious_behavior, PoseAnalyzer,
-    LicensePlateRecognizer, LicensePlateDatabase,
-    AnomalyDetector, Analytics,
-)
+import importlib
 
 __all__ = [
     "HumanDetector", "WeaponDetector", "HumanTracker",
@@ -15,3 +8,24 @@ __all__ = [
     "VehicleDetector", "VehicleTracker",
     "AnomalyDetector", "Analytics",
 ]
+
+_modules = {
+    "HumanDetector": "core.detectors",
+    "WeaponDetector": "core.detectors",
+    "VehicleDetector": "core.detectors",
+    "VehicleTracker": "core.detectors",
+    "HumanTracker": "core.tracking",
+    "FaceRecognizerDB": "core.recognition",
+    "is_suspicious_behavior": "core.analysis",
+    "PoseAnalyzer": "core.analysis",
+    "LicensePlateRecognizer": "core.analysis",
+    "LicensePlateDatabase": "core.analysis",
+    "AnomalyDetector": "core.analysis",
+    "Analytics": "core.analysis",
+}
+
+
+def __getattr__(name):
+    if name in _modules:
+        return getattr(importlib.import_module(_modules[name]), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
