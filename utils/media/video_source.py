@@ -1,10 +1,14 @@
 """Resilient video capture for webcams, RTSP IP cameras, and files."""
 
+from __future__ import annotations
+
 import os
 import time
 import logging
+from typing import TYPE_CHECKING
 
-import cv2
+if TYPE_CHECKING:
+    import cv2
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -27,8 +31,10 @@ def configure_rtsp_options():
         os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
 
-def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0) -> cv2.VideoCapture:
+def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
     """Open a video source with retries (important for IP cameras)."""
+    import cv2
+
     configure_rtsp_options()
     resolved = resolve_source(source)
     is_network = isinstance(resolved, str) and (
@@ -58,8 +64,10 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0) -> cv2.
     raise RuntimeError(f"Cannot open video source after {max_retries} attempts: {resolved}")
 
 
-def read_frame_with_reconnect(cap: cv2.VideoCapture, source, max_retries: int = 10):
+def read_frame_with_reconnect(cap, source, max_retries: int = 10):
     """Read a frame; reconnect on failure."""
+    import cv2
+
     for _ in range(max_retries):
         ret, frame = cap.read()
         if ret and frame is not None:

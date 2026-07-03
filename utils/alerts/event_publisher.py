@@ -5,8 +5,6 @@ import logging
 import threading
 from typing import Optional
 
-import httpx
-
 logger = logging.getLogger("HumanAnalysis")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -22,6 +20,8 @@ def _headers() -> dict:
 def _post_async(path: str, payload: dict) -> None:
     def _send():
         try:
+            import httpx
+
             resp = httpx.post(
                 f"{BACKEND_URL}{path}",
                 json=payload,
