@@ -8,7 +8,7 @@ import logging
 import time
 from collections import defaultdict
 from core.pipeline.base import PipelineStage, FrameContext
-from core.behavior import is_suspicious_behavior
+from core.analysis.behavior import is_suspicious_behavior
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -101,3 +101,4 @@ class BehaviorStage(PipelineStage):
                     logger.warning(f"ANPR error: {e}")
 
         return ctx
+

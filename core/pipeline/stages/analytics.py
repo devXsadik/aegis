@@ -7,7 +7,7 @@ Previously existed as Analytics class but was NEVER integrated.
 
 import logging
 from core.pipeline.base import PipelineStage, FrameContext
-from core.analytics import Analytics
+from core.analysis.analytics import Analytics
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -41,3 +41,4 @@ class AnalyticsStage(PipelineStage):
     def get_analytics(self) -> Analytics:
         """Direct access to the Analytics instance for API queries."""
         return self.analytics
+

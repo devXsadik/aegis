@@ -1,40 +1,37 @@
 """
-Output Stage
-============
-Handles evidence saving, alert dispatching, and WebSocket notifications.
+Output Stage — evidence saving and automated multi-channel alert dispatch.
 """
 
 import logging
 import threading
-import time
 
 from core.pipeline.base import PipelineStage, FrameContext
-from utils.evidence_db import save_evidence_db
+from utils.data import save_evidence_db
+from utils.alerts import NotificationHub
 
 logger = logging.getLogger("HumanAnalysis")
 
 
 class OutputStage(PipelineStage):
-    """Saves evidence and dispatches alerts for detected threats."""
+    """Saves evidence and auto-dispatches alerts to all defense channels."""
 
-    def __init__(self, alert_orchestrator, camera_location: str = "",
+    def __init__(self, camera_location: str = "",
                  evidence_throttle_seconds: float = 10.0,
                  alarm_interval_seconds: float = 5.0,
                  alarm_callback=None, enabled: bool = True):
         super().__init__(name="output", enabled=enabled)
-        self.alert_orchestrator = alert_orchestrator
         self.camera_location = camera_location
         self.evidence_throttle = evidence_throttle_seconds
-        self.alarm_interval = alarm_interval_seconds
-        self.alarm_callback = alarm_callback
-
-        # Throttling state
-        self._last_saved: dict = {}       # track_id → timestamp
-        self._last_alarm_time: float = 0
+        self.notifications = NotificationHub(
+            alarm_callback=alarm_callback,
+            alarm_interval=alarm_interval_seconds,
+        )
+        self._last_saved: dict = {}
 
     def process(self, ctx: FrameContext) -> FrameContext:
         now = ctx.timestamp
         location = ctx.camera_location or self.camera_location
+        camera_id = ctx.camera_id
         fh, fw = ctx.frame.shape[:2]
 
         for track in ctx.tracks:
@@ -56,36 +53,43 @@ class OutputStage(PipelineStage):
             reasons = ctx.suspicious_tracks.get(track_id, [])
             alert = is_criminal or ctx.weapon_present or is_suspicious
 
-            # --- Alarm ---
-            if is_criminal and now - self._last_alarm_time > self.alarm_interval:
-                if self.alarm_callback:
-                    self.alarm_callback()
-                self._last_alarm_time = now
+            if is_criminal:
+                self.notifications.criminal_detected(
+                    criminal_name=name,
+                    camera_location=location,
+                    camera_id=camera_id,
+                    track_id=track_id,
+                    now=now,
+                    camera_name=ctx.camera_name,
+                    camera_lat=ctx.camera_lat,
+                    camera_lng=ctx.camera_lng,
+                )
 
-                # Criminal alert
-                try:
-                    self.alert_orchestrator.send_criminal_alert(
-                        criminal_name=name,
-                        camera_location=location,
-                        track_id=track_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"Criminal alert failed: {e}")
+            if ctx.weapon_present:
+                self.notifications.weapon_detected(
+                    camera_location=location,
+                    camera_id=camera_id,
+                    track_id=track_id,
+                    now=now,
+                    camera_lat=ctx.camera_lat,
+                    camera_lng=ctx.camera_lng,
+                )
 
-            # --- Weapon alert ---
-            if ctx.weapon_present and now - self._last_alarm_time > self.alarm_interval:
-                try:
-                    self.alert_orchestrator.send_weapon_alert(
-                        camera_location=location,
-                        track_id=track_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"Weapon alert failed: {e}")
+            if is_suspicious:
+                self.notifications.suspicious_behavior(
+                    name=name,
+                    reasons=reasons,
+                    camera_location=location,
+                    camera_id=camera_id,
+                    track_id=track_id,
+                    now=now,
+                    camera_lat=ctx.camera_lat,
+                    camera_lng=ctx.camera_lng,
+                )
 
-            # --- Evidence saving (throttled) ---
             if alert and (now - self._last_saved.get(track_id, 0) >= self.evidence_throttle):
                 try:
-                    evidence_thread = threading.Thread(
+                    threading.Thread(
                         target=save_evidence_db,
                         args=(
                             location, track_id, name,
@@ -93,32 +97,37 @@ class OutputStage(PipelineStage):
                             reasons, ctx.frame.copy(), roi.copy(),
                         ),
                         daemon=True,
-                    )
-                    evidence_thread.start()
+                    ).start()
                     self._last_saved[track_id] = now
                 except Exception as e:
                     logger.warning(f"Evidence save failed: {e}")
 
-        # --- Watchlisted plate alerts ---
         for plate in ctx.watchlisted_plates:
-            try:
-                # Find associated vehicle type
-                vehicle_type = "unknown"
-                for v in ctx.vehicle_detections:
-                    if v.get("bbox") == plate.get("vehicle_bbox"):
-                        vehicle_type = v.get("class_name", "vehicle")
-                        break
+            vehicle_type = "unknown"
+            for v in ctx.vehicle_detections:
+                if v.get("bbox") == plate.get("vehicle_bbox"):
+                    vehicle_type = v.get("class_name", "vehicle")
+                    break
+            self.notifications.watchlisted_vehicle(
+                plate_number=plate["plate_number"],
+                vehicle_type=vehicle_type,
+                camera_location=location,
+                camera_id=camera_id,
+                now=now,
+                camera_lat=ctx.camera_lat,
+                camera_lng=ctx.camera_lng,
+            )
 
-                self.alert_orchestrator.send_suspicious_vehicle_alert(
-                    plate["plate_number"],
-                    vehicle_type,
-                    location,
-                    "Watchlisted plate detected",
-                )
-            except Exception as e:
-                logger.warning(f"Plate alert failed: {e}")
+        for anomaly in ctx.anomalies:
+            self.notifications.anomaly_detected(
+                anomaly_message=anomaly.get("message", "Anomaly detected"),
+                camera_location=location,
+                camera_id=camera_id,
+                now=now,
+                camera_lat=ctx.camera_lat,
+                camera_lng=ctx.camera_lng,
+            )
 
-        # --- Compute threat score ---
         ctx.threat_score = min(
             100,
             len(ctx.tracks) * 5

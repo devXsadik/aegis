@@ -31,6 +31,9 @@ class FrameContext:
     timestamp: float = 0.0                     # time.time()
     camera_id: str = ""
     camera_location: str = ""
+    camera_name: str = ""
+    camera_lat: Optional[float] = None
+    camera_lng: Optional[float] = None
 
     # --- Detection results ---
     human_detections: list = field(default_factory=list)    # [(bbox, conf, cls)]
@@ -129,7 +132,9 @@ class SurveillancePipeline:
         logger.info(f"Pipeline: added stage '{stage.name}' (enabled={stage.enabled})")
 
     def run(self, frame: np.ndarray, camera_id: str = "",
-            camera_location: str = "") -> FrameContext:
+            camera_location: str = "", camera_name: str = "",
+            camera_lat: Optional[float] = None,
+            camera_lng: Optional[float] = None) -> FrameContext:
         """Run all stages on the given frame."""
         self._frame_count += 1
         ctx = FrameContext(
@@ -138,6 +143,9 @@ class SurveillancePipeline:
             timestamp=time.time(),
             camera_id=camera_id,
             camera_location=camera_location,
+            camera_name=camera_name,
+            camera_lat=camera_lat,
+            camera_lng=camera_lng,
         )
         for stage in self.stages:
             ctx = stage(ctx)
@@ -149,3 +157,4 @@ class SurveillancePipeline:
             "frame_count": self._frame_count,
             "stages": [s.get_stats() for s in self.stages],
         }
+
