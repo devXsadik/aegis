@@ -23,8 +23,10 @@ from backend.models.known_person import KnownPerson
 from backend.models.person_image import PersonImage
 from backend.models.face_encoding import FaceEncoding
 from paths import WATCHLIST_DIR
+from scripts.convert_heic import prepare_watchlist_images, jpg_is_valid
 
 KNOWN_DIR = WATCHLIST_DIR
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 
 
 def _read_image_bytes(path: str) -> bytes:
@@ -33,6 +35,35 @@ def _read_image_bytes(path: str) -> bytes:
         return b""
     success, buffer = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
     return buffer.tobytes() if success else b""
+
+
+def _iter_watchlist_images(person_dir: Path):
+    """Yield one readable image path per photo (prefer valid JPG over HEIC)."""
+    seen_stems = set()
+    for img_file in sorted(person_dir.iterdir()):
+        if not img_file.is_file():
+            continue
+        suffix = img_file.suffix.lower()
+        if suffix not in IMAGE_SUFFIXES:
+            continue
+
+        stem = img_file.stem
+        if stem in seen_stems:
+            continue
+
+        if suffix in {".heic", ".heif"}:
+            jpg_path = img_file.with_suffix(".jpg")
+            if jpg_is_valid(jpg_path, img_file):
+                seen_stems.add(stem)
+                yield jpg_path
+            continue
+
+        heic_path = img_file.with_suffix(".HEIC")
+        if not heic_path.exists():
+            heic_path = img_file.with_suffix(".heic")
+        if jpg_is_valid(img_file, heic_path if heic_path.exists() else None):
+            seen_stems.add(stem)
+            yield img_file
 
 
 def _load_manifest() -> dict:
@@ -65,6 +96,11 @@ def ingest():
     if not KNOWN_DIR.exists():
         print(f"❌ watchlist directory not found at {KNOWN_DIR}")
         return
+
+    print("Preparing watchlist images (HEIC → JPG)...")
+    repaired = prepare_watchlist_images()
+    if repaired:
+        print(f"✓ Converted/repaired {repaired} image(s)")
 
     init_db()
     db = SessionLocal()
@@ -99,15 +135,21 @@ def ingest():
                     notes=meta.get("notes"),
                 )
                 db.add(person)
-                db.flush()
+                db.commit()
+                db.refresh(person)
                 total_persons += 1
                 print(f"  ✓ Created person record: {meta['name']}")
 
-            for img_file in sorted(person_dir.iterdir()):
-                if img_file.suffix.lower() not in (".jpg", ".jpeg", ".png"):
-                    continue
-
+            for img_file in _iter_watchlist_images(person_dir):
                 img_path = str(img_file)
+
+                existing_img = db.query(PersonImage).filter(
+                    PersonImage.person_id == person.id,
+                    PersonImage.filename == img_file.name,
+                ).first()
+                if existing_img:
+                    print(f"  ↷ Skipping (already in DB): {img_file.name}")
+                    continue
 
                 try:
                     image = face_recognition.load_image_file(img_path)
@@ -138,9 +180,13 @@ def ingest():
                     db.add(img_record)
                     total_images += 1
 
-                print(f"  ✓ Encoded + stored: {img_file.name}")
+                try:
+                    db.commit()
+                    print(f"  ✓ Encoded + stored: {img_file.name}")
+                except Exception as e:
+                    db.rollback()
+                    print(f"  ✗ DB error for {img_file.name}: {e}")
 
-        db.commit()
         print(f"\n{'='*50}")
         print(f"✅ Ingest complete!")
         print(f"   Persons:   {total_persons} created")
@@ -156,3 +202,4 @@ def ingest():
 
 if __name__ == "__main__":
     ingest()
+
