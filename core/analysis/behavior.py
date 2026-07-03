@@ -24,9 +24,13 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
     if speeds and max(speeds) > SUSPICIOUS_SPEED_THRESHOLD:
         reasons.append("rapid_movement")
 
-    duration = recent[-1][0] - recent[0][0]
-    if duration > SUSPICIOUS_LOITER_SECONDS:
-        reasons.append("loitering")
+    if len(track_history) >= 5:
+        duration = track_history[-1][0] - track_history[0][0]
+        xs = [p[1] for p in track_history]
+        ys = [p[2] for p in track_history]
+        spread = max(max(xs) - min(xs), max(ys) - min(ys))
+        if duration > SUSPICIOUS_LOITER_SECONDS and spread < 50:
+            reasons.append("loitering")
 
     if len(track_history) >= 15:
         mid = len(track_history) // 2
@@ -50,3 +54,4 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
             reasons.append("erratic_movement")
 
     return len(reasons) > 0, reasons
+
