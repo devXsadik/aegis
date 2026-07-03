@@ -319,6 +319,23 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
     frame = draw_threat_level(frame, ctx.threat_score)
     frame = draw_radar(frame, ctx.tracks, fw, fh, elapsed, ctx.criminal_ids)
 
+    if ctx.active_criminals:
+        flash = int(elapsed * 4) % 2 == 0
+        banner_color = (0, 0, 255) if flash else (0, 0, 180)
+        cv2.rectangle(frame, (0, fh - 60), (fw, fh), banner_color, -1)
+        names = ", ".join(ctx.active_criminals[:3])
+        alert_line = f"!!! CRIMINAL ALERT: {names} @ {ctx.camera_location} !!!"
+        cv2.putText(
+            frame, alert_line,
+            (20, fh - 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
+        )
+        if ctx.camera_lat is not None and ctx.camera_lng is not None:
+            gps_line = f"PINPOINT GPS: {ctx.camera_lat:.5f}, {ctx.camera_lng:.5f}  (Cam: {ctx.camera_id})"
+            cv2.putText(
+                frame, gps_line,
+                (20, fh - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 255, 255), 1,
+            )
+
     # Stats overlay
     fps = ctx.frame_number / elapsed if elapsed > 0 else 0
     hud_h = 30 + 20 * max(1, len(ctx.active_criminals) + 3)
@@ -350,3 +367,4 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
                 (10, hud_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
 
     return frame
+
