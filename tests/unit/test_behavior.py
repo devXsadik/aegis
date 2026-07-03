@@ -7,7 +7,7 @@ Tests for suspicious behavior detection heuristics.
 import pytest
 import math
 import time
-from core.behavior import is_suspicious_behavior
+from core.analysis.behavior import is_suspicious_behavior
 
 
 class TestSuspiciousBehavior:
@@ -69,3 +69,4 @@ class TestSuspiciousBehavior:
         # Pass None for pose_landmarks (not used by current implementation)
         is_sus, reasons = is_suspicious_behavior(history, pose_landmarks=None)
         assert isinstance(is_sus, bool)
+

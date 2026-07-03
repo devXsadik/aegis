@@ -7,7 +7,7 @@ Tests for zone-based anomaly detection.
 import pytest
 import numpy as np
 from unittest.mock import MagicMock
-from core.anomaly_detector import AnomalyDetector
+from core.analysis.anomaly_detector import AnomalyDetector
 
 
 def _make_track(track_id, cx, cy, confirmed=True):
@@ -82,3 +82,4 @@ class TestAnomalyDetectorSeverity:
         crowd_anomalies = [a for a in anomalies if a["type"] == "crowd"]
         assert len(crowd_anomalies) >= 1
         assert crowd_anomalies[0]["severity"] == "medium"
+
