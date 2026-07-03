@@ -6,8 +6,8 @@
 
 models:
   human_detector:
-    name: "YOLOv8x"
-    path: "models/yolov8x.pt"
+    name: "YOLOv8s"
+    path: "models/yolov8s.pt"
     type: yolo
     version: "8.3"
     device: "auto"                     # auto | cpu | cuda:0
@@ -73,3 +73,4 @@ models:
 #   path: "models/fire_smoke_yolo.pt"
 #   type: yolo
 #   description: "Fire and smoke detection"
+
