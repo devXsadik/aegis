@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.db.database import get_db
 from backend.auth.auth import operator_or_admin, admin_only
 from backend.models.user import User
 from backend.models.alert import Alert
+from backend.services.alert_dispatcher import dispatch_alert
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
+import os
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -32,6 +34,52 @@ class AlertResponse(BaseModel):
 class AcknowledgeRequest(BaseModel):
     acknowledged: bool = True
     dismissed: bool = False
+
+
+class DispatchAlertRequest(BaseModel):
+    alert_type: str
+    severity: str = "critical"
+    camera_location: Optional[str] = None
+    camera_id: Optional[str] = None
+    track_id: Optional[int] = None
+    person_name: Optional[str] = None
+    plate_number: Optional[str] = None
+    message: Optional[str] = None
+    camera_name: Optional[str] = None
+    camera_lat: Optional[float] = None
+    camera_lng: Optional[float] = None
+
+
+def _verify_internal_key(key: Optional[str]) -> None:
+    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
+    if not key or key != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
+@router.post("/dispatch")
+async def auto_dispatch_alert(
+    body: DispatchAlertRequest,
+    x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
+):
+    """
+    Fully automated alert dispatch from pipeline (any camera).
+    Saves DB + audit log + WebSocket + webhooks in one call.
+    """
+    _verify_internal_key(x_internal_key)
+    result = await dispatch_alert(
+        alert_type=body.alert_type,
+        severity=body.severity,
+        camera_location=body.camera_location,
+        camera_id=body.camera_id,
+        track_id=body.track_id,
+        person_name=body.person_name,
+        plate_number=body.plate_number,
+        message=body.message,
+        camera_name=body.camera_name,
+        camera_lat=body.camera_lat,
+        camera_lng=body.camera_lng,
+    )
+    return result
 
 
 @router.get("/", response_model=List[AlertResponse])
@@ -114,3 +162,4 @@ def acknowledge_alert(
         alert.acknowledged_at = datetime.utcnow()
     db.commit()
     return {"status": "updated", "id": alert_id}
+

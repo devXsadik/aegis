@@ -1,12 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from backend.db.database import get_db
+import os
+from fastapi import APIRouter, Depends, Header, HTTPException
 from backend.auth.auth import operator_or_admin
 from backend.models.user import User
-from backend.utils.websocket import manager
+from backend.utils.events import broadcast_live_event
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -21,25 +19,43 @@ class LiveEvent(BaseModel):
     message: Optional[str] = None
 
 
+def _verify_internal_key(key: Optional[str]) -> None:
+    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
+    if not key or key != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
 @router.post("/live")
 async def push_live_event(
     event: LiveEvent,
     user: User = Depends(operator_or_admin),
 ):
-    payload = {
-        "alert_type": event.event_type,
-        "severity": event.severity,
-        "camera_location": event.camera_location,
-        "camera_id": event.camera_id,
-        "track_id": event.track_id,
-        "person_name": event.person_name,
-        "message": event.message,
-        "timestamp": datetime.utcnow().isoformat(),
-        "data": {
-            "camera_location": event.camera_location,
-            "criminal_name": event.person_name,
-            "track_id": event.track_id,
-        },
-    }
-    await manager.broadcast(payload, "alerts")
+    payload = await broadcast_live_event(
+        event_type=event.event_type,
+        severity=event.severity,
+        camera_location=event.camera_location,
+        camera_id=event.camera_id,
+        track_id=event.track_id,
+        person_name=event.person_name,
+        message=event.message,
+    )
+    return {"status": "broadcast", "event_type": event.event_type, "payload": payload}
+
+
+@router.post("/internal")
+async def push_internal_event(
+    event: LiveEvent,
+    x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
+):
+    """Pipeline-to-backend event push (no JWT; uses shared internal key)."""
+    _verify_internal_key(x_internal_key)
+    payload = await broadcast_live_event(
+        event_type=event.event_type,
+        severity=event.severity,
+        camera_location=event.camera_location,
+        camera_id=event.camera_id,
+        track_id=event.track_id,
+        person_name=event.person_name,
+        message=event.message,
+    )
     return {"status": "broadcast", "event_type": event.event_type}

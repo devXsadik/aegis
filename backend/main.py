@@ -10,6 +10,9 @@ from backend.api.face_routes import router as face_router
 from backend.api.evidence_routes import router as evidence_router
 from backend.api.camera_routes import router as camera_router
 from backend.api.analytics_routes import router as analytics_router
+from backend.api.ws_routes import router as ws_router
+from backend.api.system_routes import router as system_router
+from backend.api.report_routes import router as report_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger("HumanAnalysis")
@@ -85,6 +88,9 @@ app.include_router(analytics_router, prefix=API_V1)
 app.include_router(alert_routes.router, prefix=API_V1)
 app.include_router(events_routes.router, prefix=API_V1)
 app.include_router(map_routes.router, prefix=API_V1)
+app.include_router(ws_router, prefix=API_V1)
+app.include_router(system_router, prefix=API_V1)
+app.include_router(report_router, prefix=API_V1)
 
 
 # ---------------------------------------------------------------------------
@@ -104,3 +110,5 @@ def health_check():
         "version": "5.0.0",
         "phase": "5 - Production Architecture",
     }
+
+
