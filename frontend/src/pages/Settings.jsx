@@ -35,7 +35,7 @@ export function Settings({ ctx }) {
   const runTest = async (channel) => {
     setTestMsg(null)
     try {
-      const r = await testIntegration(channel, `Ai-SSS test from ${channel}`)
+      const r = await testIntegration(channel, `Aegis test from ${channel}`)
       setTestMsg({ ok: true, text: `${channel}: HTTP ${r.http_status}` })
     } catch (e) {
       setTestMsg({ ok: false, text: e.message })
