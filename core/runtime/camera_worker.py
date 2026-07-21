@@ -9,7 +9,7 @@ import cv2
 
 from core.visualization.hud import render_full_hud
 from utils.media import open_capture, read_frame_with_reconnect
-from utils.alerts import publish_heartbeat
+from utils.alerts import publish_event_clip, publish_frame, publish_heartbeat
 from utils.system import FrameSkipper, ResourceMonitor
 
 logger = logging.getLogger("HumanAnalysis")
@@ -38,6 +38,9 @@ def run_camera_loop(
     thermal_mode = False
     last_heartbeat = 0.0
     heartbeat_interval = float(os.getenv("HEARTBEAT_INTERVAL", "5"))
+    last_stream = 0.0
+    stream_interval = 1.0 / float(os.getenv("STREAM_FPS", "5"))
+    stream_width = int(os.getenv("STREAM_WIDTH", "960"))
     fps_counter = 0
     fps_window_start = time.time()
     current_fps = 0.0
@@ -89,11 +92,42 @@ def run_camera_loop(
             )
             last_heartbeat = now
 
-        if show_window:
+        stream_due = now - last_stream >= stream_interval
+        display = None
+        if show_window or stream_due:
             perf_stats = resource_monitor.get_stats() if perf_enabled else None
             display = render_full_hud(
                 frame, ctx, start_time, criminal_names, perf_stats, thermal_mode,
             )
+
+        if stream_due and display is not None:
+            last_stream = now
+            try:
+                stream_img = display
+                if stream_img.shape[1] > stream_width:
+                    scale = stream_width / stream_img.shape[1]
+                    stream_img = cv2.resize(
+                        stream_img, (stream_width, int(stream_img.shape[0] * scale)),
+                    )
+                ok, buf = cv2.imencode(".jpg", stream_img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    jpeg = buf.tobytes()
+                    publish_frame(camera_id, jpeg)
+                    if ctx.threat_score and ctx.threat_score >= 40:
+                        alert_type = "THREAT"
+                        if getattr(ctx, "weapon_present", False):
+                            alert_type = "WEAPON_DETECTED"
+                        elif getattr(ctx, "active_criminals", None):
+                            alert_type = "CRIMINAL_DETECTED"
+                        publish_event_clip(
+                            camera_id, jpeg,
+                            camera_location=camera_location,
+                            alert_type=alert_type,
+                        )
+            except Exception:
+                pass  # never let streaming break the CV loop
+
+        if show_window:
             cv2.imshow(title, display)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -111,5 +145,6 @@ def run_camera_loop(
         except Exception:
             pass
     logger.info(f"Camera worker stopped: {camera_id}")
+
 
 
