@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Ai-SSS — one-command full system run
+# Aegis — one-command full system run
 # Usage:
 #   ./run.sh
 #   ./run.sh data/demo/clips/sample.mp4
@@ -37,7 +37,7 @@ PIDS=()
 
 cleanup() {
   echo ""
-  echo "Stopping Ai-SSS…"
+  echo "Stopping Aegis…"
   for pid in "${PIDS[@]:-}"; do
     kill "$pid" 2>/dev/null || true
   done
@@ -53,7 +53,7 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "============================================"
-echo "  Ai-SSS Command Center — Full System"
+echo "  Aegis Command Center — Full System"
 echo "============================================"
 
 # --- Python ---
