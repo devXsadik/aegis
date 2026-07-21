@@ -1,5 +1,5 @@
 """
-AI Smart Surveillance System (Ai-SSS) v5.0
+AI Smart Surveillance System (Aegis) v5.0
 ============================================
 Production Architecture — Pipeline-based Entrypoint
 
