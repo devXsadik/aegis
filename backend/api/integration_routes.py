@@ -20,7 +20,7 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 class TestWebhookRequest(BaseModel):
     channel: str = "security"  # law_enforcement | emergency | security | sms
-    message: str = "Ai-SSS integration test"
+    message: str = "Aegis integration test"
 
 
 class DispatchRequest(BaseModel):
@@ -70,7 +70,7 @@ def test_webhook(body: TestWebhookRequest, user: User = Depends(admin_only)):
     if os.getenv("ALERTS_ENABLED", "false").lower() != "true":
         raise HTTPException(400, "ALERTS_ENABLED is false — enable it in .env first")
     payload = {
-        "source": "Ai-SSS",
+        "source": "Aegis",
         "channel": body.channel,
         "message": body.message,
         "test": True,
