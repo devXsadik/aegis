@@ -1,9 +1,10 @@
+import hashlib
 import cv2
 import numpy as np
-from datetime import datetime
 from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
 from backend.utils.encryption import EncryptionManager
+from backend.services.custody import append_custody, sha256_bytes
 from utils import logger
 
 
@@ -25,6 +26,7 @@ def save_evidence_db(
         frame_bytes = frame_buffer.tobytes()
         _, roi_buffer = cv2.imencode(".jpg", roi, [cv2.IMWRITE_JPEG_QUALITY, 85])
         roi_bytes = roi_buffer.tobytes()
+        content_hash = sha256_bytes(frame_bytes)
         if encrypt:
             enc_manager = EncryptionManager()
             frame_bytes = enc_manager.encrypt(frame_bytes)
@@ -43,10 +45,20 @@ def save_evidence_db(
             frame_data=frame_bytes,
             roi_data=roi_bytes,
             encrypted=encrypt,
+            content_sha256=content_hash,
         )
         db.add(evidence)
+        db.flush()
+        append_custody(
+            db,
+            evidence_id=evidence.id,
+            action="CAPTURED",
+            actor="SYSTEM",
+            sha256_hash=content_hash,
+            details=f"{category} / track {track_id} / {camera_location}",
+        )
         db.commit()
-        logger.info(f"Evidence saved: {category} / {person_name} / track {track_id}")
+        logger.info(f"Evidence saved: {category} / {person_name} / track {track_id} / sha256={content_hash[:12]}…")
     except Exception as e:
         logger.error(f"Evidence save failed: {e}")
         db.rollback()

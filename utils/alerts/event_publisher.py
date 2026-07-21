@@ -95,6 +95,85 @@ def publish_live_event(
     )
 
 
+_STREAM_ENABLED = os.getenv("PIPELINE_STREAM_ENABLED", "true").lower() == "true"
+_stream_busy = threading.Event()
+
+
+def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
+    """Push the latest annotated JPEG frame to the backend live-stream buffer.
+
+    Drops frames if a previous upload is still in flight so the CV loop
+    never blocks on network I/O.
+    """
+    if not _STREAM_ENABLED or _stream_busy.is_set():
+        return
+
+    def _send():
+        _stream_busy.set()
+        try:
+            import httpx
+
+            httpx.post(
+                f"{BACKEND_URL}/api/v1/stream/frame/{camera_id}",
+                content=jpeg_bytes,
+                headers={
+                    "X-Internal-Key": INTERNAL_API_KEY,
+                    "Content-Type": "image/jpeg",
+                },
+                timeout=3.0,
+            )
+        except Exception:
+            pass  # streaming is best-effort; alerts have their own channel
+        finally:
+            _stream_busy.clear()
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+_last_clip: dict = {}
+_CLIP_COOLDOWN = float(os.getenv("CLIP_COOLDOWN_SECONDS", "15"))
+
+
+def publish_event_clip(
+    camera_id: str,
+    jpeg_bytes: bytes,
+    *,
+    camera_location: str = "",
+    alert_type: str = "EVENT",
+) -> None:
+    """Upload an event-triggered still to the recordings timeline (VMS slice)."""
+    now = __import__("time").time()
+    if now - _last_clip.get(camera_id, 0) < _CLIP_COOLDOWN:
+        return
+    _last_clip[camera_id] = now
+
+    def _send():
+        try:
+            import httpx
+            from datetime import datetime
+
+            files = {"file": ("event.jpg", jpeg_bytes, "image/jpeg")}
+            data = {
+                "camera_id": camera_id,
+                "camera_location": camera_location or "",
+                "trigger": "event",
+                "alert_type": alert_type,
+                "started_at": datetime.utcnow().isoformat(),
+                "frame_count": "1",
+            }
+            httpx.post(
+                f"{BACKEND_URL}/api/v1/recordings/ingest",
+                data=data,
+                files=files,
+                headers={"X-Internal-Key": INTERNAL_API_KEY},
+                timeout=8.0,
+            )
+        except Exception as e:
+            logger.warning(f"Clip ingest failed: {e}")
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def publish_heartbeat(
     camera_id: str,
     camera_location: str = "",
@@ -114,3 +193,4 @@ def publish_heartbeat(
             "frame_number": frame_number,
         },
     )
+
