@@ -227,6 +227,62 @@ export async function addCalibrationLabel(payload) {
   return apiFetch('/calibration/labels', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+/* ---- Professional VMS ---- */
+export async function fetchVmsStatus() {
+  return apiFetch('/vms/status');
+}
+export async function fetchVmsTimeline({ cameraId, hours = 24, trigger } = {}) {
+  const qs = new URLSearchParams({ hours: String(hours) });
+  if (cameraId) qs.set('camera_id', cameraId);
+  if (trigger) qs.set('trigger', trigger);
+  return apiFetch(`/vms/timeline?${qs}`);
+}
+export async function fetchPtz(cameraId) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}`);
+}
+export async function ptzMove(cameraId, { pan = 0, tilt = 0, zoom = 0 } = {}) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/move`, {
+    method: 'POST', body: JSON.stringify({ pan, tilt, zoom }),
+  });
+}
+export async function ptzStop(cameraId) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/stop`, { method: 'POST' });
+}
+export async function ptzHome(cameraId) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/home`, { method: 'POST' });
+}
+export async function ptzSetMode(cameraId, mode) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/mode`, {
+    method: 'POST', body: JSON.stringify({ mode }),
+  });
+}
+export async function ptzSavePreset(cameraId, name) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/presets`, {
+    method: 'POST', body: JSON.stringify({ name }),
+  });
+}
+export async function ptzGotoPreset(cameraId, name) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/presets/${encodeURIComponent(name)}/goto`, {
+    method: 'POST',
+  });
+}
+export function vmsPlaybackUrl(cameraId, isoTime) {
+  const token = getToken();
+  const qs = new URLSearchParams({ camera_id: cameraId, t: isoTime });
+  if (token) qs.set('token', token);
+  // playback uses Authorization header via fetch; this URL is for reference
+  return `${API_BASE}/vms/playback?camera_id=${encodeURIComponent(cameraId)}&t=${encodeURIComponent(isoTime)}`;
+}
+export async function openVmsPlayback(cameraId, isoTime) {
+  const token = getToken();
+  const url = `${API_BASE}/vms/playback?camera_id=${encodeURIComponent(cameraId)}&t=${encodeURIComponent(isoTime)}`;
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error('No recording at this time');
+  const blob = await res.blob();
+  const seek = res.headers.get('X-Seek-Offset-Seconds');
+  return { blobUrl: URL.createObjectURL(blob), seekOffset: seek ? Number(seek) : 0, segmentId: res.headers.get('X-Segment-Id') };
+}
+
 export function wsUrl(channel = 'alerts') {
   const base = import.meta.env.VITE_WS_URL
     || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
@@ -234,4 +290,5 @@ export function wsUrl(channel = 'alerts') {
   const qs = token ? `?token=${encodeURIComponent(token)}` : '';
   return `${base}/api/v1/ws/${channel}${qs}`;
 }
+
 
