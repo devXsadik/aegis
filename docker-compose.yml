@@ -39,11 +39,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./evidence:/app/evidence
       - ./models:/app/models
       - ./config:/app/config
       - ./data/watchlist:/app/data/watchlist
+      - ./data/recordings:/app/data/recordings
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-surveillance}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-surveillance_db}
+      SECRET_KEY: ${SECRET_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_SALT: ${ENCRYPTION_SALT}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      BACKEND_URL: http://backend:8000
+      REDIS_URL: redis://redis:6379/0
     restart: unless-stopped
 
   surveillance:
@@ -64,13 +75,16 @@ services:
       - ./data/watchlist:/app/data/watchlist
       - ./evidence:/app/evidence
       - ./data/demo:/app/data/demo
+      - ./data/recordings:/app/data/recordings
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
   default:
     name: surveillance_network
+
