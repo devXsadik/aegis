@@ -73,6 +73,160 @@ export async function fetchIncidentReport(hours = 24) {
   return apiFetch(`/reports/incident?hours=${hours}`);
 }
 
+export async function fetchAnalyticsSummary(hours = 24) {
+  return apiFetch(`/analytics/summary?hours=${hours}`);
+}
+
+export async function fetchAnalyticsTrends(days = 7) {
+  return apiFetch(`/analytics/trends?days=${days}`);
+}
+
+export async function fetchAnalyticsLocations(hours = 24) {
+  return apiFetch(`/analytics/locations?hours=${hours}`);
+}
+
+export async function fetchVehiclePlates(watchlistedOnly = false) {
+  return apiFetch(`/vehicles/plates?watchlisted_only=${watchlistedOnly}`);
+}
+
+export async function addVehiclePlate(plateNumber, reason) {
+  return apiFetch('/vehicles/plates', {
+    method: 'POST',
+    body: JSON.stringify({ plate_number: plateNumber, reason }),
+  });
+}
+
+export async function fetchVehicleDetections(limit = 50) {
+  return apiFetch(`/vehicles/detections?limit=${limit}`);
+}
+
+export async function fetchAuditLogs(limit = 100) {
+  return apiFetch(`/audit/?limit=${limit}`);
+}
+
+export async function acknowledgeAlert(alertId, { acknowledged = true, dismissed = false } = {}) {
+  return apiFetch(`/alerts/${alertId}/acknowledge`, {
+    method: 'PUT',
+    body: JSON.stringify({ acknowledged, dismissed }),
+  });
+}
+
+export async function dispatchPolice(alertId) {
+  return apiFetch(`/alerts/${alertId}/dispatch`, { method: 'POST' });
+}
+
+export async function fetchUsers() {
+  return apiFetch('/auth/users');
+}
+
+export async function createUser({ username, email, password, role }) {
+  return apiFetch('/auth/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, email, password, role }),
+  });
+}
+
+export async function fetchMe() {
+  return apiFetch('/auth/me');
+}
+
+export async function fetchStreamingCameras() {
+  const token = getToken();
+  return apiFetch(`/stream/cameras${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+}
+
+/* URL builders for <img> tags (JWT passed as query param — imgs can't send headers) */
+export function liveStreamUrl(cameraId) {
+  const token = getToken();
+  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/live${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}
+
+export function snapshotUrl(cameraId) {
+  const token = getToken();
+  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/snapshot${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}
+
+export function evidenceImageUrl(evidenceId, kind = 'frame') {
+  const token = getToken();
+  return `${API_BASE}/evidence/${evidenceId}/image?kind=${kind}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+}
+
+/* ---- Incidents ---- */
+export async function fetchIncidents({ status, priority, limit = 50 } = {}) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (status) qs.set('status', status);
+  if (priority) qs.set('priority', priority);
+  return apiFetch(`/incidents/?${qs}`);
+}
+export async function fetchIncidentStats() {
+  return apiFetch('/incidents/stats');
+}
+export async function fetchIncident(id) {
+  return apiFetch(`/incidents/${id}`);
+}
+export async function updateIncident(id, patch) {
+  return apiFetch(`/incidents/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+}
+export async function addIncidentNote(id, body) {
+  return apiFetch(`/incidents/${id}/notes`, { method: 'POST', body: JSON.stringify({ body }) });
+}
+export async function createIncidentFromAlert(alertId) {
+  return apiFetch(`/incidents/from-alert/${alertId}`, { method: 'POST' });
+}
+export async function createIncident(payload) {
+  return apiFetch('/incidents/', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+/* ---- Custody ---- */
+export async function fetchCustody(evidenceId) {
+  return apiFetch(`/custody/evidence/${evidenceId}`);
+}
+export async function verifyCustody(evidenceId) {
+  return apiFetch(`/custody/evidence/${evidenceId}/verify`, { method: 'POST' });
+}
+
+/* ---- Recordings / timeline ---- */
+export async function fetchRecordings({ cameraId, hours = 24 } = {}) {
+  const qs = new URLSearchParams({ hours: String(hours) });
+  if (cameraId) qs.set('camera_id', cameraId);
+  return apiFetch(`/recordings/?${qs}`);
+}
+export async function fetchTimeline({ cameraId, hours = 24 } = {}) {
+  const qs = new URLSearchParams({ hours: String(hours) });
+  if (cameraId) qs.set('camera_id', cameraId);
+  return apiFetch(`/recordings/timeline?${qs}`);
+}
+export function recordingFileUrl(clipId) {
+  return `${API_BASE}/recordings/${clipId}/file`;
+}
+
+/* ---- Re-ID ---- */
+export async function fetchReidPersons(hours = 24) {
+  return apiFetch(`/reid/persons?hours=${hours}`);
+}
+export async function fetchReidVehicles(hours = 24) {
+  return apiFetch(`/reid/vehicles?hours=${hours}`);
+}
+
+/* ---- Integrations ---- */
+export async function fetchIntegrationStatus() {
+  return apiFetch('/integrations/status');
+}
+export async function testIntegration(channel, message) {
+  return apiFetch('/integrations/test', {
+    method: 'POST',
+    body: JSON.stringify({ channel, message }),
+  });
+}
+
+/* ---- Calibration ---- */
+export async function fetchCalibrationMetrics(hours = 168) {
+  return apiFetch(`/calibration/metrics?hours=${hours}`);
+}
+export async function addCalibrationLabel(payload) {
+  return apiFetch('/calibration/labels', { method: 'POST', body: JSON.stringify(payload) });
+}
+
 export function wsUrl(channel = 'alerts') {
   const base = import.meta.env.VITE_WS_URL
     || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
@@ -80,3 +234,4 @@ export function wsUrl(channel = 'alerts') {
   const qs = token ? `?token=${encodeURIComponent(token)}` : '';
   return `${base}/api/v1/ws/${channel}${qs}`;
 }
+
