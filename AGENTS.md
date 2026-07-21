@@ -1,4 +1,5 @@
-# AGENTS.md
+# Aegis — AI Smart Surveillance System
+
 
 ## Running the system
 
