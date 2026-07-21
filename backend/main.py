@@ -67,7 +67,7 @@ def _validate_secrets():
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="AI Smart Surveillance System API",
+    title="Aegis — AI Smart Surveillance API",
     description="Intelligent surveillance platform with face recognition, ANPR, "
                 "anomaly detection, cross-camera tracking, and analytics.",
     version="5.0.0",
