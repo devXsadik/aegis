@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ai-SSS Setup Script
+# Aegis Setup Script
 
 set -e
 
