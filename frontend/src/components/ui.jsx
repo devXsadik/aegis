@@ -108,10 +108,10 @@ export function Stat({ label, value, delta, accent = 'primary', icon: Icon }) {
     <div className={`stat accent-${accent}`}>
       <div className="stat-top">
         <span className="label">{label}</span>
-        {Icon && <span className="stat-icon"><Icon /></span>}
       </div>
       <span className="value">{value}</span>
       {delta && <span className="delta">{delta}</span>}
+      {Icon && <span className="stat-icon"><Icon /></span>}
     </div>
   )
 }
@@ -186,3 +186,4 @@ export function timeAgo(ts) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`
   return d.toLocaleString()
 }
+
