@@ -37,22 +37,30 @@ export function AlertCenter({ ctx }) {
   }
 
   return (
+    <>
+      <div className="page-head">
+        <div>
+          <h2>Alert Center</h2>
+          <p>Priority queue for verification, dispatch, and dismissal.</p>
+        </div>
+        <div className="head-actions">
+          <Seg
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'critical', label: 'Critical' },
+              { value: 'high', label: 'High' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'info', label: 'Info' },
+            ]}
+          />
+        </div>
+      </div>
+
     <Card
-      title="Alert Center"
+      title="Active queue"
       sub={`${filtered.length} alerts · sorted by priority`}
-      actions={
-        <Seg
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'critical', label: 'Critical' },
-            { value: 'high', label: 'High' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'info', label: 'Info' },
-          ]}
-        />
-      }
     >
       {filtered.length === 0 && <Empty icon={Icons.bell}>No alerts match this filter</Empty>}
       <div className="grid grid-2">
@@ -70,7 +78,7 @@ export function AlertCenter({ ctx }) {
                   <div className="a-meta">
                     <span>{evt.camera || 'Unknown camera'}</span>
                     <span>{timeAgo(evt.time)}</span>
-                    {evt.lat != null && <span className="mono">📍 {Number(evt.lat).toFixed(4)}, {Number(evt.lng).toFixed(4)}</span>}
+                    {evt.lat != null && <span className="mono">{Number(evt.lat).toFixed(4)}, {Number(evt.lng).toFixed(4)}</span>}
                   </div>
                 </div>
                 <span className="spacer" />
@@ -78,8 +86,8 @@ export function AlertCenter({ ctx }) {
               </div>
               <div style={{ fontSize: '0.84rem', color: 'var(--text-2)' }}>{evt.msg}</div>
               <div className="a-actions">
-                {status === 'verified' && <Tag tone="ok">✓ Verified</Tag>}
-                {status === 'dispatched' && <Tag tone="info">✓ Police dispatched</Tag>}
+                {status === 'verified' && <Tag tone="ok">Verified</Tag>}
+                {status === 'dispatched' && <Tag tone="info">Police dispatched</Tag>}
                 {status === 'dismissed' && <Tag tone="muted">Dismissed</Tag>}
                 {!status && (
                   <>
@@ -97,5 +105,7 @@ export function AlertCenter({ ctx }) {
         })}
       </div>
     </Card>
+    </>
   )
 }
+
