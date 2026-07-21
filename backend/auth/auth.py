@@ -49,13 +49,32 @@ def get_current_user(
     return user
 
 
+# National-security role matrix (least privilege → most)
+ROLES_OPS = frozenset({"admin", "supervisor", "operator", "police", "investigator"})
+ROLES_COMMAND = frozenset({"admin", "supervisor"})
+ROLES_ADMIN = frozenset({"admin"})
+VALID_ROLES = frozenset({
+    "admin", "supervisor", "operator", "police", "investigator", "viewer",
+})
+
+
 def operator_or_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role not in ("operator", "admin"):
-        raise HTTPException(status_code=403, detail="Operator or admin access required")
+    """Any operational role can view alerts, evidence, cameras, analytics."""
+    if user.role not in ROLES_OPS:
+        raise HTTPException(status_code=403, detail="Operational access required")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account disabled")
+    return user
+
+
+def supervisor_or_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ROLES_COMMAND:
+        raise HTTPException(status_code=403, detail="Supervisor or admin access required")
     return user
 
 
 def admin_only(user: User = Depends(get_current_user)) -> User:
-    if user.role != "admin":
+    if user.role not in ROLES_ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
