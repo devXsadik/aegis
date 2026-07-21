@@ -1,8 +1,8 @@
-# AI Smart Surveillance System (Ai-SSS)
+# Aegis — AI Smart Surveillance System
 
-**Production-grade intelligent surveillance with real-time criminal detection, GPS-tagged alerts, and a secure operator dashboard.**
+**Real-time computer vision surveillance with watchlist recognition, GPS-tagged alerts, and an operator command center.**
 
-Ai-SSS is a final-year project that combines a modular computer-vision pipeline, a FastAPI backend, and a React dashboard into one end-to-end surveillance platform. It detects humans, vehicles, and weapons; recognizes watchlisted individuals; analyzes suspicious behavior; and dispatches automated alerts across sound, database, audit logs, WebSockets, and webhooks — with pinpoint camera GPS on every critical event.
+Aegis combines a modular CV pipeline, a FastAPI backend, and a React dashboard into one end-to-end platform. It detects people, vehicles, and weapons; matches faces against a watchlist; analyzes suspicious behavior; and dispatches alerts across the database, audit log, WebSockets, and optional webhooks — with camera GPS on every critical event.
 
 ---
 
@@ -21,6 +21,7 @@ Ai-SSS is a final-year project that combines a modular computer-vision pipeline,
 - [Testing](#testing)
 - [Docker](#docker)
 - [Documentation](#documentation)
+- [License](#license)
 
 ---
 
@@ -30,35 +31,32 @@ Ai-SSS is a final-year project that combines a modular computer-vision pipeline,
 
 | Capability | Description |
 |------------|-------------|
-| **Human detection** | YOLOv8-based person detection with confidence thresholds |
+| **Human detection** | YOLOv8 person detection with configurable confidence |
 | **Weapon detection** | Custom YOLO model for firearm / weapon identification |
-| **Vehicle detection** | Vehicle detection + tracking with ANPR (license plate OCR) |
-| **Face recognition** | Watchlist matching via PostgreSQL + pgvector encodings |
+| **Vehicle detection** | Vehicle tracking with ANPR (license plate OCR) |
+| **Face recognition** | Watchlist matching via PostgreSQL + pgvector (SQLite fallback for local demos) |
 | **Behavior analysis** | Loitering, rapid movement, erratic motion, pose estimation |
 | **Anomaly detection** | Zone-based crowd and dwell-time anomalies |
 | **Analytics** | Heatmaps, dwell time, and traffic-flow metrics |
 
 ### Alerting & Security
 
-- **Automated criminal alerts** — watchlist match on any camera triggers all channels simultaneously
-- **GPS pinpointing** — every alert carries camera latitude/longitude and a Google Maps link
-- **Evidence capture** — throttled snapshots saved to disk (AES-256 optional) and PostgreSQL
-- **Audit trail** — all evidence saves and auth events logged to `audit_logs`
-- **WebSocket live feed** — instant push to the operator dashboard
-- **Webhook dispatch** — optional Slack/Discord/custom endpoints via `.env`
+- Automated watchlist alerts across sound, DB, audit, WebSocket, and webhooks
+- GPS coordinates and Google Maps link on every critical alert
+- Throttled evidence snapshots (optional AES-256 encryption)
+- Full audit trail for evidence saves and auth events
+- Optional Slack / Discord / custom webhook dispatch
 
 ### Operator Dashboard
 
-- Live alert feed with critical banner, sound, and browser notifications
-- Tabs: **Live Feeds · Event Logs · Known Faces · Evidence · Map · Settings**
-- Interactive camera map with GPS pins
-- Incident report generation via API
+Live monitoring, alert center, watchlist, evidence, map, cameras, vehicles, incidents, analytics, reports, users, and settings — with WebSocket push, critical banners, and browser notifications.
 
-### Multi-Camera & IP Support
+### Multi-Camera Input
 
-- Single webcam, video file, or RTSP/IP camera input
-- Multi-camera mode from `config/cameras.yaml`
+- Webcam, video file, or RTSP / IP camera
+- Multi-camera mode via `config/cameras.yaml`
 - RTSP reconnect with configurable transport (`tcp` / `udp`)
+- Optional ONVIF PTZ and continuous DVR segment recording
 
 ---
 
@@ -80,7 +78,7 @@ flowchart TB
 
     subgraph Backend["FastAPI Backend"]
         AD[Alert Dispatcher]
-        DB[(PostgreSQL)]
+        DB[(PostgreSQL / SQLite)]
         WS[WebSocket]
     end
 
@@ -98,89 +96,95 @@ flowchart TB
 
 **Pipeline stages:** Detection → Tracking → Recognition → Behavior → Analytics → Output
 
-Each stage is a pluggable module under `core/pipeline/stages/`. Data flows through a shared `FrameContext` object, making stages independently testable and configurable.
+Stages live under `core/pipeline/stages/` and share a `FrameContext`, so each stage is independently testable and configurable.
+
+**Alert path:** `OutputStage` → `NotificationHub` → `POST /api/v1/alerts/dispatch` → DB + audit + WebSocket + GPS + optional webhooks.
 
 ---
 
 ## Tech Stack
 
 | Layer | Technologies |
-|-------|-------------|
+|-------|--------------|
 | **Computer Vision** | OpenCV, YOLOv8 (Ultralytics), MediaPipe, face_recognition, EasyOCR, Deep SORT |
-| **Backend** | FastAPI, SQLAlchemy, PostgreSQL, pgvector, JWT auth, AES-256 encryption |
-| **Frontend** | React 19, Vite |
-| **Infrastructure** | Docker Compose, nginx (deploy config) |
+| **Backend** | FastAPI, SQLAlchemy, PostgreSQL + pgvector, JWT, AES-256 |
+| **Frontend** | React 19, Vite 8 |
+| **Infrastructure** | Docker Compose, Redis (optional), nginx deploy config |
 | **Testing** | pytest, GitHub Actions CI |
 
 ---
 
 ## Prerequisites
 
-| Requirement | Version |
-|-------------|---------|
+| Requirement | Version / notes |
+|-------------|-----------------|
 | Python | 3.10+ |
 | Node.js | 18+ |
-| PostgreSQL | 14+ with `pgvector` extension |
-| macOS (optional) | For pipeline alarm sound (`afplay`) |
+| PostgreSQL | 14+ with `pgvector` (optional — SQLite works for local demos) |
+| Model weights | Place under `models/` (see below) |
 
-**Model weights** (not included in repo — place in `models/`):
+**Model weights** (not shipped in the repo):
 
-- `yolov8s.pt` — human detection
-- `weapon_yolo.pt` — weapon detection
-- `yolov8l.pt` — vehicle detection
+| File | Purpose |
+|------|---------|
+| `models/yolov8s.pt` | Human detection |
+| `models/weapon_yolo.pt` | Weapon detection |
+| `models/yolov8l.pt` | Vehicle detection |
 
 ---
 
 ## Installation
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
-git clone https://github.com/<your-username>/final-year-project.git
+git clone https://github.com/devXsadik/final-year-project.git
 cd final-year-project
 ```
 
-### 2. Run setup
+### 2. First-time setup
 
 ```bash
-chmod +x setup_phase1.sh
-./setup_phase1.sh
+./scripts/setup.sh
+# or: make setup
+# or: ./setup_phase1.sh   # thin wrapper → scripts/setup.sh
 ```
 
 Setup will:
 
-1. Create the PostgreSQL database
+1. Create the PostgreSQL database (when `psql` is available)
 2. Copy `.env.example` → `.env`
-3. Install Python dependencies
+3. Install Python dependencies from `requirements.txt`
 4. Initialize the database schema
-5. Ingest watchlist face images from `data/watchlist/`
-6. Seed demo admin user (`admin` / `admin123`)
-7. Sync camera GPS coordinates to the database
+5. Ingest watchlist faces from `data/watchlist/`
+6. Seed demo admin (`admin` / `admin123`)
+7. Sync camera GPS into the database
 
-### 3. Install frontend dependencies
+For a zero-Postgres local demo, keep `USE_SQLITE=true` in `.env` (default in `.env.example`).
+
+### 3. Frontend dependencies
 
 ```bash
 cd frontend && npm install && cd ..
 ```
 
-### 4. Add demo video (recommended)
+### 4. Demo video (recommended)
 
-Place a short MP4 clip at:
+Place a short MP4 at:
 
 ```
 data/demo/clips/sample.mp4
 ```
 
-This ensures a reliable demo without depending on a live camera.
-
 ---
 
 ## Quick Start
 
-**One-command defense demo** (backend + pipeline + dashboard):
+**One command** — backend + CV pipeline + dashboard:
 
 ```bash
-./scripts/run_defense_demo.sh
+./run.sh
+# or: make run
 ```
 
 | Service | URL |
@@ -189,15 +193,22 @@ This ensures a reliable demo without depending on a live camera.
 | API docs | http://localhost:8000/docs |
 | Login | `admin` / `admin123` |
 
+```bash
+./run.sh path/to/video.mp4   # custom video
+./run.sh --no-pipeline       # API + dashboard only
+make stop                    # free ports :8000 and :5173
+```
+
 **Makefile shortcuts:**
 
 ```bash
-make setup      # Run full setup
-make demo       # Start defense demo
-make test       # Run unit tests
-make backend    # Start FastAPI only
-make pipeline   # Start CV pipeline on demo video
-make frontend   # Start React dev server
+make setup      # Full setup
+make run        # Start full system
+make stop       # Stop :8000 and :5173
+make test       # Unit tests
+make backend    # FastAPI only
+make pipeline   # CV pipeline on demo video
+make frontend   # React dev server
 make ingest     # Re-ingest watchlist faces
 ```
 
@@ -205,21 +216,21 @@ make ingest     # Re-ingest watchlist faces
 
 ## Usage
 
-### Single camera (webcam)
+### Manual (three terminals)
 
 ```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000   # Terminal 1
-python main.py                                                  # Terminal 2
-cd frontend && npm run dev                                      # Terminal 3
-```
-
-### Video file (recommended for demos)
-
-```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 python main.py --video data/demo/clips/sample.mp4
+cd frontend && npm run dev
 ```
 
-### Multi-camera (RTSP / IP cameras)
+### Webcam
+
+```bash
+python main.py
+```
+
+### Multi-camera (RTSP / IP)
 
 ```bash
 python main.py --multi
@@ -227,7 +238,7 @@ python main.py --multi
 
 Configure cameras in `config/cameras.yaml`. Use `${RTSP_GATE_1}` placeholders resolved from `.env`.
 
-### Headless mode (no OpenCV window)
+### Headless
 
 ```bash
 python main.py --multi --no-display
@@ -246,15 +257,15 @@ HEADLESS=true python main.py --video data/demo/clips/sample.mp4
 ### Watchlist management
 
 ```bash
-# 1. Add face images to data/watchlist/CRIMINAL_XXX_Name/
-# 2. Convert HEIC images (macOS / Pillow)
+# 1. Add images under data/watchlist/CRIMINAL_XXX_Name/
+# 2. Convert HEIC if needed
 python scripts/convert_heic.py
 
-# 3. Ingest encodings into PostgreSQL
+# 3. Ingest encodings
 python scripts/ingest_watchlist.py
 ```
 
-### Performance evaluation (thesis / benchmarking)
+### Pipeline evaluation
 
 ```bash
 python scripts/evaluate_pipeline.py \
@@ -267,30 +278,29 @@ python scripts/evaluate_pipeline.py \
 
 ## Configuration
 
-### Environment variables (`.env`)
+### Environment (`.env`)
 
-Copy from `.env.example` and set at minimum:
+Copy from `.env.example`. Minimum variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_URL` | PostgreSQL or SQLite connection string |
+| `USE_SQLITE` | `true` for local zero-setup demos |
 | `SECRET_KEY` | JWT signing key (64+ chars in production) |
 | `ENCRYPTION_KEY` | AES-256 evidence encryption |
-| `INTERNAL_API_KEY` | Pipeline ↔ backend auth (must match on both sides) |
+| `INTERNAL_API_KEY` | Pipeline ↔ backend auth (**must match both sides**) |
 | `BACKEND_URL` | Backend URL for pipeline event publishing |
 | `RTSP_*` | IP camera stream URLs |
 
-### YAML configuration
+### YAML
 
 | File | Purpose |
 |------|---------|
-| `config/config.yaml` | Main pipeline settings, thresholds, default camera GPS |
+| `config/config.yaml` | Pipeline settings, thresholds, default camera GPS |
 | `config/cameras.yaml` | Multi-camera RTSP sources + per-camera GPS |
 | `config/models.yaml` | Model registry (paths, tolerances, OCR languages) |
 
-### Criminal watchlist
-
-Add person folders under `data/watchlist/`:
+### Watchlist layout
 
 ```
 data/watchlist/
@@ -302,7 +312,7 @@ data/watchlist/
 └── manifest.json          # optional metadata
 ```
 
-Register names in `config/config.yaml` under `criminal_names`.
+Register display names under `criminal_names` in `config/config.yaml`.
 
 ---
 
@@ -311,7 +321,8 @@ Register names in `config/config.yaml` under `criminal_names`.
 ```
 ├── main.py                     # CLI entrypoint
 ├── paths.py                    # Central path constants
-├── setup_phase1.sh             # Setup wrapper
+├── run.sh                      # One-command full system
+├── setup_phase1.sh             # Wrapper → scripts/setup.sh
 ├── Makefile                    # Common commands
 │
 ├── core/                       # Computer vision
@@ -332,9 +343,10 @@ Register names in `config/config.yaml` under `criminal_names`.
 │
 ├── frontend/                   # React operator dashboard
 │   └── src/
-│       ├── components/         # UI components
-│       ├── hooks/              # WebSocket, auto-alerts
-│       └── services/           # API client
+│       ├── components/
+│       ├── hooks/
+│       ├── pages/
+│       └── services/
 │
 ├── utils/                      # Shared utilities
 │   ├── alerts/                 # Notification hub, event publisher
@@ -351,7 +363,7 @@ Register names in `config/config.yaml` under `criminal_names`.
 ├── config/                     # YAML configuration
 ├── scripts/                    # Setup, seed, evaluate, deploy
 ├── deploy/                     # nginx configuration
-├── docs/                       # Architecture, defense, development guides
+├── docs/                       # Architecture, defense, development
 └── tests/unit/                 # pytest suite
 ```
 
@@ -359,20 +371,20 @@ Register names in `config/config.yaml` under `criminal_names`.
 
 ## API Overview
 
-All routes are prefixed with `/api/v1/`. Interactive docs at `http://localhost:8000/docs`.
+All routes are prefixed with `/api/v1/`. Interactive docs: http://localhost:8000/docs
 
 | Endpoint | Description |
 |----------|-------------|
 | `POST /auth/login` | Operator authentication |
-| `GET /alerts` | List alert history |
+| `GET /alerts` | Alert history |
 | `POST /alerts/dispatch` | Internal alert dispatch (pipeline) |
 | `GET /faces` | Known persons / watchlist |
 | `GET /evidence` | Evidence records |
 | `GET /cameras` | Camera registry with GPS |
 | `GET /map/cameras` | Map-ready camera pins |
-| `GET /reports/incident` | Generate incident report |
-| `WS /ws/alerts` | Live alert WebSocket stream |
-| `WS /ws/status` | System status WebSocket |
+| `GET /reports/incident` | Incident report |
+| `WS /ws/alerts` | Live alert stream |
+| `WS /ws/status` | System status stream |
 | `GET /health` | Health check |
 
 ---
@@ -381,6 +393,7 @@ All routes are prefixed with `/api/v1/`. Interactive docs at `http://localhost:8
 
 ```bash
 pytest tests/unit/ -v
+# or: make test
 ```
 
 CI runs on push via GitHub Actions (`.github/workflows/ci.yml`).
@@ -390,15 +403,14 @@ CI runs on push via GitHub Actions (`.github/workflows/ci.yml`).
 ## Docker
 
 ```bash
-cp .env.example .env        # configure secrets first
-docker-compose up -d
+cp .env.example .env    # set secrets first
+docker compose up -d
 ```
-
-Services:
 
 | Container | Port | Role |
 |-----------|------|------|
 | `surveillance_db` | 5433 | PostgreSQL |
+| `surveillance_redis` | 6379 | Redis |
 | `surveillance_backend` | 8000 | FastAPI API |
 | `surveillance_main` | — | CV pipeline (demo video) |
 
@@ -411,28 +423,30 @@ Services:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data flow, module map |
 | [docs/DEFENSE.md](docs/DEFENSE.md) | Graduation demo script and checklist |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup and conventions |
-| [AGENTS.md](AGENTS.md) | Contributor / agent reference |
+| [AGENTS.md](AGENTS.md) | Contributor / agent quick reference |
 
 ---
 
-## Alert Flow (Criminal Detection)
+## Alert Flow
 
 When a watchlisted person is detected on **any camera**:
 
 1. **Pipeline** — red HUD banner, alarm sound, evidence snapshot
-2. **NotificationHub** — `POST /api/v1/alerts/dispatch` with GPS coordinates
-3. **Alert Dispatcher** — saves to DB, writes audit log, broadcasts WebSocket
-4. **Dashboard** — sound, critical banner, browser notification, map pin update
+2. **NotificationHub** — `POST /api/v1/alerts/dispatch` with GPS
+3. **Alert Dispatcher** — DB save, audit log, WebSocket broadcast
+4. **Dashboard** — sound, critical banner, browser notification, map pin
 5. **Webhooks** — optional external dispatch (Slack, Discord, etc.)
 
 ---
 
 ## Contributing
 
-This is a final-year academic project. For issues or suggestions, open a GitHub issue or submit a pull request.
+This is a final-year academic project. Issues and pull requests are welcome.
 
 ---
 
-## Author
+## License
 
-Final Year Project — AI Smart Surveillance System (Ai-SSS) v5.0
+Academic / final-year project — see repository owner for usage terms.
+
+**Aegis** — AI Smart Surveillance System
