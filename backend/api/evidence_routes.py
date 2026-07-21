@@ -42,6 +42,7 @@ class EvidenceResponse(BaseModel):
     category: str
     reasons: Optional[str]
     has_image: bool = False
+    content_sha256: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -81,6 +82,13 @@ def get_evidence_image(
     if ev.encrypted:
         from backend.utils.encryption import EncryptionManager
         data = EncryptionManager().decrypt(data)
+    # Log access in custody chain (best-effort)
+    try:
+        from backend.services.custody import append_custody
+        append_custody(db, evidence_id=evidence_id, action="ACCESSED", actor="viewer", details=f"kind={kind}")
+        db.commit()
+    except Exception:
+        db.rollback()
     return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "private, max-age=3600"})
 
@@ -103,4 +111,5 @@ def delete_evidence(evidence_id: int, db: Session = Depends(get_db),
     db.delete(ev)
     db.commit()
     return {"status": "deleted"}
+
 
