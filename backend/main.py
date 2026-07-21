@@ -20,6 +20,7 @@ from backend.api.recording_routes import router as recording_router
 from backend.api.reid_routes import router as reid_router
 from backend.api.integration_routes import router as integration_router
 from backend.api.calibration_routes import router as calibration_router
+from backend.api.vms_routes import router as vms_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger("HumanAnalysis")
@@ -105,6 +106,7 @@ app.include_router(recording_router, prefix=API_V1)
 app.include_router(reid_router, prefix=API_V1)
 app.include_router(integration_router, prefix=API_V1)
 app.include_router(calibration_router, prefix=API_V1)
+app.include_router(vms_router, prefix=API_V1)
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ def health_check():
         "version": "5.0.0",
         "phase": "5 - Production Architecture",
     }
+
 
 
 

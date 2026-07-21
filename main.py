@@ -45,6 +45,21 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
     source = resolve_source(cam_cfg.get("source", 0))
     fps = cam_cfg.get("fps_limit", cfg.get("target_fps", 30))
 
+    # Wire ONVIF PTZ if configured for this camera
+    if cam_cfg.get("onvif_host"):
+        try:
+            from backend.services.ptz import configure_onvif
+            configure_onvif(
+                cam_id,
+                host=str(cam_cfg["onvif_host"]),
+                username=str(cam_cfg.get("onvif_user") or "admin"),
+                password=str(cam_cfg.get("onvif_pass") or ""),
+                profile_token=cam_cfg.get("onvif_profile") or "Profile_1",
+            )
+            logger.info(f"ONVIF PTZ configured for {cam_id}")
+        except Exception as e:
+            logger.warning(f"ONVIF setup skipped for {cam_id}: {e}")
+
     pipeline, criminal_names, _ = build_pipeline(cfg, base_dir, camera_location=cam_loc)
 
     def worker():
@@ -139,3 +154,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
