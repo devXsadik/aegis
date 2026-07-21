@@ -56,11 +56,22 @@ echo "============================================"
 echo "  Ai-SSS Command Center — Full System"
 echo "============================================"
 
+# --- Python ---
+PYTHON="python3"
+if [ -x ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+  # shellcheck disable=SC1091
+  source .venv/bin/activate 2>/dev/null || true
+fi
+
 # --- .env ---
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "Created .env from .env.example"
 fi
+
+echo "[env] Ensuring secrets + local database…"
+$PYTHON scripts/ensure_local_env.py
 
 # Load env without breaking on spaces/special chars
 set -a
@@ -72,14 +83,8 @@ export BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
 export PIPELINE_STREAM_ENABLED="${PIPELINE_STREAM_ENABLED:-true}"
 export DVR_ENABLED="${DVR_ENABLED:-true}"
 export AUTO_ALERTS_ENABLED="${AUTO_ALERTS_ENABLED:-true}"
-
-# --- Python ---
-PYTHON="python3"
-if [ -x ".venv/bin/python" ]; then
-  PYTHON=".venv/bin/python"
-  # shellcheck disable=SC1091
-  source .venv/bin/activate 2>/dev/null || true
-fi
+export USE_SQLITE="${USE_SQLITE:-true}"
+export ALLOW_SQLITE_FALLBACK="${ALLOW_SQLITE_FALLBACK:-true}"
 
 # --- Frontend deps ---
 if [ ! -d frontend/node_modules ]; then
@@ -87,9 +92,9 @@ if [ ! -d frontend/node_modules ]; then
   (cd frontend && npm install)
 fi
 
-# --- Seed (best-effort; works with local or Render DB) ---
+# --- Seed (best-effort) ---
 echo "[seed] Demo user + cameras…"
-$PYTHON scripts/seed_demo.py 2>/dev/null || echo "  (seed_demo skipped — DB may be unreachable)"
+$PYTHON scripts/seed_demo.py 2>/dev/null || echo "  (seed_demo skipped)"
 $PYTHON scripts/seed_cameras.py 2>/dev/null || echo "  (seed_cameras skipped)"
 
 # Free ports if stale processes linger
@@ -157,3 +162,4 @@ echo ""
 
 # Block until any child exits (or Ctrl+C)
 wait
+
