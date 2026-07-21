@@ -1,11 +1,11 @@
 # Architecture
 
-AI Smart Surveillance System (Ai-SSS) — layered pipeline + API + dashboard.
+Aegis (AI Smart Surveillance System) — layered pipeline + API + dashboard.
 
 ## Layout
 
 ```
-final-year-project/
+aegis/
 ├── main.py                 # CLI entrypoint (single / multi camera)
 ├── paths.py                # Central path constants
 ├── config/                 # YAML configuration

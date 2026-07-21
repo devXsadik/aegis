@@ -1,4 +1,4 @@
-# Graduation Defense Guide — AI Smart Surveillance System (Ai-SSS)
+# Graduation Defense Guide — Aegis (AI Smart Surveillance System)
 
 ## Automated criminal alerts (any camera → all channels)
 
