@@ -27,10 +27,22 @@ _limiter = InMemoryRateLimiter()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Protect auth + internal event paths under /api/v1."""
+
+    _PROTECTED = (
+        "/api/v1/auth/login",
+        "/api/v1/auth/users",
+        "/api/v1/events/internal",
+        "/api/v1/alerts/dispatch",
+    )
+
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith(("/auth/", "/events/live")):
+        path = request.url.path
+        if any(path.startswith(p) for p in self._PROTECTED):
             client_ip = request.client.host if request.client else "unknown"
-            key = f"{client_ip}:{request.url.path}"
-            if not _limiter.check(key, max_requests=20, window_seconds=60):
+            key = f"{client_ip}:{path}"
+            limit = 10 if "login" in path else 60
+            if not _limiter.check(key, max_requests=limit, window_seconds=60):
                 raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
         return await call_next(request)
+
