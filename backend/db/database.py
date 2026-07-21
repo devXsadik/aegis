@@ -50,7 +50,10 @@ Base = declarative_base()
 
 
 def init_db():
-    from backend.models import user, face_encoding, evidence, audit_log, known_person, person_image, camera, alert, vehicle, config_entry
+    from backend.models import (
+        user, face_encoding, evidence, audit_log, known_person, person_image,
+        camera, alert, vehicle, config_entry, incident, custody, recording, calibration,
+    )
     Base.metadata.create_all(bind=engine)
 
 
@@ -60,3 +63,4 @@ def get_db():
         yield db
     finally:
         db.close()
+
