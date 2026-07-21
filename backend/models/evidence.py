@@ -37,6 +37,9 @@ class Evidence(Base):
     frame_data = Column(LargeBinary, nullable=True)
     roi_data = Column(LargeBinary, nullable=True)
 
+    # Tamper-evident hash of frame_data (SHA-256 hex)
+    content_sha256 = Column(String(64), nullable=True, index=True)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -49,3 +52,8 @@ class Evidence(Base):
         Index("idx_track_time", "track_id", "timestamp"),
         Index("idx_evidence_person_name", "person_name"),
     )
+
+    @property
+    def has_image(self) -> bool:
+        return self.frame_data is not None or self.frame_path is not None
+

@@ -122,17 +122,18 @@ def vehicle_tracks(
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     q = db.query(VehicleDetection).filter(VehicleDetection.timestamp >= cutoff)
     if plate:
-        q = q.filter(VehicleDetection.plate_number.ilike(f"%{plate}%"))
+        q = q.filter(VehicleDetection.license_plate.ilike(f"%{plate}%"))
     rows = q.order_by(desc(VehicleDetection.timestamp)).limit(500).all()
 
     by_plate = defaultdict(list)
     for r in rows:
-        key = (r.plate_number or "UNKNOWN").upper()
+        key = (r.license_plate or "UNKNOWN").upper()
         by_plate[key].append({
             "id": r.id,
-            "camera": getattr(r, "camera_location", None) or getattr(r, "camera_id", None),
+            "camera": r.camera_location,
             "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-            "is_suspicious": getattr(r, "is_suspicious", False),
+            "is_suspicious": r.is_suspicious,
+            "vehicle_type": r.vehicle_type,
         })
 
     tracks = []
@@ -147,3 +148,4 @@ def vehicle_tracks(
         })
     tracks.sort(key=lambda t: (not t["cross_camera"], -t["sightings"]))
     return {"period_hours": hours, "vehicles": tracks}
+
