@@ -334,11 +334,16 @@ function App() {
         <header className="topbar">
           <button className="icon-btn hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}><Icons.menu /></button>
           <h1>{activePage?.label}</h1>
-          <div className="searchbox" onClick={() => setShowPalette(true)}>
+          <button
+            type="button"
+            className="searchbox"
+            onClick={() => setShowPalette(true)}
+            aria-label="Open command palette"
+          >
             <Icons.search />
             <span>Search or jump to…</span>
             <kbd>⌘K</kbd>
-          </div>
+          </button>
           <div className="topbar-right">
             <Pill tone={threatTone}>THREAT {threatLevel.toUpperCase()}</Pill>
             <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
@@ -385,3 +390,4 @@ function App() {
 }
 
 export default App
+
