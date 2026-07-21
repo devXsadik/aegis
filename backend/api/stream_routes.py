@@ -73,6 +73,26 @@ def streaming_cameras(token: Optional[str] = Query(default=None)):
         }
 
 
+def _frame_with_digital_ptz(camera_id: str, jpeg_bytes: bytes) -> bytes:
+    """Apply digital PTZ crop/zoom to a JPEG buffer when zoom/pan active."""
+    try:
+        from backend.services.ptz import get_state, apply_digital_crop
+        st = get_state(camera_id)
+        if st.mode != "digital" or (st.zoom <= 1.01 and abs(st.pan) < 0.01 and abs(st.tilt) < 0.01):
+            return jpeg_bytes
+        import cv2
+        import numpy as np
+        arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return jpeg_bytes
+        out = apply_digital_crop(img, camera_id)
+        ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        return buf.tobytes() if ok else jpeg_bytes
+    except Exception:
+        return jpeg_bytes
+
+
 @router.get("/{camera_id}/snapshot")
 def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
     _verify_viewer_token(token)
@@ -80,7 +100,8 @@ def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
         entry = _frames.get(camera_id)
     if not entry or time.monotonic() - entry[1] > FRAME_STALE_SECONDS:
         raise HTTPException(status_code=404, detail="No live frame for this camera")
-    return Response(content=entry[0], media_type="image/jpeg",
+    data = _frame_with_digital_ptz(camera_id, entry[0])
+    return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store"})
 
 
@@ -96,7 +117,8 @@ async def live_mjpeg(camera_id: str, token: Optional[str] = Query(default=None))
             with _lock:
                 entry = _frames.get(camera_id)
             if entry and entry[1] != last_ts:
-                frame, last_ts = entry
+                raw, last_ts = entry
+                frame = _frame_with_digital_ptz(camera_id, raw)
                 misses = 0
                 yield (
                     b"--frame\r\nContent-Type: image/jpeg\r\n"
@@ -114,3 +136,4 @@ async def live_mjpeg(camera_id: str, token: Optional[str] = Query(default=None))
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-store"},
     )
+
