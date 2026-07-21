@@ -170,6 +170,16 @@ async def dispatch_alert(
         db.commit()
         db.refresh(alert)
 
+        # Auto-open a server-side incident ticket for critical/high threats
+        if severity in ("critical", "high"):
+            try:
+                from backend.services.incident_service import create_incident_from_alert
+                create_incident_from_alert(db, alert, created_by_name="SYSTEM")
+                db.commit()
+            except Exception as ie:
+                logger.warning(f"Auto-incident create failed: {ie}")
+                db.rollback()
+
         payload = await broadcast_live_event(
             event_type=alert_type,
             severity=severity,
@@ -201,3 +211,4 @@ async def dispatch_alert(
     finally:
         if own_session:
             db.close()
+
