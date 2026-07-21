@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Icons, Seg, Pill, Tag, Empty, timeAgo } from '../components/ui'
-import { liveStreamUrl, fetchTimeline, recordingFileUrl, getToken } from '../services/api'
+import {
+  liveStreamUrl,
+  fetchVmsTimeline, fetchPtz, ptzMove, ptzStop, ptzHome, ptzSetMode,
+  ptzSavePreset, ptzGotoPreset, openVmsPlayback,
+} from '../services/api'
 
-/* Deterministic pseudo-random per tile so bounding boxes don't jump every render */
 function seeded(i) {
   const x = Math.sin(i * 999 + 7) * 10000
   return x - Math.floor(x)
@@ -13,8 +16,9 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
   const fps = cam?.fps ?? Math.round(22 + seeded(index) * 8)
   const [streamFailed, setStreamFailed] = useState(false)
   const streaming = cam?.streaming && !streamFailed
+
   const boxes = useMemo(() => {
-    if (!aiOverlay || !online) return []
+    if (!aiOverlay || !online || streaming) return []
     const n = 1 + Math.floor(seeded(index * 3) * 2)
     return Array.from({ length: n }, (_, k) => {
       const threat = alerting && k === 0
@@ -27,7 +31,7 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
         threat,
       }
     })
-  }, [aiOverlay, online, index, alerting])
+  }, [aiOverlay, online, index, alerting, streaming])
 
   return (
     <div className={`cam-tile ${alerting ? 'alerting' : ''}`} onClick={onFocus} style={{ cursor: 'pointer', outline: focused ? '2px solid var(--primary)' : 'none' }}>
@@ -44,6 +48,7 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
         <span className="rec-dot" />
         {cam?.name || cam?.camera_location || `CAM-${String(index + 1).padStart(2, '0')}`}
         {streaming && <span style={{ color: 'var(--ok)' }}>· LIVE</span>}
+        {cam?.dvr && <span style={{ color: 'var(--danger)' }}>· REC</span>}
       </div>
       {online ? (
         <>
@@ -53,16 +58,84 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
             </div>
           ))}
           <div className="cam-stats">
-            <span>{fps} FPS{streaming ? ' · MJPEG' : ' · 1080p'}</span>
+            <span>{fps} FPS{streaming ? ' · MJPEG' : ''}</span>
             <span>THREAT {cam?.threat_score ?? 0}</span>
           </div>
         </>
       ) : (
-        <div className="cam-offline">
-          <Icons.camera />
-          <div>Signal lost</div>
-        </div>
+        <div className="cam-offline"><Icons.camera /><div>Signal lost</div></div>
       )}
+    </div>
+  )
+}
+
+function PtzPad({ cameraId }) {
+  const [state, setState] = useState(null)
+  const [presetName, setPresetName] = useState('Gate')
+
+  useEffect(() => {
+    if (!cameraId) return
+    fetchPtz(cameraId).then(setState).catch(() => {})
+  }, [cameraId])
+
+  const move = async (pan, tilt, zoom = 0) => {
+    try {
+      setState(await ptzMove(cameraId, { pan, tilt, zoom }))
+    } catch { /* offline */ }
+  }
+  const stop = async () => { try { setState(await ptzStop(cameraId)) } catch { /* */ } }
+
+  if (!cameraId) return <Empty icon={Icons.camera}>Select a camera tile</Empty>
+
+  const mode = state?.mode || 'digital'
+  const dig = state?.digital || { pan: 0, tilt: 0, zoom: 1 }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Seg
+          value={mode}
+          onChange={async (m) => setState(await ptzSetMode(cameraId, m))}
+          options={[{ value: 'digital', label: 'Digital PTZ' }, { value: 'onvif', label: 'ONVIF' }]}
+        />
+        <Tag tone={state?.onvif?.configured ? 'ok' : 'muted'}>
+          {state?.onvif?.configured ? `ONVIF ${state.onvif.host}` : 'ONVIF simulator'}
+        </Tag>
+      </div>
+
+      <div className="ptz-pad">
+        <button className="ptz-btn" onMouseDown={() => move(0, 1)} onMouseUp={stop} onMouseLeave={stop}>▲</button>
+        <div className="ptz-mid">
+          <button className="ptz-btn" onMouseDown={() => move(-1, 0)} onMouseUp={stop} onMouseLeave={stop}>◀</button>
+          <button className="ptz-btn ptz-home" onClick={async () => setState(await ptzHome(cameraId))}>⌂</button>
+          <button className="ptz-btn" onMouseDown={() => move(1, 0)} onMouseUp={stop} onMouseLeave={stop}>▶</button>
+        </div>
+        <button className="ptz-btn" onMouseDown={() => move(0, -1)} onMouseUp={stop} onMouseLeave={stop}>▼</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+        <span className="muted" style={{ fontSize: '0.75rem' }}>Zoom</span>
+        <button className="btn btn-sm" onMouseDown={() => move(0, 0, -0.5)} onMouseUp={stop}>−</button>
+        <input
+          type="range" min="1" max="8" step="0.1" value={dig.zoom}
+          readOnly
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-sm" onMouseDown={() => move(0, 0, 0.5)} onMouseUp={stop}>+</button>
+        <b style={{ fontSize: '0.8rem', width: 36 }}>{Number(dig.zoom).toFixed(1)}×</b>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+        <input className="input" style={{ width: 100, padding: '4px 8px' }} value={presetName} onChange={(e) => setPresetName(e.target.value)} />
+        <button className="btn btn-sm" onClick={async () => setState(await ptzSavePreset(cameraId, presetName || 'Preset'))}>Save preset</button>
+        {(state?.presets || []).map((p) => (
+          <button key={p} className="btn btn-sm btn-primary" onClick={async () => setState(await ptzGotoPreset(cameraId, p))}>{p}</button>
+        ))}
+      </div>
+      {state?.last_error && <p className="muted" style={{ fontSize: '0.72rem', marginTop: 8, color: 'var(--warn)' }}>ONVIF: {state.last_error} (simulator active)</p>}
+      <p className="muted" style={{ fontSize: '0.72rem', marginTop: 8 }}>
+        Digital PTZ crops the live stream. ONVIF sends SOAP ContinuousMove to the camera (or simulates if unreachable).
+      </p>
     </div>
   )
 }
@@ -72,97 +145,151 @@ export function LiveMonitoring({ ctx }) {
   const [layout, setLayout] = useState(4)
   const [aiOverlay, setAiOverlay] = useState(true)
   const [focused, setFocused] = useState(0)
+  const [timeline, setTimeline] = useState([])
+  const [coverageHrs, setCoverageHrs] = useState(0)
+  const [scrub, setScrub] = useState(100)
+  const [replayUrl, setReplayUrl] = useState(null)
+  const [replayBusy, setReplayBusy] = useState(false)
 
   const streamingSet = new Set(streamingCams)
   const liveCams = Object.entries(systemStatus?.cameras || {}).map(([id, c]) => ({
     camera_id: id, name: c.camera_location, fps: c.fps, threat_score: c.threat_score,
-    online: true, streaming: streamingSet.has(id),
+    online: true, streaming: streamingSet.has(id), dvr: true,
   }))
   const registered = cameras.map((c) => ({
     camera_id: c.camera_id, name: c.name || c.location, online: c.active,
-    streaming: streamingSet.has(c.camera_id),
+    streaming: streamingSet.has(c.camera_id), dvr: true,
   }))
   const source = liveCams.length ? liveCams : registered
   const tiles = Array.from({ length: layout }, (_, i) => source[i] || null)
   const alertingIdx = threatLevel === 'critical' ? 0 : -1
-  const [timeline, setTimeline] = useState([])
+  const activeCam = tiles[focused]?.camera_id || source[0]?.camera_id
 
   useEffect(() => {
-    fetchTimeline({ hours: 24 }).then((r) => setTimeline(r.events || [])).catch(() => {})
-  }, [streamingCams.length])
+    fetchVmsTimeline({ cameraId: activeCam, hours: 24 }).then((r) => {
+      setTimeline(r.segments || [])
+      setCoverageHrs(r.continuous_coverage_hours || 0)
+    }).catch(() => {})
+  }, [activeCam, streamingCams.length])
+
+  const loadTimeline = () => {
+    fetchVmsTimeline({ cameraId: activeCam, hours: 24 }).then((r) => {
+      setTimeline(r.segments || [])
+      setCoverageHrs(r.continuous_coverage_hours || 0)
+    }).catch(() => {})
+  }
+
+  const scrubToReplay = async () => {
+    if (!activeCam || !timeline.length) return
+    setReplayBusy(true)
+    try {
+      const idx = Math.min(timeline.length - 1, Math.floor((scrub / 100) * timeline.length))
+      const seg = timeline[idx]
+      const t = seg?.start || new Date().toISOString()
+      const { blobUrl } = await openVmsPlayback(activeCam, t)
+      if (replayUrl) URL.revokeObjectURL(replayUrl)
+      setReplayUrl(blobUrl)
+    } catch (e) {
+      alert(e.message || 'No recording at this time')
+    } finally {
+      setReplayBusy(false)
+    }
+  }
 
   return (
     <>
-    <Card
-      title="Live Monitoring Center"
-      sub={
-        streamingCams.length > 0
-          ? `${streamingCams.length} camera(s) streaming live AI video`
-          : systemStatus?.online ? 'pipeline online — waiting for video frames' : 'pipeline offline — tiles show placeholder telemetry'
-      }
-      actions={
-        <div className="cam-controls">
-          <Seg
-            value={layout}
-            onChange={setLayout}
-            options={[{ value: 1, label: '1' }, { value: 4, label: '4' }, { value: 9, label: '9' }, { value: 16, label: '16' }]}
-          />
-          <button className={`btn btn-sm ${aiOverlay ? 'btn-primary' : ''}`} onClick={() => setAiOverlay(!aiOverlay)}>
-            <Icons.ai /> AI {aiOverlay ? 'ON' : 'OFF'}
-          </button>
-          <Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{systemStatus?.online ? 'LIVE' : 'STANDBY'}</Pill>
-        </div>
-      }
-    >
-      <div className={`cam-grid n${layout}`}>
-        {tiles.map((cam, i) => (
-          <CamTile
-            key={i}
-            cam={cam}
-            index={i}
-            aiOverlay={aiOverlay}
-            alerting={i === alertingIdx}
-            focused={focused === i && layout > 1}
-            onFocus={() => setFocused(i)}
-          />
-        ))}
-      </div>
-      <div className="toolbar" style={{ marginTop: 14, marginBottom: 0 }}>
-        <span className="muted" style={{ fontSize: '0.78rem' }}>Selected: <b>{tiles[focused]?.name || `Tile ${focused + 1}`}</b></span>
-        <span className="spacer" />
-        <Tag tone="muted">PTZ / audio require camera SDK — clips auto-saved on threat</Tag>
-      </div>
-    </Card>
-
-    <Card title="Timeline Replay" sub="event-triggered clips · last 24h" style={{ marginTop: 14 }}>
-      {timeline.length === 0 && <Empty icon={Icons.clock}>No recordings yet — clips save when threat_score ≥ 40</Empty>}
-      {timeline.slice().reverse().slice(0, 12).map((ev) => (
-        <div key={ev.id} className="row">
-          <div>
-            <b>{ev.alert_type || ev.trigger}</b>
-            <div className="meta">{ev.camera_id} · {timeAgo(ev.t)}</div>
+      <Card
+        title="Live Monitoring Center"
+        sub={
+          streamingCams.length > 0
+            ? `${streamingCams.length} live · DVR coverage ${coverageHrs.toFixed(2)}h (24h window)`
+            : systemStatus?.online
+              ? 'pipeline online — waiting for video frames · DVR recording when frames arrive'
+              : 'pipeline offline — start: python main.py --video data/demo/clips/sample.mp4'
+        }
+        actions={
+          <div className="cam-controls">
+            <Seg
+              value={layout}
+              onChange={setLayout}
+              options={[{ value: 1, label: '1' }, { value: 4, label: '4' }, { value: 9, label: '9' }, { value: 16, label: '16' }]}
+            />
+            <button className={`btn btn-sm ${aiOverlay ? 'btn-primary' : ''}`} onClick={() => setAiOverlay(!aiOverlay)}>
+              <Icons.ai /> AI {aiOverlay ? 'ON' : 'OFF'}
+            </button>
+            <Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{systemStatus?.online ? 'LIVE' : 'STANDBY'}</Pill>
+            <Pill tone="danger">DVR</Pill>
           </div>
-          <a
-            className="btn btn-sm"
-            href={`${recordingFileUrl(ev.id)}${getToken() ? '' : ''}`}
-            target="_blank"
-            rel="noreferrer"
-            onClick={async (e) => {
-              e.preventDefault()
-              const token = getToken()
-              const res = await fetch(recordingFileUrl(ev.id), {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-              })
-              if (!res.ok) return
-              const blob = await res.blob()
-              window.open(URL.createObjectURL(blob), '_blank')
-            }}
-          >
-            <Icons.eye /> Replay
-          </a>
+        }
+      >
+        <div className={`cam-grid n${layout}`}>
+          {tiles.map((cam, i) => (
+            <CamTile
+              key={i}
+              cam={cam}
+              index={i}
+              aiOverlay={aiOverlay}
+              alerting={i === alertingIdx}
+              focused={focused === i && layout > 1}
+              onFocus={() => setFocused(i)}
+            />
+          ))}
         </div>
-      ))}
-    </Card>
+      </Card>
+
+      <div className="grid grid-23" style={{ marginTop: 14 }}>
+        <Card title="Timeline Scrubber" sub={`${timeline.length} segments · continuous + events`}>
+          {timeline.length === 0 ? (
+            <Empty icon={Icons.clock}>
+              No DVR segments yet. Run the pipeline with <code>DVR_ENABLED=true</code> — segments close every 60s.
+            </Empty>
+          ) : (
+            <>
+              <div className="vms-rail">
+                {timeline.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`vms-seg ${s.trigger === 'event' ? 'event' : 'cont'}`}
+                    title={`${s.trigger} ${s.start}`}
+                    style={{ flex: Math.max(0.5, s.duration || 1) }}
+                  />
+                ))}
+              </div>
+              <label className="field" style={{ marginTop: 12 }}>
+                Scrub position
+                <input type="range" min="0" max="100" value={scrub} onChange={(e) => setScrub(Number(e.target.value))} />
+              </label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" disabled={replayBusy} onClick={scrubToReplay}>
+                  <Icons.eye /> {replayBusy ? 'Loading…' : 'Play at scrub'}
+                </button>
+                <button className="btn btn-sm" onClick={loadTimeline}>Refresh</button>
+                <span className="muted" style={{ fontSize: '0.75rem', alignSelf: 'center' }}>
+                  Camera: <b>{activeCam || '—'}</b>
+                </span>
+              </div>
+              {replayUrl && (
+                <video src={replayUrl} controls autoPlay style={{ width: '100%', marginTop: 12, borderRadius: 8, background: '#000' }} />
+              )}
+              <div style={{ marginTop: 12, maxHeight: 160, overflowY: 'auto' }}>
+                {timeline.slice().reverse().slice(0, 8).map((s) => (
+                  <div key={s.id} className="row">
+                    <div>
+                      <b>{s.trigger}</b>{s.alert_type ? ` · ${s.alert_type}` : ''}
+                      <div className="meta">{timeAgo(s.start)} · {(s.duration || 0).toFixed?.(0) || s.duration}s</div>
+                    </div>
+                    <Tag tone={s.trigger === 'event' ? 'danger' : 'ok'}>{s.trigger}</Tag>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
+
+        <Card title="PTZ Control" sub={tiles[focused]?.name || activeCam || '—'}>
+          <PtzPad cameraId={activeCam} />
+        </Card>
+      </div>
     </>
   )
 }
