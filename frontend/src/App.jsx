@@ -2,34 +2,83 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   login, clearToken, getToken, fetchAlerts, fetchSystemStatus,
   fetchKnownPersons, fetchEvidence, fetchMapCameras, fetchMapEvents,
-  fetchIncidentReport,
+  fetchIncidentReport, fetchCameras, fetchAnalyticsSummary,
+  fetchAnalyticsTrends, fetchAnalyticsLocations, fetchVehiclePlates,
+  fetchVehicleDetections, fetchAuditLogs, fetchMe, fetchStreamingCameras,
 } from './services/api'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAutoAlerts } from './hooks/useAutoAlerts'
-import { CriticalAlertBanner } from './components/CriticalAlertBanner'
-import { MapPin } from './components/MapPin'
-import { CameraMapOverview } from './components/CameraMapOverview'
+import { Icons, Pill } from './components/ui'
+import { CommandPalette } from './components/CommandPalette'
+import { NotificationDrawer } from './components/NotificationDrawer'
+import { Copilot } from './components/Copilot'
+import { Overview } from './pages/Overview'
+import { LiveMonitoring } from './pages/LiveMonitoring'
+import { MapPage } from './pages/MapPage'
+import { DetectionCenter } from './pages/DetectionCenter'
+import { AlertCenter } from './pages/AlertCenter'
+import { Incidents } from './pages/Incidents'
+import { Cameras } from './pages/Cameras'
+import { Analytics } from './pages/Analytics'
+import { EvidencePage } from './pages/EvidencePage'
+import { Watchlist } from './pages/Watchlist'
+import { Vehicles } from './pages/Vehicles'
+import { Reports } from './pages/Reports'
+import { Users } from './pages/Users'
+import { Settings } from './pages/Settings'
 
-const TABS = [
-  { id: 'live', label: 'Live Feeds' },
-  { id: 'events', label: 'Event Logs' },
-  { id: 'faces', label: 'Known Faces' },
-  { id: 'evidence', label: 'Evidence' },
-  { id: 'map', label: 'Map' },
-  { id: 'settings', label: 'Settings' },
+const NAV = [
+  {
+    group: 'Operations',
+    pages: [
+      { id: 'overview', label: 'Executive Overview', icon: Icons.overview },
+      { id: 'live', label: 'Live Monitoring', icon: Icons.live },
+      { id: 'map', label: 'GIS Map', icon: Icons.map },
+      { id: 'detection', label: 'AI Detection Center', icon: Icons.ai },
+    ],
+  },
+  {
+    group: 'Response',
+    pages: [
+      { id: 'alerts', label: 'Alert Center', icon: Icons.alert },
+      { id: 'incidents', label: 'Incidents', icon: Icons.incident },
+      { id: 'evidence', label: 'Evidence Center', icon: Icons.evidence },
+    ],
+  },
+  {
+    group: 'Intelligence',
+    pages: [
+      { id: 'watchlist', label: 'Watchlist', icon: Icons.watchlist },
+      { id: 'vehicles', label: 'Vehicle Intelligence', icon: Icons.vehicle },
+      { id: 'analytics', label: 'Analytics', icon: Icons.chart },
+      { id: 'reports', label: 'Reports', icon: Icons.report },
+    ],
+  },
+  {
+    group: 'Administration',
+    pages: [
+      { id: 'cameras', label: 'Camera Management', icon: Icons.camera },
+      { id: 'users', label: 'Users & Roles', icon: Icons.users },
+      { id: 'settings', label: 'Settings', icon: Icons.settings },
+    ],
+  },
 ]
+const ALL_PAGES = NAV.flatMap((g) => g.pages)
 
-const SEVERITY_CLASS = {
-  critical: 'status-alert',
-  high: 'status-alert',
-  medium: 'status-warn',
-  info: 'status-active',
+const PAGE_COMPONENTS = {
+  overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
+  alerts: AlertCenter, incidents: Incidents, evidence: EvidencePage,
+  watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
+  cameras: Cameras, users: Users, settings: Settings,
 }
 
 function formatEvent(evt) {
   const type = evt.alert_type || evt.event_type || 'EVENT'
   const msg = evt.message || evt.person_name || evt.data?.criminal_name || type.replace(/_/g, ' ')
   return {
+    id: evt.alert_id ?? evt.id ?? null,
+    acknowledged: evt.acknowledged ?? false,
+    dismissed: evt.dismissed ?? false,
     type, msg,
     severity: evt.severity || 'info',
     time: evt.timestamp,
@@ -51,8 +100,7 @@ function LoginForm({ onLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       await onLogin(username, password)
     } catch (err) {
@@ -65,12 +113,12 @@ function LoginForm({ onLogin }) {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Ai-SSS Admin</h1>
-        <p className="login-sub">Automated surveillance with GPS pinpoint alerts</p>
+        <h1><span className="brand-logo">SS</span> Ai-SSS Command Center</h1>
+        <p className="login-sub">AI Smart Surveillance · criminal alerts · GPS pinpoint dispatch</p>
         {error && <div className="login-error">{error}</div>}
-        <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        <button type="submit" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
+        <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
+        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
+        <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
         <p className="login-hint">Demo: <code>python scripts/seed_demo.py</code> → admin / admin123</p>
       </form>
     </div>
@@ -79,7 +127,10 @@ function LoginForm({ onLogin }) {
 
 function App() {
   const [authed, setAuthed] = useState(!!getToken())
-  const [activeTab, setActiveTab] = useState('live')
+  const [page, setPage] = useState('overview')
+  const [theme, setThemeState] = useState(() => localStorage.getItem('ai_sss_theme') || 'dark')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   const [events, setEvents] = useState([])
   const [systemStatus, setSystemStatus] = useState(null)
   const [criticalAlert, setCriticalAlert] = useState(null)
@@ -88,18 +139,39 @@ function App() {
   const [evidence, setEvidence] = useState([])
   const [mapCameras, setMapCameras] = useState([])
   const [mapEvents, setMapEvents] = useState([])
+  const [cameras, setCameras] = useState([])
   const [report, setReport] = useState(null)
+  const [summary, setSummary] = useState(null)
+  const [trends, setTrends] = useState([])
+  const [locations, setLocations] = useState([])
+  const [plates, setPlates] = useState([])
+  const [vehicleDetections, setVehicleDetections] = useState([])
+  const [auditLogs, setAuditLogs] = useState([])
+  const [me, setMe] = useState(null)
+  const [streamingCams, setStreamingCams] = useState([])
+
+  const [showPalette, setShowPalette] = useState(false)
+  const [showNotifs, setShowNotifs] = useState(false)
+  const [showCopilot, setShowCopilot] = useState(false)
+
+  const setTheme = (t) => {
+    setThemeState(t)
+    localStorage.setItem('ai_sss_theme', t)
+  }
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
     setCriticalAlert(alert)
     setThreatLevel('critical')
-    setActiveTab('events')
+    setPage('alerts')
   })
 
   const handleWsMessage = useCallback((data) => {
     if (data.alert_type === 'PIPELINE_HEARTBEAT') return
     const formatted = formatEvent(data)
-    setEvents((prev) => [formatted, ...prev].slice(0, 100))
+    setEvents((prev) => [formatted, ...prev].slice(0, 200))
     handleAutoAlert(data)
     if (data.threat_score >= 50) setThreatLevel('high')
     if (data.severity === 'critical') setThreatLevel('critical')
@@ -107,17 +179,36 @@ function App() {
 
   const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage)
 
+  const reloadVehicles = useCallback(() => {
+    fetchVehiclePlates().then(setPlates).catch(() => {})
+    fetchVehicleDetections().then(setVehicleDetections).catch(() => {})
+  }, [])
+
+  /* Initial data load + status polling */
   useEffect(() => {
     if (!authed) return
-    fetchAlerts(20).then((alerts) => {
-      const mapped = alerts.map((a) => formatEvent({
-        alert_type: a.alert_type, severity: a.severity, message: a.message,
-        person_name: a.person_name, timestamp: a.timestamp, camera_location: a.camera_location,
-      }))
+    fetchAlerts(50).then((alerts) => {
+      const mapped = alerts.map((a) => formatEvent(a))
       setEvents(mapped)
-      if (mapped.some((e) => e.severity === 'critical')) setThreatLevel('critical')
+      if (mapped.some((e) => e.severity === 'critical' && !e.dismissed)) setThreatLevel('critical')
     }).catch(() => {})
 
+    fetchMe().then(setMe).catch(() => {})
+
+    fetchCameras().then(setCameras).catch(() => {})
+    fetchMapCameras().then(setMapCameras).catch(() => {})
+    fetchMapEvents(24).then(setMapEvents).catch(() => {})
+    fetchKnownPersons().then(setKnownPersons).catch(() => {})
+    fetchEvidence(60).then(setEvidence).catch(() => {})
+    fetchAnalyticsSummary(24).then(setSummary).catch(() => {})
+    fetchAnalyticsTrends(7).then(setTrends).catch(() => {})
+    fetchAnalyticsLocations(24).then(setLocations).catch(() => {})
+    fetchIncidentReport(24).then(setReport).catch(() => {})
+    fetchAuditLogs(50).then(setAuditLogs).catch(() => {})
+    reloadVehicles()
+
+    fetchSystemStatus().then(setSystemStatus).catch(() => {})
+    fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
     const interval = setInterval(() => {
       fetchSystemStatus().then((s) => {
         setSystemStatus(s)
@@ -126,208 +217,169 @@ function App() {
         if (maxThreat >= 50) setThreatLevel('critical')
         else if (maxThreat >= 20) setThreatLevel('high')
       }).catch(() => {})
+      fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
     }, 3000)
-    fetchSystemStatus().then(setSystemStatus).catch(() => {})
     return () => clearInterval(interval)
-  }, [authed])
+  }, [authed, reloadVehicles])
 
+  /* Refresh page-specific data when navigating */
   useEffect(() => {
     if (!authed) return
-    if (activeTab === 'faces') fetchKnownPersons().then(setKnownPersons).catch(() => {})
-    if (activeTab === 'evidence') fetchEvidence(40).then(setEvidence).catch(() => {})
-    if (activeTab === 'map') {
+    if (page === 'watchlist') fetchKnownPersons().then(setKnownPersons).catch(() => {})
+    if (page === 'evidence' || page === 'watchlist') fetchEvidence(60).then(setEvidence).catch(() => {})
+    if (page === 'map') {
       fetchMapCameras().then(setMapCameras).catch(() => {})
       fetchMapEvents(24).then(setMapEvents).catch(() => {})
     }
-    if (activeTab === 'settings') fetchIncidentReport(24).then(setReport).catch(() => {})
-  }, [authed, activeTab])
+    if (page === 'analytics' || page === 'overview') {
+      fetchAnalyticsSummary(24).then(setSummary).catch(() => {})
+      fetchAnalyticsTrends(7).then(setTrends).catch(() => {})
+      fetchAnalyticsLocations(24).then(setLocations).catch(() => {})
+    }
+    if (page === 'cameras') fetchCameras().then(setCameras).catch(() => {})
+    if (page === 'vehicles') reloadVehicles()
+    if (page === 'users') fetchAuditLogs(50).then(setAuditLogs).catch(() => {})
+    if (page === 'reports') fetchIncidentReport(24).then(setReport).catch(() => {})
+  }, [authed, page, reloadVehicles])
+
+  /* Keyboard shortcuts */
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setShowPalette((v) => !v)
+      } else if (e.key === 'Escape') {
+        setShowPalette(false); setShowNotifs(false); setShowCopilot(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   if (!authed) return <LoginForm onLogin={async (u, p) => { await login(u, p); setAuthed(true) }} />
 
-  const pipelineOnline = systemStatus?.online
-  const cameras = systemStatus?.cameras || {}
-  const cameraEntries = Object.entries(cameras)
-  const primaryCamera = cameraEntries[0]?.[1]
   const criticalEvents = events.filter((e) => e.severity === 'critical')
-  const mapAlert = criticalAlert || criticalEvents[0]
+  const pipelineOnline = systemStatus?.online
+  const activePage = ALL_PAGES.find((p) => p.id === page)
+  const PageComponent = PAGE_COMPONENTS[page] || Overview
 
-  const tabTitle = TABS.find((t) => t.id === activeTab)?.label || ''
+  const ctx = {
+    events, setEvents, systemStatus, threatLevel, wsConnected,
+    knownPersons, evidence, mapCameras, mapEvents, cameras,
+    report, summary, trends, locations,
+    plates, vehicleDetections, auditLogs, reloadVehicles,
+    me, streamingCams,
+    theme, setTheme,
+  }
+
+  const threatTone = { critical: 'danger', high: 'warn', low: 'ok' }[threatLevel] || 'ok'
 
   return (
-    <div className={`dashboard-container ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
-      <aside className="sidebar">
-        <div className="sidebar-header">Ai-SSS Admin</div>
-        <div className="sidebar-nav">
-          {TABS.map((tab) => (
-            <div
-              key={tab.id}
-              className={`nav-item ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-              {tab.id === 'events' && criticalEvents.length > 0 && (
-                <span className="nav-badge">{criticalEvents.length}</span>
-              )}
+    <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="brand">
+          <span className="brand-logo">SS</span>
+          <div>Ai-SSS<small>COMMAND CENTER</small></div>
+        </div>
+        <div className="nav-scroll">
+          {NAV.map((group) => (
+            <div className="nav-group" key={group.group}>
+              <div className="nav-group-label">{group.group}</div>
+              {group.pages.map((p) => {
+                const Icon = p.icon
+                return (
+                  <div
+                    key={p.id}
+                    className={`nav-item ${page === p.id ? 'active' : ''}`}
+                    onClick={() => { setPage(p.id); setSidebarOpen(false) }}
+                  >
+                    <Icon />
+                    {p.label}
+                    {p.id === 'alerts' && criticalEvents.length > 0 && (
+                      <span className="nav-badge">{criticalEvents.length}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           ))}
         </div>
-        <button className="logout-btn" onClick={() => { clearToken(); setAuthed(false) }}>Sign out</button>
+        <div className="sidebar-footer">
+          <div className="session-chip">
+            <span className="avatar">{(me?.username || 'AD').slice(0, 2).toUpperCase()}</span>
+            <div className="who"><b>{me?.username || 'admin'}</b><span>{me?.role || 'operator'}</span></div>
+            <button className="icon-btn" title="Sign out" onClick={() => { clearToken(); setAuthed(false) }}>
+              <Icons.logout />
+            </button>
+          </div>
+        </div>
       </aside>
 
-      <main className="main-content">
-        <CriticalAlertBanner alert={criticalAlert} onDismiss={() => setCriticalAlert(null)} />
+      <main className="main">
+        {criticalAlert && (
+          <div className="banner-critical">
+            <span style={{ fontSize: '1.3rem' }}>🚨</span>
+            <div>
+              <b>{criticalAlert.type?.replace(/_/g, ' ')} — {criticalAlert.message}</b>
+              <div className="b-meta">
+                {criticalAlert.camera}
+                {criticalAlert.lat != null && ` · 📍 ${Number(criticalAlert.lat).toFixed(5)}, ${Number(criticalAlert.lng).toFixed(5)}`}
+                {' · Police auto-dispatched'}
+              </div>
+            </div>
+            <button onClick={() => setCriticalAlert(null)}>Acknowledge</button>
+          </div>
+        )}
 
         <header className="topbar">
-          <h2>{tabTitle}</h2>
-          <div className="topbar-badges">
-            <span className={`status-badge threat-${threatLevel}`}>Threat: {threatLevel.toUpperCase()}</span>
-            <span className={`status-badge ${wsConnected ? 'status-active' : 'status-alert'}`}>
-              WS {wsConnected ? 'Connected' : 'Disconnected'}
-            </span>
-            <span className={`status-badge ${pipelineOnline ? 'status-active' : 'status-warn'}`}>
-              Pipeline {pipelineOnline ? 'Online' : 'Offline'}
-            </span>
+          <button className="icon-btn hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}><Icons.menu /></button>
+          <h1>{activePage?.label}</h1>
+          <div className="searchbox" onClick={() => setShowPalette(true)}>
+            <Icons.search />
+            <span>Search or jump to…</span>
+            <kbd>⌘K</kbd>
+          </div>
+          <div className="topbar-right">
+            <Pill tone={threatTone}>THREAT {threatLevel.toUpperCase()}</Pill>
+            <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
+            <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
+            <button className="icon-btn" title="AI Copilot" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
+            <button className="icon-btn" title="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
+              <Icons.bell />
+              {criticalEvents.length > 0 && (
+                <span className="nav-badge" style={{ position: 'absolute', top: 0, right: 0 }}>{criticalEvents.length}</span>
+              )}
+            </button>
+            <button className="icon-btn" title="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+              {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
+            </button>
           </div>
         </header>
 
-        {activeTab === 'live' && (
-          <div className="dashboard-grid">
-            <div className="panel" style={{ gridRow: '1 / span 2' }}>
-              <div className="panel-header">{primaryCamera?.camera_location || 'Main Entrance'}</div>
-              <div className="panel-body">
-                <div className={`camera-feed ${threatLevel === 'critical' ? 'feed-alert' : ''}`}>
-                  {pipelineOnline ? (
-                    <div className="feed-active">
-                      <div className={`feed-pulse ${threatLevel === 'critical' ? 'pulse-alert' : ''}`} />
-                      <p>Auto-monitoring — criminal alerts + GPS on any camera</p>
-                      <p className="feed-meta">FPS: {primaryCamera?.fps ?? '—'} · Threat: {primaryCamera?.threat_score ?? 0}</p>
-                    </div>
-                  ) : (
-                    <p>Start: <code>./scripts/run_defense_demo.sh</code></p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-header">Recent Alerts</div>
-              <div className="panel-body">
-                {events.slice(0, 6).map((evt, i) => (
-                  <div key={i} className={`log-entry ${evt.severity === 'critical' ? 'log-critical' : ''}`}>
-                    <span>{evt.msg}</span>
-                    <span className={`status-badge ${SEVERITY_CLASS[evt.severity]}`}>{evt.severity}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-header">📍 Detection Location</div>
-              <div className="panel-body">
-                {mapAlert?.lat != null ? (
-                  <MapPin lat={mapAlert.lat} lng={mapAlert.lng} label={mapAlert.cameraName || mapAlert.camera} />
-                ) : (
-                  <p className="empty-state">Map shows on criminal detection</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'events' && (
-          <div className="panel">
-            <div className="panel-header">Auto-Dispatched Events ({events.length})</div>
-            <div className="panel-body">
-              {events.map((evt, i) => (
-                <div key={i} className={`log-entry ${evt.severity === 'critical' ? 'log-critical' : ''}`}>
-                  <div>
-                    <strong>{evt.type}</strong>
-                    <div className="event-time">{evt.time} · {evt.camera}</div>
-                    <div>{evt.msg}</div>
-                    {evt.lat != null && (
-                      <div className="event-gps">📍 {Number(evt.lat).toFixed(5)}, {Number(evt.lng).toFixed(5)}</div>
-                    )}
-                  </div>
-                  <span className={`status-badge ${SEVERITY_CLASS[evt.severity]}`}>{evt.severity}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'faces' && (
-          <div className="panel">
-            <div className="panel-header">Watchlist — Known Persons ({knownPersons.length})</div>
-            <div className="panel-body">
-              {knownPersons.length === 0 ? (
-                <p className="empty-state">No persons in DB. Run: <code>python scripts/ingest_watchlist.py</code></p>
-              ) : (
-                knownPersons.map((p) => (
-                  <div key={p.id} className="log-entry">
-                    <div>
-                      <strong>{p.name}</strong> ({p.person_id})
-                      <div className="event-time">{p.category} · Threat {p.threat_level}</div>
-                    </div>
-                    <span className={`status-badge ${p.criminal_status === 'active' ? 'status-alert' : 'status-active'}`}>
-                      {p.criminal_status}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'evidence' && (
-          <div className="panel">
-            <div className="panel-header">Evidence Records ({evidence.length})</div>
-            <div className="panel-body">
-              {evidence.length === 0 ? (
-                <p className="empty-state">No evidence yet — triggers on criminal/suspicious detection</p>
-              ) : (
-                evidence.map((ev) => (
-                  <div key={ev.id} className={`log-entry ${ev.is_criminal ? 'log-critical' : ''}`}>
-                    <div>
-                      <strong>{ev.person_name || `Track ${ev.track_id}`}</strong>
-                      <div className="event-time">{ev.timestamp} · {ev.camera_location}</div>
-                      <div>{ev.category} {ev.is_criminal && '· CRIMINAL'}</div>
-                    </div>
-                    <span className={`status-badge ${ev.is_criminal ? 'status-alert' : 'status-active'}`}>
-                      {ev.category}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'map' && (
-          <div className="panel">
-            <div className="panel-header">Camera Map & Detection Pins</div>
-            <div className="panel-body">
-              <CameraMapOverview cameras={mapCameras} events={mapEvents} />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="panel">
-            <div className="panel-header">System & Reports</div>
-            <div className="panel-body settings-body">
-              <p><strong>Run demo:</strong> <code>./scripts/run_defense_demo.sh</code></p>
-              <p><strong>Evaluate:</strong> <code>python scripts/evaluate_pipeline.py --video data/demo/clips/sample.mp4 --frames 200 --output data/results/eval.json</code></p>
-              {report && (
-                <div className="report-box">
-                  <h4>24h Incident Report</h4>
-                  <p>Total events: {report.summary?.total_events}</p>
-                  <p>Criminal detections: {report.summary?.criminal_detections}</p>
-                  <p>Weapon detections: {report.summary?.weapon_detections}</p>
-                  <p>Alerts triggered: {report.summary?.alerts_triggered}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="page">
+          <PageComponent ctx={ctx} />
+        </div>
       </main>
+
+      {showPalette && (
+        <CommandPalette
+          pages={ALL_PAGES}
+          actions={[
+            { id: 'act-theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`, icon: theme === 'dark' ? Icons.sun : Icons.moon, hint: 'Action', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
+            { id: 'act-copilot', label: 'Open AI Copilot', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
+            { id: 'act-notifs', label: 'Open Notification Center', icon: Icons.bell, hint: 'Action', run: () => setShowNotifs(true) },
+            { id: 'act-logout', label: 'Sign out', icon: Icons.logout, hint: 'Action', run: () => { clearToken(); setAuthed(false) } },
+          ]}
+          onNavigate={setPage}
+          onClose={() => setShowPalette(false)}
+        />
+      )}
+      {showNotifs && (
+        <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => setEvents([])} />
+      )}
+      {showCopilot && (
+        <Copilot ctx={{ events, summary, cameras, threatLevel, locations }} onClose={() => setShowCopilot(false)} />
+      )}
     </div>
   )
 }
