@@ -1,10 +1,18 @@
-.PHONY: setup demo test backend pipeline frontend
+.PHONY: setup demo test backend pipeline frontend ingest run all stop
 
 setup:
 	./scripts/setup.sh
 
-demo:
-	./scripts/run_defense_demo.sh
+demo: run
+
+run all:
+	./run.sh $(ARGS)
+
+stop:
+	@for port in 8000 5173; do \
+	  lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true; \
+	done
+	@echo "Stopped processes on :8000 and :5173"
 
 test:
 	pytest tests/unit/ -v
