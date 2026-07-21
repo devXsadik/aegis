@@ -32,8 +32,17 @@ _INSECURE_DEFAULTS = {
     "change-me-in-production",
     "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION_64_CHARS_MIN",
     "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION_32_CHARS_MIN",
+    "CHANGE_THIS_ENCRYPTION_KEY_32_CHARS",
     "",
 }
+
+
+def _is_insecure(value, extra=None):
+    if not value:
+        return True
+    if value in _INSECURE_DEFAULTS or (extra and value in extra):
+        return True
+    return value.startswith("CHANGE_THIS")
 
 
 def _validate_secrets():
@@ -43,9 +52,9 @@ def _validate_secrets():
     env = os.getenv("ENVIRONMENT", "development")
 
     warnings = []
-    if secret_key in _INSECURE_DEFAULTS:
+    if _is_insecure(secret_key):
         warnings.append("SECRET_KEY is using an insecure default value")
-    if encryption_key in {"default-key-change-in-prod", "CHANGE_THIS_ENCRYPTION_KEY_32_CHARS", ""}:
+    if _is_insecure(encryption_key, {"default-key-change-in-prod"}):
         warnings.append("ENCRYPTION_KEY is using an insecure default value")
 
     for w in warnings:
@@ -126,6 +135,7 @@ def health_check():
         "version": "5.0.0",
         "phase": "5 - Production Architecture",
     }
+
 
 
 
