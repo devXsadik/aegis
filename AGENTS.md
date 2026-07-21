@@ -3,10 +3,17 @@
 ## Running the system
 
 ```bash
-./setup_phase1.sh          # or: ./scripts/setup.sh
-./scripts/run_defense_demo.sh
+./run.sh                      # one command: backend + pipeline + frontend
+# or: make run
 
-# Or manually:
+./run.sh path/to/video.mp4    # custom video
+./run.sh --no-pipeline        # API + dashboard only
+make stop                     # kill :8000 and :5173
+
+# First-time setup (once):
+./scripts/setup.sh
+
+# Manual:
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 python main.py --video data/demo/clips/sample.mp4
 cd frontend && npm run dev
