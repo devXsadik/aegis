@@ -37,8 +37,21 @@ def _verify_internal_key(key: Optional[str]) -> None:
 
 @router.get("/status")
 def get_system_status():
+    from backend.services.ha import redis_health, camera_offline_sla
+
+    cameras = {}
+    offline = 0
+    for cam_id, meta in _pipeline_status.get("cameras", {}).items():
+        sla = camera_offline_sla(meta.get("last_seen"))
+        cameras[cam_id] = {**meta, "sla": sla}
+        if sla == "offline":
+            offline += 1
+
     return {
         **_pipeline_status,
+        "cameras": cameras,
+        "offline_cameras": offline,
+        "redis": redis_health(),
         "websocket_connections": {
             "alerts": manager.get_connection_count("alerts"),
             "status": manager.get_connection_count("status"),
@@ -74,4 +87,5 @@ async def pipeline_heartbeat(
     payload["threat_score"] = body.threat_score
     await manager.broadcast(payload, "status")
     return {"status": "ok", "camera_id": body.camera_id}
+
 
