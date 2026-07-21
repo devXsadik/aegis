@@ -1,42 +1,46 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { wsUrl } from '../services/api';
 
 export function useWebSocket(channel = 'alerts', onMessage) {
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef(null);
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
-    const ws = new WebSocket(wsUrl(channel));
-    wsRef.current = ws;
+  useEffect(() => {
+    let ws = null;
+    let retryTimer = null;
+    let disposed = false;
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => {
-      setConnected(false);
-      setTimeout(connect, 3000);
+    const connect = () => {
+      if (disposed || ws?.readyState === WebSocket.OPEN) return;
+      ws = new WebSocket(wsUrl(channel));
+
+      ws.onopen = () => setConnected(true);
+      ws.onclose = () => {
+        setConnected(false);
+        if (!disposed) retryTimer = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => ws.close();
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          onMessageRef.current?.(data);
+        } catch {
+          /* ignore malformed */
+        }
+      };
     };
-    ws.onerror = () => ws.close();
-    ws.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data);
-        onMessageRef.current?.(data);
-      } catch {
-        /* ignore malformed */
-      }
+
+    connect();
+    return () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      ws?.close();
     };
   }, [channel]);
 
-  useEffect(() => {
-    connect();
-    return () => {
-      wsRef.current?.close();
-      wsRef.current = null;
-    };
-  }, [connect]);
-
   return { connected };
 }
-
