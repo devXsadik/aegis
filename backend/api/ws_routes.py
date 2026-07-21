@@ -1,6 +1,7 @@
 """WebSocket endpoints for real-time alerts and system status."""
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -15,7 +16,8 @@ router = APIRouter(tags=["websockets"])
 
 def _validate_ws_token(token: Optional[str]) -> bool:
     if not token:
-        return True
+        # Anonymous connections allowed only outside production
+        return os.getenv("ENVIRONMENT", "development") != "production"
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload.get("user_id") is not None
@@ -55,3 +57,4 @@ async def websocket_status(
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, "status")
+

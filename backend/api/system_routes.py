@@ -4,8 +4,6 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from typing import Optional
-
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
@@ -76,3 +74,4 @@ async def pipeline_heartbeat(
     payload["threat_score"] = body.threat_score
     await manager.broadcast(payload, "status")
     return {"status": "ok", "camera_id": body.camera_id}
+
