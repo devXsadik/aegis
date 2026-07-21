@@ -14,6 +14,12 @@ from backend.api.ws_routes import router as ws_router
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
 from backend.api.stream_routes import router as stream_router
+from backend.api.incident_routes import router as incident_router
+from backend.api.custody_routes import router as custody_router
+from backend.api.recording_routes import router as recording_router
+from backend.api.reid_routes import router as reid_router
+from backend.api.integration_routes import router as integration_router
+from backend.api.calibration_routes import router as calibration_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger("HumanAnalysis")
@@ -93,6 +99,12 @@ app.include_router(ws_router, prefix=API_V1)
 app.include_router(system_router, prefix=API_V1)
 app.include_router(report_router, prefix=API_V1)
 app.include_router(stream_router, prefix=API_V1)
+app.include_router(incident_router, prefix=API_V1)
+app.include_router(custody_router, prefix=API_V1)
+app.include_router(recording_router, prefix=API_V1)
+app.include_router(reid_router, prefix=API_V1)
+app.include_router(integration_router, prefix=API_V1)
+app.include_router(calibration_router, prefix=API_V1)
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +124,7 @@ def health_check():
         "version": "5.0.0",
         "phase": "5 - Production Architecture",
     }
+
 
 
 
