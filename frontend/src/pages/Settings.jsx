@@ -101,11 +101,14 @@ export function Settings({ ctx }) {
         <Card title="Appearance">
           <div className="row">
             <span>Theme</span>
-            <div className="seg">
-              <button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>Dark</button>
-              <button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>Light</button>
+            <div className="seg" role="group" aria-label="Theme">
+              <button type="button" className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>Dark</button>
+              <button type="button" className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>Light</button>
             </div>
           </div>
+          <p className="muted" style={{ fontSize: '0.74rem', marginTop: 8 }}>
+            Current: <b>{theme}</b> · preference saved on this device
+          </p>
         </Card>
 
         <Card title="High Availability">
@@ -140,3 +143,4 @@ export function Settings({ ctx }) {
     </div>
   )
 }
+
