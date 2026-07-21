@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.db.database import get_db
 from backend.models.user import User
-from backend.auth.auth import hash_password, verify_password, create_access_token, get_current_user, admin_only
+from backend.auth.auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user, admin_only, VALID_ROLES,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -49,6 +52,11 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/users", response_model=UserResponse)
 def create_user(req: UserCreate, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    if req.role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Allowed: {', '.join(sorted(VALID_ROLES))}",
+        )
     existing = db.query(User).filter(
         (User.username == req.username) | (User.email == req.email)
     ).first()
@@ -74,3 +82,4 @@ def get_me(user: User = Depends(get_current_user)):
 @router.get("/users", response_model=list[UserResponse])
 def list_users(db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     return db.query(User).all()
+

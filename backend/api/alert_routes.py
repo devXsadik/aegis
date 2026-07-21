@@ -163,3 +163,56 @@ def acknowledge_alert(
     db.commit()
     return {"status": "updated", "id": alert_id}
 
+
+@router.post("/{alert_id}/dispatch")
+async def dispatch_police(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(operator_or_admin),
+):
+    """Operator-triggered police dispatch — reuses webhook channels + audit trail."""
+    from backend.models.audit_log import AuditLog
+    import json
+
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    lat = lng = camera_name = None
+    if alert.details:
+        try:
+            geo = json.loads(alert.details)
+            lat, lng = geo.get("lat"), geo.get("lng")
+            camera_name = geo.get("camera_name")
+        except Exception:
+            pass
+
+    result = await dispatch_alert(
+        alert_type=alert.alert_type,
+        severity=alert.severity or "critical",
+        camera_location=alert.camera_location,
+        camera_id=alert.camera_id,
+        track_id=alert.track_id,
+        person_name=alert.person_name,
+        plate_number=alert.plate_number,
+        message=f"[MANUAL DISPATCH by {user.username}] {alert.message or alert.alert_type}",
+        camera_name=camera_name,
+        camera_lat=lat,
+        camera_lng=lng,
+        db=db,
+    )
+    alert.acknowledged = True
+    alert.acknowledged_by = user.id
+    alert.acknowledged_at = datetime.utcnow()
+    db.add(AuditLog(
+        user_id=user.id,
+        username=user.username,
+        action="MANUAL_DISPATCH",
+        resource="alert",
+        resource_id=str(alert_id),
+        details=f"Police dispatched for alert {alert_id}",
+    ))
+    db.commit()
+    return {"status": "dispatched", "alert_id": alert_id, "new_alert": result}
+
+
