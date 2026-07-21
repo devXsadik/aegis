@@ -5,6 +5,10 @@
 #   0                    USB webcam index
 #   rtsp://user:pass@IP:554/stream1   IP/CCTV camera
 #   ${RTSP_GATE_1}       Read URL from .env (recommended for credentials)
+#
+# ONVIF PTZ (optional — physical pan/tilt/zoom):
+#   onvif_host: "192.168.0.100"   or "http://192.168.0.100"
+#   onvif_user / onvif_pass / onvif_profile
 
 cameras:
   - id: gate_1
@@ -17,6 +21,10 @@ cameras:
     enabled: true
     fps_limit: 15
     priority: high
+    # onvif_host: "${ONVIF_GATE_1_HOST}"
+    # onvif_user: "${ONVIF_GATE_1_USER}"
+    # onvif_pass: "${ONVIF_GATE_1_PASS}"
+    # onvif_profile: "Profile_1"
 
   - id: parking_1
     name: "Parking Lot A"
