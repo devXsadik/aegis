@@ -65,6 +65,18 @@ const NAV = [
 ]
 const ALL_PAGES = NAV.flatMap((g) => g.pages)
 
+function normalizeTheme(t) {
+  return t === 'light' ? 'light' : 'dark'
+}
+
+function applyTheme(t) {
+  const theme = normalizeTheme(t)
+  document.documentElement.setAttribute('data-theme', theme)
+  document.documentElement.style.colorScheme = theme
+  try { localStorage.setItem('ai_sss_theme', theme) } catch { /* ignore */ }
+  return theme
+}
+
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
   alerts: AlertCenter, incidents: Incidents, evidence: EvidencePage,
@@ -92,7 +104,7 @@ function formatEvent(evt) {
   }
 }
 
-function LoginForm({ onLogin }) {
+function LoginForm({ onLogin, theme, setTheme }) {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123')
   const [error, setError] = useState('')
@@ -112,6 +124,15 @@ function LoginForm({ onLogin }) {
 
   return (
     <div className="login-screen">
+      <button
+        type="button"
+        className="icon-btn login-theme-btn"
+        title="Toggle theme"
+        aria-label="Toggle theme"
+        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      >
+        {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
+      </button>
       <form className="login-card" onSubmit={handleSubmit}>
         <h1><span className="brand-logo">SS</span> Ai-SSS Command Center</h1>
         <p className="login-sub">AI Smart Surveillance · criminal alerts · GPS pinpoint dispatch</p>
@@ -119,7 +140,7 @@ function LoginForm({ onLogin }) {
         <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
         <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
-        <p className="login-hint">Demo: <code>python scripts/seed_demo.py</code> → admin / admin123</p>
+        <p className="login-hint">Demo: <code>admin</code> / <code>admin123</code></p>
       </form>
     </div>
   )
@@ -128,7 +149,13 @@ function LoginForm({ onLogin }) {
 function App() {
   const [authed, setAuthed] = useState(!!getToken())
   const [page, setPage] = useState('overview')
-  const [theme, setThemeState] = useState(() => localStorage.getItem('ai_sss_theme') || 'dark')
+  const [theme, setThemeState] = useState(() => {
+    try {
+      return applyTheme(localStorage.getItem('ai_sss_theme') || 'dark')
+    } catch {
+      return applyTheme('dark')
+    }
+  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const [events, setEvents] = useState([])
@@ -155,11 +182,10 @@ function App() {
   const [showCopilot, setShowCopilot] = useState(false)
 
   const setTheme = (t) => {
-    setThemeState(t)
-    localStorage.setItem('ai_sss_theme', t)
+    setThemeState(applyTheme(t))
   }
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    applyTheme(theme)
   }, [theme])
 
   const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
@@ -256,7 +282,15 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  if (!authed) return <LoginForm onLogin={async (u, p) => { await login(u, p); setAuthed(true) }} />
+  if (!authed) {
+    return (
+      <LoginForm
+        theme={theme}
+        setTheme={setTheme}
+        onLogin={async (u, p) => { await login(u, p); setAuthed(true) }}
+      />
+    )
+  }
 
   const criticalEvents = events.filter((e) => e.severity === 'critical')
   const pipelineOnline = systemStatus?.online
@@ -318,22 +352,27 @@ function App() {
       <main className="main">
         {criticalAlert && (
           <div className="banner-critical">
-            <span style={{ fontSize: '1.3rem' }}>🚨</span>
+            <Icons.alert />
             <div>
               <b>{criticalAlert.type?.replace(/_/g, ' ')} — {criticalAlert.message}</b>
               <div className="b-meta">
                 {criticalAlert.camera}
-                {criticalAlert.lat != null && ` · 📍 ${Number(criticalAlert.lat).toFixed(5)}, ${Number(criticalAlert.lng).toFixed(5)}`}
+                {criticalAlert.lat != null && ` · ${Number(criticalAlert.lat).toFixed(5)}, ${Number(criticalAlert.lng).toFixed(5)}`}
                 {' · Police auto-dispatched'}
               </div>
             </div>
-            <button onClick={() => setCriticalAlert(null)}>Acknowledge</button>
+            <button type="button" onClick={() => setCriticalAlert(null)}>Acknowledge</button>
           </div>
         )}
 
         <header className="topbar">
-          <button className="icon-btn hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}><Icons.menu /></button>
-          <h1>{activePage?.label}</h1>
+          <button type="button" className="icon-btn hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Menu">
+            <Icons.menu />
+          </button>
+          <div className="topbar-title">
+            <span className="crumb">Command Center</span>
+            <h1>{activePage?.label}</h1>
+          </div>
           <button
             type="button"
             className="searchbox"
@@ -341,23 +380,33 @@ function App() {
             aria-label="Open command palette"
           >
             <Icons.search />
-            <span>Search or jump to…</span>
+            <span>Search pages, actions, cameras…</span>
             <kbd>⌘K</kbd>
           </button>
           <div className="topbar-right">
-            <Pill tone={threatTone}>THREAT {threatLevel.toUpperCase()}</Pill>
-            <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
-            <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
-            <button className="icon-btn" title="AI Copilot" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
-            <button className="icon-btn" title="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
-              <Icons.bell />
-              {criticalEvents.length > 0 && (
-                <span className="nav-badge" style={{ position: 'absolute', top: 0, right: 0 }}>{criticalEvents.length}</span>
-              )}
-            </button>
-            <button className="icon-btn" title="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-              {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
-            </button>
+            <div className="status-rail" aria-label="System status">
+              <Pill tone={threatTone}>THREAT {threatLevel.toUpperCase()}</Pill>
+              <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
+              <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
+            </div>
+            <div className="topbar-actions">
+              <button type="button" className="icon-btn" title="AI Copilot" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
+              <button type="button" className="icon-btn" title="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
+                <Icons.bell />
+                {criticalEvents.length > 0 && (
+                  <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 2 }}>{criticalEvents.length}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+                aria-label="Toggle theme"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
+                {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
+              </button>
+            </div>
           </div>
         </header>
 
@@ -390,4 +439,5 @@ function App() {
 }
 
 export default App
+
 
