@@ -1,4 +1,8 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
@@ -7,9 +11,23 @@ from datetime import datetime
 from backend.db.database import get_db
 from backend.models.evidence import Evidence
 from backend.models.user import User
-from backend.auth.auth import operator_or_admin, admin_only
+from backend.auth.auth import operator_or_admin, admin_only, ALGORITHM, SECRET_KEY
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
+
+
+def _verify_viewer_token(token: Optional[str]) -> None:
+    """Query-param JWT check for <img> tags (they cannot send headers)."""
+    if not token:
+        if os.getenv("ENVIRONMENT", "development") == "production":
+            raise HTTPException(status_code=401, detail="Token required")
+        return
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("user_id") is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 class EvidenceResponse(BaseModel):
@@ -23,6 +41,7 @@ class EvidenceResponse(BaseModel):
     is_suspicious: bool
     category: str
     reasons: Optional[str]
+    has_image: bool = False
 
     class Config:
         from_attributes = True
@@ -44,6 +63,28 @@ def list_evidence(
     return query.order_by(desc(Evidence.timestamp)).offset(skip).limit(limit).all()
 
 
+@router.get("/{evidence_id}/image")
+def get_evidence_image(
+    evidence_id: int,
+    kind: str = Query(default="frame", pattern="^(frame|roi)$"),
+    token: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Serve the stored JPEG snapshot (full frame or subject crop)."""
+    _verify_viewer_token(token)
+    ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    data = ev.frame_data if kind == "frame" else ev.roi_data
+    if not data:
+        raise HTTPException(status_code=404, detail="No image stored for this record")
+    if ev.encrypted:
+        from backend.utils.encryption import EncryptionManager
+        data = EncryptionManager().decrypt(data)
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.get("/{evidence_id}")
 def get_evidence(evidence_id: int, db: Session = Depends(get_db),
                  user: User = Depends(operator_or_admin)):
@@ -62,3 +103,4 @@ def delete_evidence(evidence_id: int, db: Session = Depends(get_db),
     db.delete(ev)
     db.commit()
     return {"status": "deleted"}
+
