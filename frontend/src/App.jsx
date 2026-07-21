@@ -134,8 +134,8 @@ function LoginForm({ onLogin, theme, setTheme }) {
         {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
       </button>
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1><span className="brand-logo">SS</span> Ai-SSS Command Center</h1>
-        <p className="login-sub">AI Smart Surveillance · criminal alerts · GPS pinpoint dispatch</p>
+        <h1><span className="brand-logo">AG</span> Aegis Command Center</h1>
+        <p className="login-sub">AI Smart Surveillance · threat detection · GPS dispatch</p>
         {error && <div className="login-error">{error}</div>}
         <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
@@ -312,8 +312,8 @@ function App() {
     <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
-          <span className="brand-logo">SS</span>
-          <div>Ai-SSS<small>COMMAND CENTER</small></div>
+          <span className="brand-logo">AG</span>
+          <div>Aegis<small>COMMAND CENTER</small></div>
         </div>
         <div className="nav-scroll">
           {NAV.map((group) => (
