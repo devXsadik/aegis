@@ -79,7 +79,7 @@ set -a
 source .env 2>/dev/null || true
 set +a
 
-export BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
+export BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8000}"
 export PIPELINE_STREAM_ENABLED="${PIPELINE_STREAM_ENABLED:-true}"
 export DVR_ENABLED="${DVR_ENABLED:-true}"
 export AUTO_ALERTS_ENABLED="${AUTO_ALERTS_ENABLED:-true}"
@@ -131,7 +131,7 @@ if [ "$NO_PIPELINE" -eq 0 ]; then
     $PYTHON main.py --video "$VIDEO" &
   else
     echo "[2/3] Pipeline → webcam / config (no file at $VIDEO)"
-    $PYTHON main.py &
+    $PYTHON main.py --multi --no-display &
   fi
   PIPELINE_PID=$!
   PIDS+=("$PIPELINE_PID")

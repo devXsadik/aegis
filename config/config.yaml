@@ -11,14 +11,14 @@ camera_location: "Gate_1"
 camera_name: "Main Gate Camera 1"
 camera_lat: 23.8103
 camera_lng: 90.4125
-target_fps: 30
+target_fps: 8
 
 # --- Backend integration (pipeline → dashboard) ---
 # Set BACKEND_URL and INTERNAL_API_KEY in .env
 
 # --- Model Paths ---
 model_dir: "models"
-human_model: "yolov8s.pt"         # Upgrade to yolov11x.pt when available
+human_model: "yolov8n.pt"         # Nano model for speed
 weapon_model: "weapon_yolo.pt"
 # vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
 

@@ -5,6 +5,8 @@ Stores information about known persons (criminals, persons of interest, etc.)
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from backend.models.person_image import PersonImage
+from backend.models.face_encoding import FaceEncoding
 from backend.db.database import Base
 
 

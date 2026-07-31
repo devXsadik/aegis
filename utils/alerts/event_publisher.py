@@ -122,8 +122,8 @@ def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
                 },
                 timeout=3.0,
             )
-        except Exception:
-            pass  # streaming is best-effort; alerts have their own channel
+        except Exception as e:
+            logger.error(f"publish_frame failed for {camera_id}: {e}")
         finally:
             _stream_busy.clear()
 

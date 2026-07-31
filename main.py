@@ -13,6 +13,7 @@ Usage:
 import argparse
 import os
 import threading
+import time
 
 import cv2
 
@@ -104,10 +105,16 @@ def main():
             logger.error("No enabled cameras in config/cameras.yaml")
             return
         logger.info(f"Starting multi-camera mode: {len(cameras)} camera(s)")
-        threads = [_start_camera_thread(c, cfg, base_dir, show_window) for c in cameras]
+        threads = {c["id"]: _start_camera_thread(c, cfg, base_dir, show_window) for c in cameras}
         try:
-            while any(t.is_alive() for t in threads):
-                threading.Event().wait(0.5 if show_window else 1.0)
+            while True:
+                time.sleep(2.0)
+                current_cameras = load_cameras_config(base_dir)
+                for c in current_cameras:
+                    cid = c.get("id")
+                    if cid and (cid not in threads or not threads[cid].is_alive()):
+                        logger.info(f"Hot-loading new camera: {cid}")
+                        threads[cid] = _start_camera_thread(c, cfg, base_dir, show_window)
         except KeyboardInterrupt:
             pass
         cv2.destroyAllWindows()

@@ -194,14 +194,38 @@ function App() {
     setPage('alerts')
   })
 
+  const playAlertSound = useCallback(() => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext
+      if (!AudioContext) return
+      const audioCtx = new AudioContext()
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime) // A5
+      osc.frequency.setValueAtTime(1108.73, audioCtx.currentTime + 0.1) // C#6
+      gain.gain.setValueAtTime(0.1, audioCtx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5)
+      osc.connect(gain)
+      gain.connect(audioCtx.destination)
+      osc.start()
+      osc.stop(audioCtx.currentTime + 0.5)
+    } catch (e) {}
+  }, [])
+
   const handleWsMessage = useCallback((data) => {
     if (data.alert_type === 'PIPELINE_HEARTBEAT') return
     const formatted = formatEvent(data)
     setEvents((prev) => [formatted, ...prev].slice(0, 200))
     handleAutoAlert(data)
+
+    if (data.alert_type === 'CRIMINAL_DETECTED' || data.alert_type === 'WEAPON_DETECTED' || data.severity === 'critical') {
+      playAlertSound()
+    }
+
     if (data.threat_score >= 50) setThreatLevel('high')
     if (data.severity === 'critical') setThreatLevel('critical')
-  }, [handleAutoAlert])
+  }, [handleAutoAlert, playAlertSound])
 
   const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage)
 
@@ -297,12 +321,16 @@ function App() {
   const activePage = ALL_PAGES.find((p) => p.id === page)
   const PageComponent = PAGE_COMPONENTS[page] || Overview
 
+  const reloadCameras = useCallback(() => {
+    fetchCameras().then(setCameras).catch(() => {})
+  }, [])
+
   const ctx = {
     events, setEvents, systemStatus, threatLevel, wsConnected,
     knownPersons, evidence, mapCameras, mapEvents, cameras,
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
-    me, streamingCams,
+    me, streamingCams, reloadCameras,
     theme, setTheme,
   }
 

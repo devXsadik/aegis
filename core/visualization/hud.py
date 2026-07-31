@@ -276,13 +276,14 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
 
     # Person boxes + HUD panels
     for track in ctx.tracks:
-        if not track.is_confirmed():
-            continue
-
         track_id = track.track_id
         x1, y1, x2, y2 = map(int, track.to_ltrb())
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(fw, x2), min(fh, y2)
+
+        if not track.is_confirmed():
+            frame = draw_sci_fi_box(frame, x1, y1, x2, y2, (100, 100, 100), thickness=1)
+            continue
 
         name = ctx.identities.get(track_id, "Unknown")
         is_criminal = track_id in ctx.criminal_ids

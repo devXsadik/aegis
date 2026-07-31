@@ -48,8 +48,8 @@ def build_pipeline(cfg, base_dir, camera_location=None):
         base_dir, model_dir, "vehicle_detector", "yolov8l.pt",
     )
 
-    if not os.path.exists(human_model_path):
-        raise FileNotFoundError(f"Human model not found: {human_model_path}")
+    # if not os.path.exists(human_model_path):
+    #     raise FileNotFoundError(f"Human model not found: {human_model_path}")
 
     human_detector = HumanDetector(human_model_path, conf_threshold)
 

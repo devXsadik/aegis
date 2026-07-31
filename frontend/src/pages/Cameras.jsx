@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Card, Icons, Tag, Empty, Seg } from '../components/ui'
+import { Card, Icons, Tag, Empty, Seg, Modal } from '../components/ui'
 import { Sparkline } from '../components/charts'
+import { resolveIp, addCamera, liveStreamUrl } from '../services/api'
 
 function healthOf(cam, live) {
   if (live) return { label: 'Streaming', tone: 'ok', pct: 98 }
@@ -9,8 +10,15 @@ function healthOf(cam, live) {
 }
 
 export function Cameras({ ctx }) {
-  const { cameras, systemStatus } = ctx
+  const { cameras, systemStatus, reloadCameras } = ctx
   const [view, setView] = useState('grid')
+  
+  // Add Camera State
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ ipLink: '', camera_id: '', name: '', location: '', lat: '', lng: '', rtsp_url: '' })
+  const [addLoading, setAddLoading] = useState(false)
+  const [addError, setAddError] = useState('')
+
   const liveIds = new Set(Object.keys(systemStatus?.cameras || {}))
 
   const rows = cameras.map((c) => {
@@ -39,7 +47,14 @@ export function Cameras({ ctx }) {
       <Card
         title="Camera Fleet"
         sub="health, network & stream metrics"
-        actions={<Seg value={view} onChange={setView} options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]} />}
+        actions={
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+              <Icons.camera /> Add Camera
+            </button>
+            <Seg value={view} onChange={setView} options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]} />
+          </div>
+        }
         flush={view === 'list'}
       >
         {rows.length === 0 && <Empty icon={Icons.camera}>No cameras registered. Run <code>python scripts/seed_cameras.py</code></Empty>}
@@ -48,12 +63,20 @@ export function Cameras({ ctx }) {
           <div className="grid grid-3">
             {rows.map((cam) => (
               <div key={cam.camera_id} className="card" style={{ boxShadow: 'none' }}>
-                <div className="cam-tile" style={{ borderRadius: 0, border: 'none' }}>
+                <div className="cam-tile" style={{ borderRadius: 0, border: 'none', position: 'relative' }}>
+                  {cam.live && (
+                    <img
+                      src={liveStreamUrl(cam.camera_id)}
+                      alt={cam.name || cam.camera_id}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }}
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                  )}
                   <div className="scanline" />
-                  <div className="cam-label">{cam.live && <span className="rec-dot" />}{cam.name || cam.camera_id}</div>
+                  <div className="cam-label" style={{ position: 'relative', zIndex: 2 }}>{cam.live && <span className="rec-dot" />}{cam.name || cam.camera_id}</div>
                   {cam.active
-                    ? <div className="cam-stats"><span>{cam.fps} FPS · 1080p</span><span>H.264 · 4 Mbps</span></div>
-                    : <div className="cam-offline"><div>Signal lost</div></div>}
+                    ? <div className="cam-stats" style={{ position: 'relative', zIndex: 2 }}><span>{cam.fps} FPS · 1080p</span><span>H.264 · 4 Mbps</span></div>
+                    : <div className="cam-offline" style={{ position: 'relative', zIndex: 2 }}><div>Signal lost</div></div>}
                 </div>
                 <div style={{ padding: '12px 14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -91,6 +114,131 @@ export function Cameras({ ctx }) {
           </table>
         )}
       </Card>
+
+      {showAdd && (
+        <Modal 
+          title="Add New Camera" 
+          onClose={() => setShowAdd(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button className="btn" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button 
+                className="btn btn-primary" 
+                onClick={async () => {
+                  try {
+                    setAddLoading(true)
+                    setAddError('')
+                    await addCamera({
+                      camera_id: addForm.camera_id,
+                      name: addForm.name,
+                      location: addForm.location,
+                      lat: parseFloat(addForm.lat) || null,
+                      lng: parseFloat(addForm.lng) || null,
+                      rtsp_url: addForm.rtsp_url
+                    })
+                    setShowAdd(false)
+                    if (reloadCameras) reloadCameras()
+                  } catch (e) {
+                    setAddError(e.message)
+                  } finally {
+                    setAddLoading(false)
+                  }
+                }}
+                disabled={addLoading || !addForm.camera_id || !addForm.name}
+              >
+                {addLoading ? 'Saving...' : 'Save Camera'}
+              </button>
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {addError && <div className="alert alert-danger">{addError}</div>}
+            
+            <div className="form-group">
+              <label>IP Link (URL)</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="text" 
+                  className="input" 
+                  style={{ flex: 1 }}
+                  placeholder="e.g. http://192.168.0.103:8080/video" 
+                  value={addForm.ipLink}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setAddForm({ 
+                      ...addForm, 
+                      ipLink: val,
+                      rtsp_url: val 
+                    })
+                  }}
+                />
+                <button 
+                  className="btn" 
+                  disabled={addLoading || !addForm.ipLink}
+                  onClick={async () => {
+                    try {
+                      setAddLoading(true)
+                      const res = await resolveIp(addForm.ipLink)
+                      setAddForm({
+                        ...addForm,
+                        camera_id: addForm.camera_id || `cam_${Math.random().toString(36).substr(2, 5)}`,
+                        name: addForm.name || 'New Camera',
+                        location: res.location || '',
+                        lat: res.lat || '',
+                        lng: res.lng || '',
+                        rtsp_url: addForm.ipLink
+                      })
+                      if (res.error && res.error !== 'private range') {
+                        setAddError(`Location fetch note: ${res.error}`)
+                      }
+                    } catch (e) {
+                      setAddError('Failed to fetch IP details.')
+                    } finally {
+                      setAddLoading(false)
+                    }
+                  }}
+                >
+                  Fetch Details
+                </button>
+              </div>
+              <small className="muted" style={{ display: 'block', marginTop: '4px' }}>
+                Enter the IP link to auto-fill details and fetch geolocation.
+              </small>
+            </div>
+
+            <div className="form-group">
+              <label>Camera ID</label>
+              <input type="text" className="input" value={addForm.camera_id} onChange={(e) => setAddForm({...addForm, camera_id: e.target.value})} />
+            </div>
+            
+            <div className="form-group">
+              <label>Name</label>
+              <input type="text" className="input" value={addForm.name} onChange={(e) => setAddForm({...addForm, name: e.target.value})} />
+            </div>
+
+            <div className="form-group">
+              <label>Location</label>
+              <input type="text" className="input" value={addForm.location} onChange={(e) => setAddForm({...addForm, location: e.target.value})} />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Latitude</label>
+                <input type="number" step="any" className="input" value={addForm.lat} onChange={(e) => setAddForm({...addForm, lat: e.target.value})} />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Longitude</label>
+                <input type="number" step="any" className="input" value={addForm.lng} onChange={(e) => setAddForm({...addForm, lng: e.target.value})} />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>RTSP / Video URL</label>
+              <input type="text" className="input" value={addForm.rtsp_url} onChange={(e) => setAddForm({...addForm, rtsp_url: e.target.value})} />
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   )
 }

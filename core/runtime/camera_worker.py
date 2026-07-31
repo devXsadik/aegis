@@ -196,6 +196,8 @@ def run_camera_loop(
                 elif key == ord("s"):
                     stats = pipeline.get_stats()
                     logger.info(f"[{camera_id}] Pipeline stats: {stats}")
+    except Exception as e:
+        logger.exception(f"Camera worker crashed for {camera_id}: {e}")
     finally:
         if dvr is not None:
             dvr.close()

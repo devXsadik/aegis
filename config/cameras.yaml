@@ -11,37 +11,18 @@
 #   onvif_user / onvif_pass / onvif_profile
 
 cameras:
-  - id: gate_1
-    name: "Main Gate Camera 1"
+  - id: laptop
+    name: "Laptop Camera"
     source: 0
-    # source: "${RTSP_GATE_1}"
-    location: "Main Gate"
-    lat: 23.8103
-    lng: 90.4125
+    location: "Local"
     enabled: true
-    fps_limit: 15
+    fps_limit: 8
     priority: high
-    # onvif_host: "${ONVIF_GATE_1_HOST}"
-    # onvif_user: "${ONVIF_GATE_1_USER}"
-    # onvif_pass: "${ONVIF_GATE_1_PASS}"
-    # onvif_profile: "Profile_1"
 
-  - id: parking_1
-    name: "Parking Lot A"
-    source: "${RTSP_PARKING_1}"
-    location: "Parking A"
-    lat: 23.8105
-    lng: 90.4127
-    enabled: false
-    fps_limit: 10
-    priority: medium
-
-  - id: lobby_1
-    name: "Main Lobby"
-    source: "${RTSP_LOBBY_1}"
-    location: "Lobby"
-    lat: 23.8104
-    lng: 90.4126
-    enabled: false
-    fps_limit: 15
+  - id: mobile
+    name: "Mobile IP Camera"
+    source: "http://192.168.0.103:8080/video"
+    location: "Mobile"
+    enabled: true
+    fps_limit: 8
     priority: high

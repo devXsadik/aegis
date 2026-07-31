@@ -56,6 +56,7 @@ async def push_frame(
         raise HTTPException(status_code=400, detail="Empty frame")
     with _lock:
         _frames[camera_id] = (body, time.monotonic())
+    print(f"DEBUG: push_frame received frame for {camera_id}, size: {len(body)}")
     return {"status": "ok", "camera_id": camera_id, "bytes": len(body)}
 
 

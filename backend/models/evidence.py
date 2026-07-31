@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Foreign
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from backend.db.database import Base
+from backend.models.user import User
+from backend.models.known_person import KnownPerson
 
 
 class Evidence(Base):

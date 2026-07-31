@@ -22,6 +22,10 @@ async function apiFetch(path, options = {}) {
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
+    if (res.status === 401 && !path.includes('/auth/login')) {
+      clearToken();
+      window.location.reload();
+    }
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Request failed');
   }
@@ -47,6 +51,17 @@ export async function fetchSystemStatus() {
 
 export async function fetchCameras() {
   return apiFetch('/cameras/');
+}
+
+export async function resolveIp(url) {
+  return apiFetch(`/cameras/resolve-ip?url=${encodeURIComponent(url)}`);
+}
+
+export async function addCamera(data) {
+  return apiFetch('/cameras/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function fetchKnownPersons() {
