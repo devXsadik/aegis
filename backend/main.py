@@ -125,6 +125,8 @@ app.include_router(vms_router, prefix=API_V1)
 async def startup_event():
     _validate_secrets()
     init_db()
+    from scripts.seed_cameras import seed_cameras
+    seed_cameras()
     logger.info("✅ AI-SSS Backend started successfully")
 
 

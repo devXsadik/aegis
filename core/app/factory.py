@@ -36,6 +36,17 @@ def build_pipeline(cfg, base_dir, camera_location=None):
     loc = camera_location or cfg.get("camera_location", "Camera_1")
     criminal_names = set(cfg.get("criminal_names", []))
 
+    try:
+        from backend.db.database import SessionLocal
+        from backend.models.known_person import KnownPerson
+        db = SessionLocal()
+        criminals = db.query(KnownPerson).filter(KnownPerson.category == "criminal").all()
+        for c in criminals:
+            criminal_names.add(c.person_id)
+        db.close()
+    except Exception as e:
+        logger.warning(f"Failed to fetch criminal names from DB: {e}")
+
     human_model_path = model_path(
         base_dir, model_dir, "human_detector",
         cfg.get("human_model", "yolov8s.pt"),

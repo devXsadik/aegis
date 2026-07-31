@@ -60,6 +60,7 @@ class CameraCreate(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     rtsp_url: Optional[str] = None
+    active: Optional[bool] = True
 
 
 class CameraResponse(BaseModel):
@@ -142,7 +143,7 @@ def update_camera(camera_id: str, cam: CameraCreate, db: Session = Depends(get_d
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
-    for key, val in cam.model_dump().items():
+    for key, val in cam.model_dump(exclude_unset=True).items():
         setattr(camera, key, val)
     db.commit()
     db.refresh(camera)
