@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Card, Icons, Tag, Empty, Seg, Modal } from '../components/ui'
 import { Sparkline } from '../components/charts'
-import { resolveIp, addCamera, liveStreamUrl } from '../services/api'
+import { resolveIp, addCamera, updateCamera, liveStreamUrl } from '../services/api'
 
 function healthOf(cam, live) {
   if (live) return { label: 'Streaming', tone: 'ok', pct: 98 }
@@ -18,6 +18,19 @@ export function Cameras({ ctx }) {
   const [addForm, setAddForm] = useState({ ipLink: '', camera_id: '', name: '', location: '', lat: '', lng: '', rtsp_url: '' })
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState('')
+
+  const handleToggle = async (cam) => {
+    try {
+      await updateCamera(cam.camera_id, {
+        camera_id: cam.camera_id,
+        name: cam.name,
+        active: !cam.active,
+      })
+      if (reloadCameras) reloadCameras()
+    } catch (e) {
+      alert(`Failed to toggle: ${e.message}`)
+    }
+  }
 
   const liveIds = new Set(Object.keys(systemStatus?.cameras || {}))
 
@@ -57,7 +70,7 @@ export function Cameras({ ctx }) {
         }
         flush={view === 'list'}
       >
-        {rows.length === 0 && <Empty icon={Icons.camera}>No cameras registered. Run <code>python scripts/seed_cameras.py</code></Empty>}
+        {rows.length === 0 && <Empty icon={Icons.camera}>No cameras registered. Add one using the button above.</Empty>}
 
         {view === 'grid' ? (
           <div className="grid grid-3">
@@ -81,7 +94,12 @@ export function Cameras({ ctx }) {
                 <div style={{ padding: '12px 14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <b style={{ fontSize: '0.86rem' }}>{cam.name || cam.camera_id}</b>
-                    <Tag tone={cam.health.tone}>{cam.health.label}</Tag>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <Tag tone={cam.health.tone}>{cam.health.label}</Tag>
+                      <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                        {cam.active ? 'Stop' : 'Start'}
+                      </button>
+                    </div>
                   </div>
                   <div className="meta muted" style={{ fontSize: '0.74rem' }}>{cam.location || 'No location set'}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -95,7 +113,7 @@ export function Cameras({ ctx }) {
         ) : (
           <table className="table">
             <thead>
-              <tr><th>Camera</th><th>Location</th><th>Health</th><th>FPS</th><th>Resolution</th><th>Bitrate</th><th>Firmware</th><th>GPS</th></tr>
+              <tr><th>Camera</th><th>Location</th><th>Health</th><th>FPS</th><th>Resolution</th><th>Bitrate</th><th>Firmware</th><th>GPS</th><th>Action</th></tr>
             </thead>
             <tbody>
               {rows.map((cam) => (
@@ -108,6 +126,11 @@ export function Cameras({ ctx }) {
                   <td>{cam.active ? '4.0 Mbps' : '—'}</td>
                   <td className="mono">v2.4.1</td>
                   <td className="mono">{cam.lat != null ? `${cam.lat.toFixed(4)}, ${cam.lng.toFixed(4)}` : '—'}</td>
+                  <td>
+                    <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                      {cam.active ? 'Stop' : 'Start'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -192,7 +215,7 @@ export function Cameras({ ctx }) {
                         setAddError(`Location fetch note: ${res.error}`)
                       }
                     } catch (e) {
-                      setAddError('Failed to fetch IP details.')
+                      setAddError('Failed to fetch IP details: ' + e.message)
                     } finally {
                       setAddLoading(false)
                     }

@@ -29,6 +29,7 @@ def build_camera_registry(base_dir: str) -> dict:
             "location": cam.get("location", cam["id"]),
             "lat": cam.get("lat"),
             "lng": cam.get("lng"),
+            "rtsp_url": str(cam.get("source", "")),
         }
 
     if "cam_0" not in registry:

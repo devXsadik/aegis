@@ -64,6 +64,13 @@ export async function addCamera(data) {
   });
 }
 
+export async function updateCamera(cameraId, patch) {
+  return apiFetch(`/cameras/${cameraId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
 export async function fetchKnownPersons() {
   return apiFetch('/faces/known-persons');
 }

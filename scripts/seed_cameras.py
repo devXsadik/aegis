@@ -24,6 +24,7 @@ def seed_cameras():
                 existing.location = info.get("location")
                 existing.lat = info.get("lat")
                 existing.lng = info.get("lng")
+                existing.rtsp_url = info.get("rtsp_url")
                 existing.active = True
             else:
                 db.add(Camera(
@@ -32,6 +33,7 @@ def seed_cameras():
                     location=info.get("location"),
                     lat=info.get("lat"),
                     lng=info.get("lng"),
+                    rtsp_url=info.get("rtsp_url"),
                     active=True,
                 ))
         db.commit()
