@@ -11,7 +11,7 @@ function seeded(i) {
   return x - Math.floor(x)
 }
 
-function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
+function useCamFeed(cam, index, aiOverlay, alerting) {
   const online = cam?.online ?? true
   const fps = cam?.fps ?? Math.round(22 + seeded(index) * 8)
   const [streamFailed, setStreamFailed] = useState(false)
@@ -33,20 +33,28 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
     })
   }, [aiOverlay, online, index, alerting, streaming])
 
+  const label = cam?.name || cam?.camera_location || `CAM-${String(index + 1).padStart(2, '0')}`
+
+  return { online, fps, streaming, boxes, label, setStreamFailed }
+}
+
+function CamFeed({ cam, index, aiOverlay, alerting, objectFit = 'cover' }) {
+  const { online, fps, streaming, boxes, label, setStreamFailed } = useCamFeed(cam, index, aiOverlay, alerting)
+
   return (
-    <div className={`cam-tile ${alerting ? 'alerting' : ''}`} onClick={onFocus} style={{ cursor: 'pointer', outline: focused ? '2px solid var(--primary)' : 'none' }}>
+    <>
       {streaming && (
         <img
           src={liveStreamUrl(cam.camera_id)}
-          alt={cam?.name || cam.camera_id}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          alt={label}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit }}
           onError={() => setStreamFailed(true)}
         />
       )}
       <div className="scanline" />
       <div className="cam-label">
         <span className="rec-dot" />
-        {cam?.name || cam?.camera_location || `CAM-${String(index + 1).padStart(2, '0')}`}
+        {label}
         {streaming && <span style={{ color: 'var(--ok)' }}>· LIVE</span>}
         {cam?.dvr && <span style={{ color: 'var(--danger)' }}>· REC</span>}
       </div>
@@ -65,6 +73,52 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
       ) : (
         <div className="cam-offline"><Icons.camera /><div>Signal lost</div></div>
       )}
+    </>
+  )
+}
+
+function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
+  return (
+    <div
+      className={`cam-tile ${alerting ? 'alerting' : ''}`}
+      onClick={onFocus}
+      style={{ cursor: 'pointer', outline: focused ? '2px solid var(--primary)' : 'none' }}
+      title="Click for full-screen view"
+    >
+      <CamFeed cam={cam} index={index} aiOverlay={aiOverlay} alerting={alerting} />
+    </div>
+  )
+}
+
+function CamFullscreen({ cam, index, aiOverlay, alerting, onClose }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const label = cam?.name || cam?.camera_location || `CAM-${String(index + 1).padStart(2, '0')}`
+
+  return (
+    <div className="cam-fullscreen-overlay" role="dialog" aria-modal="true" aria-label={`Live feed — ${label}`}>
+      <div className="cam-fullscreen-bar">
+        <div className="cam-fullscreen-title">
+          <span className="rec-dot" />
+          {label}
+          {alerting && <Tag tone="danger">THREAT</Tag>}
+        </div>
+        <button type="button" className="icon-btn cam-fullscreen-close" onClick={onClose} aria-label="Close full-screen view">
+          <Icons.close />
+        </button>
+      </div>
+      <div className={`cam-tile cam-fullscreen-tile ${alerting ? 'alerting' : ''}`}>
+        <CamFeed cam={cam} index={index} aiOverlay={aiOverlay} alerting={alerting} objectFit="contain" />
+      </div>
     </div>
   )
 }
@@ -145,6 +199,7 @@ export function LiveMonitoring({ ctx }) {
   const [layout, setLayout] = useState(4)
   const [aiOverlay, setAiOverlay] = useState(true)
   const [focused, setFocused] = useState(0)
+  const [fullscreenIdx, setFullscreenIdx] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [coverageHrs, setCoverageHrs] = useState(0)
   const [scrub, setScrub] = useState(100)
@@ -231,7 +286,10 @@ export function LiveMonitoring({ ctx }) {
               aiOverlay={aiOverlay}
               alerting={i === alertingIdx}
               focused={focused === i && layout > 1}
-              onFocus={() => setFocused(i)}
+              onFocus={() => {
+                setFocused(i)
+                setFullscreenIdx(i)
+              }}
             />
           ))}
         </div>
@@ -290,6 +348,16 @@ export function LiveMonitoring({ ctx }) {
           <PtzPad cameraId={activeCam} />
         </Card>
       </div>
+
+      {fullscreenIdx != null && tiles[fullscreenIdx] && (
+        <CamFullscreen
+          cam={tiles[fullscreenIdx]}
+          index={fullscreenIdx}
+          aiOverlay={aiOverlay}
+          alerting={fullscreenIdx === alertingIdx}
+          onClose={() => setFullscreenIdx(null)}
+        />
+      )}
     </>
   )
 }

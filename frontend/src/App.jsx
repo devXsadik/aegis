@@ -191,27 +191,7 @@ function App() {
   const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
     setCriticalAlert(alert)
     setThreatLevel('critical')
-    setPage('alerts')
   })
-
-  const playAlertSound = useCallback(() => {
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext
-      if (!AudioContext) return
-      const audioCtx = new AudioContext()
-      const osc = audioCtx.createOscillator()
-      const gain = audioCtx.createGain()
-      osc.type = 'square'
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime) // A5
-      osc.frequency.setValueAtTime(1108.73, audioCtx.currentTime + 0.1) // C#6
-      gain.gain.setValueAtTime(0.1, audioCtx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5)
-      osc.connect(gain)
-      gain.connect(audioCtx.destination)
-      osc.start()
-      osc.stop(audioCtx.currentTime + 0.5)
-    } catch (e) {}
-  }, [])
 
   const handleWsMessage = useCallback((data) => {
     if (data.alert_type === 'PIPELINE_HEARTBEAT') return
@@ -219,13 +199,9 @@ function App() {
     setEvents((prev) => [formatted, ...prev].slice(0, 200))
     handleAutoAlert(data)
 
-    if (data.alert_type === 'CRIMINAL_DETECTED' || data.alert_type === 'WEAPON_DETECTED' || data.severity === 'critical') {
-      playAlertSound()
-    }
-
     if (data.threat_score >= 50) setThreatLevel('high')
     if (data.severity === 'critical') setThreatLevel('critical')
-  }, [handleAutoAlert, playAlertSound])
+  }, [handleAutoAlert])
 
   const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage)
 
@@ -353,6 +329,7 @@ function App() {
                   <div
                     key={p.id}
                     className={`nav-item ${page === p.id ? 'active' : ''}`}
+                    data-alert-nav={p.id === 'alerts' && criticalEvents.length > 0 ? 'true' : undefined}
                     onClick={() => { setPage(p.id); setSidebarOpen(false) }}
                   >
                     <Icon />
@@ -389,6 +366,9 @@ function App() {
                 {' · Police auto-dispatched'}
               </div>
             </div>
+            <button type="button" onClick={() => { setPage('alerts'); setSidebarOpen(false); setCriticalAlert(null) }}>
+              View Alert Center
+            </button>
             <button type="button" onClick={() => setCriticalAlert(null)}>Acknowledge</button>
           </div>
         )}
@@ -413,7 +393,10 @@ function App() {
           </button>
           <div className="topbar-right">
             <div className="status-rail" aria-label="System status">
-              <Pill tone={threatTone}>THREAT {threatLevel.toUpperCase()}</Pill>
+            <button type="button" onClick={() => { setPage('alerts'); setSidebarOpen(false); setCriticalAlert(null) }}>
+              View Alert Center
+            </button>
+            <button type="button" onClick={() => setCriticalAlert(null)}>Acknowledge</button>
               <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
               <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
             </div>
