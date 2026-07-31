@@ -160,7 +160,7 @@ function App() {
 
   const [events, setEvents] = useState([])
   const [systemStatus, setSystemStatus] = useState(null)
-  const [criticalAlert, setCriticalAlert] = useState(null)
+
   const [threatLevel, setThreatLevel] = useState('low')
   const [knownPersons, setKnownPersons] = useState([])
   const [evidence, setEvidence] = useState([])
@@ -188,8 +188,7 @@ function App() {
     applyTheme(theme)
   }, [theme])
 
-  const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
-    setCriticalAlert(alert)
+  const { handleAlert: handleAutoAlert } = useAutoAlerts(() => {
     setThreatLevel('critical')
   })
 
@@ -282,6 +281,10 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const reloadCameras = useCallback(() => {
+    fetchCameras().then(setCameras).catch(() => {})
+  }, [])
+
   if (!authed) {
     return (
       <LoginForm
@@ -297,9 +300,7 @@ function App() {
   const activePage = ALL_PAGES.find((p) => p.id === page)
   const PageComponent = PAGE_COMPONENTS[page] || Overview
 
-  const reloadCameras = useCallback(() => {
-    fetchCameras().then(setCameras).catch(() => {})
-  }, [])
+
 
   const ctx = {
     events, setEvents, systemStatus, threatLevel, wsConnected,
@@ -310,7 +311,7 @@ function App() {
     theme, setTheme,
   }
 
-  const threatTone = { critical: 'danger', high: 'warn', low: 'ok' }[threatLevel] || 'ok'
+
 
   return (
     <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
@@ -355,23 +356,7 @@ function App() {
       </aside>
 
       <main className="main">
-        {criticalAlert && (
-          <div className="banner-critical">
-            <Icons.alert />
-            <div>
-              <b>{criticalAlert.type?.replace(/_/g, ' ')} — {criticalAlert.message}</b>
-              <div className="b-meta">
-                {criticalAlert.camera}
-                {criticalAlert.lat != null && ` · ${Number(criticalAlert.lat).toFixed(5)}, ${Number(criticalAlert.lng).toFixed(5)}`}
-                {' · Police auto-dispatched'}
-              </div>
-            </div>
-            <button type="button" onClick={() => { setPage('alerts'); setSidebarOpen(false); setCriticalAlert(null) }}>
-              View Alert Center
-            </button>
-            <button type="button" onClick={() => setCriticalAlert(null)}>Acknowledge</button>
-          </div>
-        )}
+
 
         <header className="topbar">
           <button type="button" className="icon-btn hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Menu">
@@ -393,10 +378,7 @@ function App() {
           </button>
           <div className="topbar-right">
             <div className="status-rail" aria-label="System status">
-            <button type="button" onClick={() => { setPage('alerts'); setSidebarOpen(false); setCriticalAlert(null) }}>
-              View Alert Center
-            </button>
-            <button type="button" onClick={() => setCriticalAlert(null)}>Acknowledge</button>
+
               <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
               <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
             </div>
@@ -440,7 +422,7 @@ function App() {
         />
       )}
       {showNotifs && (
-        <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => setEvents([])} />
+        <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => { setEvents([]); setThreatLevel('low'); }} />
       )}
       {showCopilot && (
         <Copilot ctx={{ events, summary, cameras, threatLevel, locations }} onClose={() => setShowCopilot(false)} />
