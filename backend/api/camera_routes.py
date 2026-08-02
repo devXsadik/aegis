@@ -78,6 +78,30 @@ class CameraResponse(BaseModel):
 
 @router.get("/", response_model=List[CameraResponse])
 def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    # Auto-sync cameras from cameras.yaml into DB
+    yaml_path = Path("config/cameras.yaml")
+    if yaml_path.exists():
+        try:
+            with open(yaml_path, "r") as f:
+                ydata = yaml.safe_load(f) or {}
+            existing_ids = {c.camera_id for c in db.query(Camera.camera_id).all()}
+            for cam in ydata.get("cameras", []):
+                cam_id = cam.get("id")
+                if cam_id and cam_id not in existing_ids:
+                    db.add(Camera(
+                        camera_id=cam_id,
+                        name=cam.get("name", cam_id),
+                        location=cam.get("location", ""),
+                        lat=cam.get("lat"),
+                        lng=cam.get("lng"),
+                        rtsp_url=cam.get("source", ""),
+                        active=cam.get("enabled", True),
+                    ))
+                    existing_ids.add(cam_id)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to sync cameras from YAML: {e}")
+            db.rollback()
     return db.query(Camera).all()
 
 

@@ -44,7 +44,7 @@ export function Cameras({ ctx }) {
       fps: live ? systemStatus.cameras[c.camera_id]?.fps ?? 25 : c.active ? 25 : 0,
       spark: Array.from({ length: 12 }, (_, i) => (c.active ? 20 + ((i * 7 + (c.id || 0) * 3) % 12) : 0)),
     }
-  })
+  }).sort((a, b) => (b.live - a.live) || (b.active - a.active))
 
   const online = rows.filter((r) => r.active).length
 
