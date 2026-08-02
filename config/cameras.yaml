@@ -40,3 +40,10 @@ cameras:
     enabled: true
     fps_limit: 8
     priority: high
+
+  - id: fahim_camera
+    name: "fahim camera"
+    source: "http://192.168.0.101:8080/video"
+    location: "uttara sector 9"
+    enabled: true
+    fps_limit: 8
