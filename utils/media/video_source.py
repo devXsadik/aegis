@@ -89,6 +89,11 @@ def configure_rtsp_options():
     options.append("stimeout;10000000")  # 10 sec for RTSP
     options.append("timeout;10000000")   # 10 sec for HTTP
     
+    # Reduce latency for IP cameras by disabling FFMPEG buffering
+    options.append("fflags;nobuffer")
+    options.append("flags;low_delay")
+    options.append("strict;experimental")
+    
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "|".join(options)
 
 
@@ -133,10 +138,14 @@ def read_frame_with_reconnect(cap, source, max_retries: int = 10):
     """Read a frame; reconnect on failure."""
     import cv2
 
+    is_video_file = isinstance(source, str) and source.lower().endswith(('.mp4', '.avi', '.mkv', '.mov'))
+
     for _ in range(max_retries):
         ret, frame = cap.read()
         if ret and frame is not None:
             return cap, frame
+        if is_video_file:
+            return cap, None
         logger.warning("Frame read failed — reconnecting...")
         try:
             cap.release()

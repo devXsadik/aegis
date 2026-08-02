@@ -25,7 +25,7 @@ weapon_model: "weapon_yolo.pt"
 # --- Detection Thresholds ---
 confidence_threshold: 0.5
 weapon_conf_threshold: 0.4
-face_tolerance: 0.55
+face_tolerance: 0.45
 
 # --- Recognition ---
 rerecognize_every: 30              # Re-run face recognition every N frames per track

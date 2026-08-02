@@ -100,6 +100,7 @@ def run_camera_loop(
     title = window_title or f"AI-SSS — {camera_location or camera_id}"
     logger.info(f"Camera worker started: {camera_id} @ {camera_location}")
 
+    last_ctx = None
     try:
         while True:
             if stop_event and stop_event.is_set():
@@ -110,24 +111,30 @@ def run_camera_loop(
                 break
 
             if not frame_skipper.should_process():
-                if show_window:
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
-                        break
-                continue
+                if last_ctx is not None:
+                    ctx = last_ctx
+                    ctx.frame = frame
+                    ctx.timestamp = time.time()
+                else:
+                    if show_window:
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord("q"):
+                            break
+                    continue
+            else:
+                if thermal_mode:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    frame = cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
 
-            if thermal_mode:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                frame = cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
-
-            ctx = pipeline.run(
-                frame,
-                camera_id=camera_id,
-                camera_location=camera_location,
-                camera_name=camera_name,
-                camera_lat=camera_lat,
-                camera_lng=camera_lng,
-            )
+                ctx = pipeline.run(
+                    frame,
+                    camera_id=camera_id,
+                    camera_location=camera_location,
+                    camera_name=camera_name,
+                    camera_lat=camera_lat,
+                    camera_lng=camera_lng,
+                )
+                last_ctx = ctx
 
             # Continuous DVR writes raw (pre-HUD) frames for forensic fidelity
             if dvr is not None:

@@ -153,13 +153,25 @@ def ingest():
 
                 try:
                     image = face_recognition.load_image_file(img_path)
-                    encodings = face_recognition.face_encodings(image, num_jitters=5)
+                    boxes = face_recognition.face_locations(image, model="hog")
+                    if not boxes:
+                        print(f"  ✗ No face found in: {img_file.name}")
+                        continue
+                    
+                    if len(boxes) > 1:
+                        print(f"  ⚠ Multiple faces found in {img_file.name}, taking the largest one.")
+                        # boxes are (top, right, bottom, left)
+                        areas = [(b[2]-b[0]) * (b[1]-b[3]) for b in boxes]
+                        best_idx = areas.index(max(areas))
+                        boxes = [boxes[best_idx]]
+
+                    encodings = face_recognition.face_encodings(image, boxes, num_jitters=5)
                 except Exception as e:
                     print(f"  ✗ Error processing {img_file.name}: {e}")
                     continue
 
                 if not encodings:
-                    print(f"  ✗ No face found in: {img_file.name}")
+                    print(f"  ✗ No face encoding generated for: {img_file.name}")
                     continue
 
                 enc_record = FaceEncoding(

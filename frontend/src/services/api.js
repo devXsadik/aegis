@@ -23,8 +23,8 @@ async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
     if (res.status === 401 && !path.includes('/auth/login')) {
-      clearToken();
-      window.location.reload();
+      // Dispatch auth_expired event instead of abruptly reloading
+      window.dispatchEvent(new Event('auth_expired'));
     }
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Request failed');
