@@ -32,7 +32,13 @@ class FaceRecognizerDB:
 
     def recognize_person(self, face_roi):
         rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-        boxes = face_recognition.face_locations(rgb, model="hog")
+        
+        # IP cameras often produce small person ROIs. 
+        # Upsample if the person ROI is small to help HOG find the face.
+        h, w = rgb.shape[:2]
+        upsample = 2 if (h < 300 or w < 300) else 1
+        
+        boxes = face_recognition.face_locations(rgb, model="hog", number_of_times_to_upsample=upsample)
         if not boxes:
             return None
         encodings = face_recognition.face_encodings(rgb, boxes)

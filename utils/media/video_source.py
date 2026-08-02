@@ -27,8 +27,15 @@ def resolve_source(source):
 
 def configure_rtsp_options():
     """Prefer TCP transport for RTSP streams (more reliable on most networks)."""
+    options = []
     if os.getenv("RTSP_TRANSPORT", "tcp").lower() == "tcp":
-        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+        options.append("rtsp_transport;tcp")
+    
+    # Increase timeouts for slow IP cameras (microseconds)
+    options.append("stimeout;10000000")  # 10 sec for RTSP
+    options.append("timeout;10000000")   # 10 sec for HTTP
+    
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "|".join(options)
 
 
 def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
@@ -44,7 +51,11 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
     )
 
     for attempt in range(1, max_retries + 1):
-        cap = cv2.VideoCapture(resolved)
+        # Force FFMPEG backend for network streams to respect timeout options
+        if is_network:
+            cap = cv2.VideoCapture(resolved, cv2.CAP_FFMPEG)
+        else:
+            cap = cv2.VideoCapture(resolved)
         if is_network:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if cap.isOpened():
