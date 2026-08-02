@@ -61,6 +61,7 @@ def run_camera_loop(
     camera_name: str = "",
     camera_lat: Optional[float] = None,
     camera_lng: Optional[float] = None,
+    stop_event: Optional[threading.Event] = None,
 ):
     """Run the CV pipeline on one video source until quit or stream end."""
     cap = open_capture(source)
@@ -101,6 +102,8 @@ def run_camera_loop(
 
     try:
         while True:
+            if stop_event and stop_event.is_set():
+                break
             cap, frame = read_frame_with_reconnect(cap, source)
             if frame is None:
                 logger.error(f"Stream lost for {camera_id}")

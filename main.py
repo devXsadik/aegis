@@ -63,6 +63,8 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
 
     pipeline, criminal_names, _ = build_pipeline(cfg, base_dir, camera_location=cam_loc)
 
+    stop_event = threading.Event()
+
     def worker():
         run_camera_loop(
             pipeline=pipeline,
@@ -76,11 +78,12 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
             target_fps=fps,
             show_window=show_window,
             window_title=f"AI-SSS — {cam_name}",
+            stop_event=stop_event,
         )
 
     t = threading.Thread(target=worker, name=f"camera-{cam_id}", daemon=True)
     t.start()
-    return t
+    return t, stop_event
 
 
 def main():
@@ -105,16 +108,27 @@ def main():
             logger.error("No enabled cameras in config/cameras.yaml")
             return
         logger.info(f"Starting multi-camera mode: {len(cameras)} camera(s)")
-        threads = {c["id"]: _start_camera_thread(c, cfg, base_dir, show_window) for c in cameras}
+        threads_and_events = {c["id"]: _start_camera_thread(c, cfg, base_dir, show_window) for c in cameras}
         try:
             while True:
                 time.sleep(2.0)
                 current_cameras = load_cameras_config(base_dir)
+                active_cids = {c.get("id") for c in current_cameras if c.get("id")}
+                
+                # 1. Stop cameras that are no longer enabled
+                for cid in list(threads_and_events.keys()):
+                    if cid not in active_cids:
+                        logger.info(f"Camera disabled or removed: {cid}. Stopping stream.")
+                        _, stop_event = threads_and_events[cid]
+                        stop_event.set()
+                        del threads_and_events[cid]
+
+                # 2. Start newly enabled cameras
                 for c in current_cameras:
                     cid = c.get("id")
-                    if cid and (cid not in threads or not threads[cid].is_alive()):
-                        logger.info(f"Hot-loading new camera: {cid}")
-                        threads[cid] = _start_camera_thread(c, cfg, base_dir, show_window)
+                    if cid and cid not in threads_and_events:
+                        logger.info(f"User enabled camera: {cid}. Starting stream.")
+                        threads_and_events[cid] = _start_camera_thread(c, cfg, base_dir, show_window)
         except KeyboardInterrupt:
             pass
         cv2.destroyAllWindows()
