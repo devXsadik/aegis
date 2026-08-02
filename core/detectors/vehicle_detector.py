@@ -12,9 +12,10 @@ class VehicleDetector:
     def __init__(self, model_path: str, conf_threshold: float = 0.5):
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
+        self.vehicle_classes = list(VEHICLE_CLASSES.keys())
 
     def detect(self, frame: np.ndarray):
-        results = self.model(frame, conf=self.conf_threshold, classes=list(VEHICLE_CLASSES.keys()), verbose=False)
+        results = self.model(frame, conf=self.conf_threshold, classes=self.vehicle_classes, verbose=False, device="cpu")
         vehicles = []
         for result in results:
             for box in result.boxes:

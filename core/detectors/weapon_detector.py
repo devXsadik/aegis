@@ -8,7 +8,7 @@ class WeaponDetector:
         self.conf_threshold = conf_threshold
 
     def detect(self, frame: np.ndarray):
-        results = self.model(frame, conf=self.conf_threshold, verbose=False)
+        results = self.model(frame, conf=self.conf_threshold, verbose=False, device="cpu")
         weapons = []
         for result in results:
             for box in result.boxes:

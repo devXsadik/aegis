@@ -9,7 +9,7 @@ class HumanDetector:
         self.conf_threshold = conf_threshold
 
     def detect(self, frame: np.ndarray):
-        results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False)
+        results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device="cpu")
         detections = []
         for result in results:
             for box in result.boxes:
