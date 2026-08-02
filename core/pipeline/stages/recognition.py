@@ -7,13 +7,14 @@ Face recognition + identity management for tracked persons.
 import cv2
 import logging
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from core.pipeline.base import PipelineStage, FrameContext
 
 logger = logging.getLogger("HumanAnalysis")
 
 
 class RecognitionStage(PipelineStage):
-    """Runs face recognition on tracked person ROIs."""
+    """Runs face recognition on tracked person ROIs in the background."""
 
     def __init__(self, face_recognizer, criminal_names: set,
                  rerecognize_every: int = 30, enabled: bool = True):
@@ -25,6 +26,24 @@ class RecognitionStage(PipelineStage):
         # Per-track state (persists across frames)
         self._id_name_map: dict = {}           # track_id → name
         self._id_frame_count = defaultdict(int) # track_id → frames seen
+        
+        # Async state
+        self._pending_tasks = set()
+        self.executor = ThreadPoolExecutor(max_workers=2)
+
+    def _run_recognition(self, track_id, proc_roi):
+        try:
+            name = self.face_recognizer.recognize_person(proc_roi)
+            if name:
+                self._id_name_map[track_id] = name
+                if name in self.criminal_names:
+                    logger.info(f"CRIMINAL DETECTED: {name} | ID:{track_id}")
+            elif track_id not in self._id_name_map:
+                self._id_name_map[track_id] = "Unknown"
+        except Exception as e:
+            logger.warning(f"Face recog failed ID {track_id}: {e}")
+        finally:
+            self._pending_tasks.discard(track_id)
 
     def process(self, ctx: FrameContext) -> FrameContext:
         fh, fw = ctx.frame.shape[:2]
@@ -45,32 +64,23 @@ class RecognitionStage(PipelineStage):
             # Decide whether to run face recognition
             self._id_frame_count[track_id] += 1
             should_recognize = (
-                track_id not in self._id_name_map
-                or self._id_frame_count[track_id] % self.rerecognize_every == 0
+                (track_id not in self._id_name_map
+                 or self._id_frame_count[track_id] % self.rerecognize_every == 0)
+                and track_id not in self._pending_tasks
             )
 
             if should_recognize:
-                try:
-                    # Resize ROI if it's too large to prevent CPU bottleneck in HOG
-                    MAX_ROI_HEIGHT = 400
-                    h, w = roi.shape[:2]
-                    if h > MAX_ROI_HEIGHT:
-                        scale = MAX_ROI_HEIGHT / h
-                        proc_roi = cv2.resize(roi, (int(w * scale), MAX_ROI_HEIGHT))
-                    else:
-                        proc_roi = roi
+                # Resize ROI if it's too large to prevent CPU bottleneck in HOG
+                MAX_ROI_HEIGHT = 400
+                h, w = roi.shape[:2]
+                if h > MAX_ROI_HEIGHT:
+                    scale = MAX_ROI_HEIGHT / h
+                    proc_roi = cv2.resize(roi, (int(w * scale), MAX_ROI_HEIGHT))
+                else:
+                    proc_roi = roi.copy()
 
-                    name = self.face_recognizer.recognize_person(proc_roi)
-                except Exception as e:
-                    logger.warning(f"Face recog failed ID {track_id}: {e}")
-                    name = None
-
-                if name:
-                    self._id_name_map[track_id] = name
-                    if name in self.criminal_names:
-                        logger.info(f"CRIMINAL DETECTED: {name} | ID:{track_id}")
-                elif track_id not in self._id_name_map:
-                    self._id_name_map[track_id] = "Unknown"
+                self._pending_tasks.add(track_id)
+                self.executor.submit(self._run_recognition, track_id, proc_roi)
 
             name = self._id_name_map.get(track_id, "Unknown")
             ctx.identities[track_id] = name
