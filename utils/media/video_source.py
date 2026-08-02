@@ -5,12 +5,66 @@ from __future__ import annotations
 import os
 import time
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import cv2
 
 logger = logging.getLogger("HumanAnalysis")
+
+class ThreadedCamera:
+    """
+    Continuously reads frames in a background thread.
+    This prevents OpenCV's internal buffer from accumulating old frames
+    when the ML pipeline runs slower than the camera's framerate,
+    completely eliminating live streaming lag.
+    """
+    def __init__(self, cap):
+        self.cap = cap
+        self.ret, self.frame = self.cap.read()
+        self.stopped = False
+        self.new_frame_event = threading.Event()
+        self.new_frame_event.set()
+        
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
+
+    def _update(self):
+        while not self.stopped:
+            ret, frame = self.cap.read()
+            if not ret:
+                self.ret = False
+                self.stopped = True
+                self.new_frame_event.set()
+                break
+            self.ret = ret
+            self.frame = frame
+            self.new_frame_event.set()
+
+    def read(self):
+        # Wait up to 2 seconds for a new frame
+        self.new_frame_event.wait(timeout=2.0)
+        self.new_frame_event.clear()
+        if self.stopped and not self.ret:
+            return False, None
+        return self.ret, self.frame
+
+    def release(self):
+        self.stopped = True
+        self.new_frame_event.set()
+        if self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+        self.cap.release()
+
+    def isOpened(self):
+        return self.cap.isOpened() and not self.stopped
+    
+    def set(self, prop, value):
+        return self.cap.set(prop, value)
+    
+    def get(self, prop):
+        return self.cap.get(prop)
 
 
 def resolve_source(source):
@@ -67,7 +121,7 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
                     time.sleep(retry_delay)
                     continue
             logger.info(f"Opened video source: {resolved}")
-            return cap
+            return ThreadedCamera(cap)
         cap.release()
         logger.warning(f"Open attempt {attempt}/{max_retries} failed for: {resolved}")
         time.sleep(retry_delay)
