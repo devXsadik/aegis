@@ -24,13 +24,13 @@ from backend.services import ptz as ptz_svc
 from paths import RECORDINGS_DIR, ROOT
 from utils.media.dvr import purge_old_recordings
 
+from backend.auth.guards import safe_media_path, verify_internal_key
+
 router = APIRouter(prefix="/vms", tags=["vms"])
 
 
 def _verify_internal(key: Optional[str]) -> None:
-    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
-    if not key or key != expected:
-        raise HTTPException(401, "Invalid internal API key")
+    verify_internal_key(key)
 
 
 class SegmentIngest(BaseModel):
@@ -134,11 +134,11 @@ def ingest_segment(
     ended = datetime.fromisoformat(body.ended_at.replace("Z", "")) if body.ended_at else None
 
     # Store path relative to project root when possible
-    fpath = body.file_path
-    try:
-        fpath = str(Path(body.file_path).resolve().relative_to(ROOT))
-    except Exception:
-        pass
+    # Reject paths outside the recordings dir; store relative to project root
+    fpath = str(safe_media_path(body.file_path, RECORDINGS_DIR, ROOT).relative_to(ROOT.resolve()))
+    thumb = None
+    if body.thumbnail_path:
+        thumb = str(safe_media_path(body.thumbnail_path, RECORDINGS_DIR, ROOT).relative_to(ROOT.resolve()))
 
     clip = RecordingClip(
         camera_id=body.camera_id,
@@ -151,7 +151,7 @@ def ingest_segment(
         file_path=fpath,
         file_sha256=body.file_sha256,
         frame_count=body.frame_count,
-        thumbnail_path=body.thumbnail_path,
+        thumbnail_path=thumb,
     )
     db.add(clip)
     db.commit()
@@ -266,9 +266,7 @@ def playback_at(
         if clip2:
             clip = clip2
 
-    path = Path(clip.file_path)
-    if not path.is_absolute():
-        path = ROOT / path
+    path = safe_media_path(clip.file_path, RECORDINGS_DIR, ROOT)
     if not path.exists():
         raise HTTPException(404, "Recording file missing on disk")
 
@@ -297,9 +295,7 @@ def segment_thumb(clip_id: int, db: Session = Depends(get_db), user: User = Depe
     clip = db.query(RecordingClip).filter(RecordingClip.id == clip_id).first()
     if not clip or not clip.thumbnail_path:
         raise HTTPException(404, "No thumbnail")
-    path = Path(clip.thumbnail_path)
-    if not path.is_absolute():
-        path = ROOT / path
+    path = safe_media_path(clip.thumbnail_path, RECORDINGS_DIR, ROOT)
     if not path.exists():
         raise HTTPException(404, "Thumbnail missing")
     return FileResponse(path, media_type="image/jpeg")

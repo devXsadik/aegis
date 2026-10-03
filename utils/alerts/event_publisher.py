@@ -8,7 +8,7 @@ from typing import Optional
 logger = logging.getLogger("HumanAnalysis")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 EVENTS_ENABLED = os.getenv("PIPELINE_EVENTS_ENABLED", "true").lower() == "true"
 AUTO_ALERTS_ENABLED = os.getenv("AUTO_ALERTS_ENABLED", "true").lower() == "true"
 

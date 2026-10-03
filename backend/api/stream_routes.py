@@ -13,9 +13,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
-from jose import JWTError, jwt
 
-from backend.auth.auth import ALGORITHM, SECRET_KEY
+from backend.auth.guards import verify_internal_key, verify_viewer_token
 
 router = APIRouter(prefix="/stream", tags=["stream"])
 
@@ -25,22 +24,11 @@ _lock = threading.Lock()
 
 
 def _verify_internal_key(key: Optional[str]) -> None:
-    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
-    if not key or key != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
+    verify_internal_key(key)
 
 
 def _verify_viewer_token(token: Optional[str]) -> None:
-    if not token:
-        if os.getenv("ENVIRONMENT", "development") == "production":
-            raise HTTPException(status_code=401, detail="Token required")
-        return
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("user_id") is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    verify_viewer_token(token)
 
 
 @router.post("/frame/{camera_id}")
@@ -56,7 +44,6 @@ async def push_frame(
         raise HTTPException(status_code=400, detail="Empty frame")
     with _lock:
         _frames[camera_id] = (body, time.monotonic())
-    print(f"DEBUG: push_frame received frame for {camera_id}, size: {len(body)}")
     return {"status": "ok", "camera_id": camera_id, "bytes": len(body)}
 
 

@@ -1,6 +1,7 @@
 """VMS timeline / recording clip API."""
 
 import hashlib
+import re
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,13 +19,13 @@ from backend.models.recording import RecordingClip
 from backend.auth.auth import operator_or_admin
 from paths import RECORDINGS_DIR, ROOT
 
+from backend.auth.guards import safe_media_path, verify_internal_key
+
 router = APIRouter(prefix="/recordings", tags=["recordings"])
 
 
 def _verify_internal(key: Optional[str]) -> None:
-    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
-    if not key or key != expected:
-        raise HTTPException(401, "Invalid internal API key")
+    verify_internal_key(key)
 
 
 class ClipOut(BaseModel):
@@ -98,9 +99,7 @@ def download_clip(clip_id: int, db: Session = Depends(get_db), user: User = Depe
     clip = db.query(RecordingClip).filter(RecordingClip.id == clip_id).first()
     if not clip:
         raise HTTPException(404, "Clip not found")
-    path = Path(clip.file_path)
-    if not path.is_absolute():
-        path = ROOT / path
+    path = safe_media_path(clip.file_path, RECORDINGS_DIR, ROOT)
     if not path.exists():
         raise HTTPException(404, "Clip file missing on disk")
     media = "video/mp4" if path.suffix.lower() == ".mp4" else "image/jpeg"
@@ -129,9 +128,13 @@ async def ingest_clip(
     stamp = datetime.utcnow()
     start = datetime.fromisoformat(started_at) if started_at else stamp
 
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,50}", camera_id):
+        raise HTTPException(400, "Invalid camera_id")
     dest_dir = RECORDINGS_DIR / camera_id
     dest_dir.mkdir(parents=True, exist_ok=True)
-    ext = Path(file.filename or "clip.jpg").suffix or ".jpg"
+    ext = Path(file.filename or "clip.jpg").suffix.lower()
+    if ext not in {".mp4", ".avi", ".jpg", ".jpeg"}:
+        raise HTTPException(400, "Unsupported file type")
     fname = f"{start.strftime('%Y%m%dT%H%M%S')}_{digest[:10]}{ext}"
     dest = dest_dir / fname
     dest.write_bytes(data)

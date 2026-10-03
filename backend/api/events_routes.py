@@ -6,6 +6,8 @@ from backend.utils.events import broadcast_live_event
 from pydantic import BaseModel
 from typing import Optional
 
+from backend.auth.guards import verify_internal_key
+
 router = APIRouter(prefix="/events", tags=["events"])
 
 
@@ -20,9 +22,7 @@ class LiveEvent(BaseModel):
 
 
 def _verify_internal_key(key: Optional[str]) -> None:
-    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
-    if not key or key != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
+    verify_internal_key(key)
 
 
 @router.post("/live")

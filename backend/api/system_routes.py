@@ -12,6 +12,8 @@ from backend.models.user import User
 from backend.utils.websocket import manager
 from backend.utils.events import build_event_payload
 
+from backend.auth.guards import verify_internal_key
+
 router = APIRouter(prefix="/system", tags=["system"])
 
 _INSECURE_KEYS = {"", "pipeline-internal-key-change-me"}
@@ -34,9 +36,7 @@ class HeartbeatPayload(BaseModel):
 
 
 def _verify_internal_key(key: Optional[str]) -> None:
-    expected = os.getenv("INTERNAL_API_KEY", "pipeline-internal-key-change-me")
-    if not key or key != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
+    verify_internal_key(key)
 
 
 @router.get("/status")

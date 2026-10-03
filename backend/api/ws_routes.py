@@ -4,10 +4,9 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from jose import JWTError, jwt
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
 
-from backend.auth.auth import SECRET_KEY, ALGORITHM
+from backend.auth.guards import verify_viewer_token
 from backend.utils.websocket import manager
 
 logger = logging.getLogger(__name__)
@@ -15,13 +14,10 @@ router = APIRouter(tags=["websockets"])
 
 
 def _validate_ws_token(token: Optional[str]) -> bool:
-    if not token:
-        # Anonymous connections allowed only outside production
-        return os.getenv("ENVIRONMENT", "development") != "production"
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("user_id") is not None
-    except JWTError:
+        verify_viewer_token(token)
+        return True
+    except HTTPException:
         return False
 
 

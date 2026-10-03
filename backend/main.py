@@ -48,21 +48,28 @@ def _is_insecure(value, extra=None):
 
 
 def _validate_secrets():
-    """Warn (dev) or refuse to start (prod) with default secrets."""
-    secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
-    encryption_key = os.getenv("ENCRYPTION_KEY", "default-key-change-in-prod")
-    env = os.getenv("ENVIRONMENT", "development")
+    """Refuse to start with missing/default secrets (all environments)."""
+    from backend.auth.guards import internal_key_is_secure
 
-    warnings = []
-    if _is_insecure(secret_key):
-        warnings.append("SECRET_KEY is using an insecure default value")
+    secret_key = os.getenv("SECRET_KEY", "")
+    encryption_key = os.getenv("ENCRYPTION_KEY", "")
+    salt = os.getenv("ENCRYPTION_SALT", "")
+
+    problems = []
+    if _is_insecure(secret_key) or len(secret_key) < 32:
+        problems.append("SECRET_KEY missing, default, or shorter than 32 chars")
     if _is_insecure(encryption_key, {"default-key-change-in-prod"}):
-        warnings.append("ENCRYPTION_KEY is using an insecure default value")
+        problems.append("ENCRYPTION_KEY missing or default")
+    if _is_insecure(salt, {"default-salt"}):
+        problems.append("ENCRYPTION_SALT missing or default")
+    if not internal_key_is_secure():
+        problems.append("INTERNAL_API_KEY missing or default")
 
-    for w in warnings:
-        if env == "production":
-            raise RuntimeError(f"SECURITY ERROR: {w}. Set a strong value in .env before running in production.")
-        logger.warning(f"⚠️  SECURITY WARNING: {w}. Set a strong value in .env before deploying.")
+    if problems:
+        raise RuntimeError(
+            "SECURITY ERROR: " + "; ".join(problems)
+            + ". Run scripts/ensure_local_env.py or set strong values in .env."
+        )
 
 
 # ---------------------------------------------------------------------------

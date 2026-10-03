@@ -2,7 +2,6 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
@@ -11,23 +10,10 @@ from datetime import datetime
 from backend.db.database import get_db
 from backend.models.evidence import Evidence
 from backend.models.user import User
-from backend.auth.auth import operator_or_admin, admin_only, ALGORITHM, SECRET_KEY
+from backend.auth.auth import operator_or_admin, admin_only
+from backend.auth.guards import viewer_user
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
-
-
-def _verify_viewer_token(token: Optional[str]) -> None:
-    """Query-param JWT check for <img> tags (they cannot send headers)."""
-    if not token:
-        if os.getenv("ENVIRONMENT", "development") == "production":
-            raise HTTPException(status_code=401, detail="Token required")
-        return
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("user_id") is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 class EvidenceResponse(BaseModel):
@@ -72,7 +58,7 @@ def get_evidence_image(
     db: Session = Depends(get_db),
 ):
     """Serve the stored JPEG snapshot (full frame or subject crop)."""
-    _verify_viewer_token(token)
+    viewer = viewer_user(token, db)
     ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
     if not ev:
         raise HTTPException(status_code=404, detail="Evidence not found")
@@ -85,12 +71,13 @@ def get_evidence_image(
     # Log access in custody chain (best-effort)
     try:
         from backend.services.custody import append_custody
-        append_custody(db, evidence_id=evidence_id, action="ACCESSED", actor="viewer", details=f"kind={kind}")
+        append_custody(db, evidence_id=evidence_id, action="ACCESSED", actor=viewer.username,
+                       actor_id=viewer.id, details=f"kind={kind}")
         db.commit()
     except Exception:
         db.rollback()
     return Response(content=data, media_type="image/jpeg",
-                    headers={"Cache-Control": "private, max-age=3600"})
+                    headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/{evidence_id}")
