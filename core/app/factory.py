@@ -73,6 +73,8 @@ def build_pipeline(cfg, base_dir, camera_location=None):
             logger.info("Weapon detector: ENABLED")
         except Exception as e:
             logger.warning(f"Weapon detector DISABLED: {e}")
+    else:
+        logger.warning(f"Weapon detector DISABLED: model not found at {weapon_model_path}")
 
     vehicle_detector = None
     if os.path.exists(vehicle_model_path):
@@ -81,6 +83,8 @@ def build_pipeline(cfg, base_dir, camera_location=None):
             logger.info("Vehicle detector: ENABLED")
         except Exception as e:
             logger.warning(f"Vehicle detector DISABLED: {e}")
+    else:
+        logger.warning(f"Vehicle detector DISABLED: model not found at {vehicle_model_path}")
 
     human_tracker = HumanTracker()
     vehicle_tracker = VehicleTracker()

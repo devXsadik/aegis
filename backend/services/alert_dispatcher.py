@@ -59,6 +59,10 @@ def _geo_details(lat, lng, camera_name, camera_id) -> Optional[str]:
     })
 
 
+# Identification-type alerts: external webhooks wait for human confirmation.
+REVIEW_REQUIRED_TYPES = {"CRIMINAL_DETECTED"}
+
+
 async def _send_webhooks(alert_type: str, payload: dict) -> str:
     if os.getenv("ALERTS_ENABLED", "false").lower() != "true":
         return ""
@@ -76,7 +80,7 @@ async def _send_webhooks(alert_type: str, payload: dict) -> str:
                 sent.append(key)
     elif alert_type == "SUSPICIOUS_VEHICLE":
         if urls["law_enforcement"]:
-            _post_webhook(urls["law_enforcement"], payload)
+            await _post_webhook(urls["law_enforcement"], payload)
             sent.append("law_enforcement")
     return ",".join(sent)
 
@@ -115,7 +119,7 @@ async def dispatch_alert(
 
         if not message:
             if alert_type == "CRIMINAL_DETECTED":
-                message = f"CRIMINAL DETECTED: {person_name} at {camera_location}"
+                message = f"WATCHLIST MATCH (unverified): {person_name} at {camera_location}"
             else:
                 message = alert_type.replace("_", " ").title()
 
@@ -138,7 +142,9 @@ async def dispatch_alert(
             "message": message,
             "timestamp": datetime.utcnow().isoformat(),
         }
-        channels = await _send_webhooks(alert_type, webhook_payload)
+        needs_review = alert_type in REVIEW_REQUIRED_TYPES
+        # Held: operators see it on the dashboard now; outside parties only after confirm.
+        channels = "" if needs_review else await _send_webhooks(alert_type, webhook_payload)
 
         alert = Alert(
             alert_type=alert_type,
@@ -151,6 +157,7 @@ async def dispatch_alert(
             message=message,
             details=_geo_details(camera_lat, camera_lng, camera_name, camera_id),
             channels_sent=channels or "websocket,dashboard,map",
+            review_status="pending" if needs_review else "not_required",
         )
         db.add(alert)
         db.flush()
@@ -212,6 +219,24 @@ async def dispatch_alert(
     finally:
         if own_session:
             db.close()
+
+async def release_held_webhooks(alert: Alert) -> str:
+    """Send the external webhooks that were held pending human confirmation."""
+    payload = {
+        "alert_type": alert.alert_type,
+        "severity": alert.severity,
+        "person_name": alert.person_name,
+        "camera_location": alert.camera_location,
+        "camera_id": alert.camera_id,
+        "track_id": alert.track_id,
+        "message": alert.message,
+        "alert_id": alert.id,
+        "review_status": alert.review_status,
+        "reviewed_by": alert.reviewed_by,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    return await _send_webhooks(alert.alert_type, payload)
+
 
 async def redispatch_alert(
     alert: Alert,

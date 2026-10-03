@@ -8,6 +8,7 @@ import threading
 from core.pipeline.base import PipelineStage, FrameContext
 from utils.data import save_evidence_db
 from utils.alerts import NotificationHub
+from core.analysis.weapon_confirm import UNASSIGNED, WeaponConfirmer, associate
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -27,12 +28,25 @@ class OutputStage(PipelineStage):
             alarm_interval=alarm_interval_seconds,
         )
         self._last_saved: dict = {}
+        self.weapon_confirmer = WeaponConfirmer(window=5, min_hits=3)
 
     def process(self, ctx: FrameContext) -> FrameContext:
         now = ctx.timestamp
         location = ctx.camera_location or self.camera_location
         camera_id = ctx.camera_id
         fh, fw = ctx.frame.shape[:2]
+
+        # Weapon evidence must be attached to a person track and persist over frames.
+        assigned = associate(ctx.weapon_detections, ctx.tracks)
+        confirmed_keys = self.weapon_confirmer.update(assigned)
+        ctx.confirmed_weapons = {k: assigned[k] for k in confirmed_keys}
+
+        if UNASSIGNED in ctx.confirmed_weapons:
+            self.notifications.weapon_detected(
+                camera_location=location, camera_id=camera_id,
+                track_id=UNASSIGNED, now=now,
+                camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+            )
 
         for track in ctx.tracks:
             if not track.is_confirmed():
@@ -51,7 +65,8 @@ class OutputStage(PipelineStage):
             is_criminal = track_id in ctx.criminal_ids
             is_suspicious = track_id in ctx.suspicious_tracks
             reasons = ctx.suspicious_tracks.get(track_id, [])
-            alert = is_criminal or ctx.weapon_present or is_suspicious
+            has_weapon = track_id in ctx.confirmed_weapons
+            alert = is_criminal or has_weapon or is_suspicious
 
             if is_criminal:
                 self.notifications.criminal_detected(
@@ -65,7 +80,7 @@ class OutputStage(PipelineStage):
                     camera_lng=ctx.camera_lng,
                 )
 
-            if ctx.weapon_present:
+            if has_weapon:
                 self.notifications.weapon_detected(
                     camera_location=location,
                     camera_id=camera_id,
@@ -93,7 +108,7 @@ class OutputStage(PipelineStage):
                         target=save_evidence_db,
                         args=(
                             location, track_id, name,
-                            is_criminal, ctx.weapon_present, is_suspicious,
+                            is_criminal, has_weapon, is_suspicious,
                             reasons, ctx.frame.copy(), roi.copy(),
                         ),
                         daemon=True,
@@ -131,7 +146,7 @@ class OutputStage(PipelineStage):
         ctx.threat_score = min(
             100,
             len(ctx.tracks) * 5
-            + (50 if ctx.weapon_present else 0)
+            + (50 if ctx.confirmed_weapons else 0)
             + len(ctx.active_criminals) * 50
             + len(ctx.anomalies) * 10,
         )

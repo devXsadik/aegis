@@ -177,7 +177,30 @@ def health_check():
             checks["last_heartbeat"] = _pipeline_status["last_heartbeat"]
     except Exception:
         checks["pipeline"] = "unknown"
+    models = _model_status()
+    checks["models"] = models
+    if any(v == "missing" for v in models.values()):
+        status = "degraded"
     return {"status": status, "version": "5.0.0", "checks": checks}
+
+
+def _model_status() -> dict:
+    """File presence for each detector; 'missing' means that feature is OFF."""
+    from paths import ROOT
+    from utils.config import load_yaml
+    from utils.config.model_config import load_model_registry
+    out = {}
+    try:
+        cfg = load_yaml(str(ROOT / "config" / "config.yaml")) or {}
+        for key in ("human_detector", "weapon_detector", "vehicle_detector"):
+            rel = load_model_registry(str(ROOT)).get(key, {}).get("path")
+            if not rel:
+                continue
+            path = os.path.join(str(ROOT), cfg.get("model_dir", "models"), os.path.basename(rel))
+            out[key] = "ok" if os.path.exists(path) else "missing"
+    except Exception as e:
+        logger.warning(f"Model status check failed: {e}")
+    return out
 
 
 

@@ -291,9 +291,9 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
 
         # Determine color and status
         if is_criminal:
-            color, status = (0, 0, 255), "CRIMINAL"
-        elif ctx.weapon_present:
-            color, status = (0, 0, 255), "Armed"
+            color, status = (0, 0, 255), "WATCHLIST MATCH"
+        elif track_id in ctx.confirmed_weapons:
+            color, status = (0, 0, 255), "Weapon (confirmed)"
         elif is_suspicious:
             color, status = (0, 165, 255), "Suspicious"
         else:
@@ -347,10 +347,10 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
 
     cv2.putText(frame, f"FPS: {fps:.1f}  |  People: {len(ctx.tracks)}",
                 (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-    cv2.putText(frame, f"Weapon: {'YES' if ctx.weapon_present else 'NO'}  |  "
+    cv2.putText(frame, f"Weapon: {'CONFIRMED' if ctx.confirmed_weapons else 'candidate' if ctx.weapon_present else 'NO'}  |  "
                        f"Anomalies: {len(ctx.anomalies)}",
                 (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                (0, 0, 255) if ctx.weapon_present else (0, 255, 0), 1)
+                (0, 0, 255) if ctx.confirmed_weapons else (0, 165, 255) if ctx.weapon_present else (0, 255, 0), 1)
     cv2.putText(frame, f"Criminals in frame: {len(ctx.active_criminals)}",
                 (10, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
                 (0, 0, 255) if ctx.active_criminals else (200, 200, 200), 1)

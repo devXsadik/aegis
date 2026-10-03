@@ -28,6 +28,13 @@ class Alert(Base):
 
     channels_sent = Column(String(100), nullable=True)
 
+    # Human review: identification-type alerts stay "pending" until an operator
+    # confirms or rejects; external webhooks are held until "confirmed".
+    review_status = Column(String(12), nullable=False, default="pending", server_default="pending")
+    reviewed_by = Column(Integer, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_note = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("idx_alert_timestamp", "timestamp", "alert_type"),
         Index("idx_alert_unacknowledged", "acknowledged", "dismissed"),

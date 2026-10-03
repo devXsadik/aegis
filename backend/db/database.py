@@ -137,6 +137,29 @@ def init_db():
         camera, alert, vehicle, config_entry, incident, custody, recording, calibration,
     )
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
+
+
+# (table, column, DDL type) — additive changes until Alembic baselines exist.
+_ADDITIVE_COLUMNS = [
+    ("alerts", "review_status", "VARCHAR(12) NOT NULL DEFAULT 'pending'"),
+    ("alerts", "reviewed_by", "INTEGER"),
+    ("alerts", "reviewed_at", "TIMESTAMP"),
+    ("alerts", "review_note", "TEXT"),
+]
+
+
+def _ensure_columns():
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    for table, col, ddl in _ADDITIVE_COLUMNS:
+        if table not in insp.get_table_names():
+            continue
+        if col in {c["name"] for c in insp.get_columns(table)}:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+        logger.info("Added column %s.%s", table, col)
 
 
 def get_db():

@@ -62,7 +62,7 @@ class NotificationHub:
 
         self._sound_alarm()
         message = self._geo_message(
-            f"CRIMINAL DETECTED: {criminal_name}",
+            f"WATCHLIST MATCH (unverified): {criminal_name}",
             camera_location, camera_id, camera_lat, camera_lng,
         )
         logger.critical(message)

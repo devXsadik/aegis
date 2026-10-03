@@ -197,7 +197,7 @@ def run_camera_loop(
                         publish_frame(camera_id, jpeg)
                         if ctx.threat_score and ctx.threat_score >= 40:
                             alert_type = "THREAT"
-                            if getattr(ctx, "weapon_present", False):
+                            if getattr(ctx, "confirmed_weapons", None):
                                 alert_type = "WEAPON_DETECTED"
                             elif getattr(ctx, "active_criminals", None):
                                 alert_type = "CRIMINAL_DETECTED"

@@ -5,7 +5,10 @@ from backend.db.database import get_db
 from backend.auth.auth import operator_or_admin, admin_only
 from backend.models.user import User
 from backend.models.alert import Alert
-from backend.services.alert_dispatcher import dispatch_alert, redispatch_alert
+from backend.models.audit_log import AuditLog
+from backend.services.alert_dispatcher import (
+    dispatch_alert, redispatch_alert, release_held_webhooks,
+)
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
@@ -28,6 +31,8 @@ class AlertResponse(BaseModel):
     acknowledged: bool
     dismissed: bool
     channels_sent: Optional[str]
+    review_status: Optional[str] = None
+    review_note: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -36,6 +41,7 @@ class AlertResponse(BaseModel):
 class AcknowledgeRequest(BaseModel):
     acknowledged: bool = True
     dismissed: bool = False
+    note: Optional[str] = None
 
 
 class DispatchAlertRequest(BaseModel):
@@ -146,7 +152,7 @@ def alert_stats(
 
 
 @router.put("/{alert_id}/acknowledge")
-def acknowledge_alert(
+async def acknowledge_alert(
     alert_id: int,
     body: AcknowledgeRequest,
     db: Session = Depends(get_db),
@@ -160,8 +166,33 @@ def acknowledge_alert(
     if body.acknowledged:
         alert.acknowledged_by = user.id
         alert.acknowledged_at = datetime.utcnow()
+
+    released = ""
+    needs_review = alert.review_status == "pending"
+    if body.dismissed:
+        decision = "rejected"
+    elif body.acknowledged:
+        decision = "confirmed"
+    else:
+        decision = None
+    if decision and (needs_review or alert.review_status in ("confirmed", "rejected")):
+        was_pending = alert.review_status == "pending"
+        alert.review_status = decision
+        alert.reviewed_by = user.id
+        alert.reviewed_at = datetime.utcnow()
+        alert.review_note = body.note
+        db.add(AuditLog(
+            user_id=user.id, username=user.username,
+            action=f"ALERT_{decision.upper()}", resource="alert",
+            resource_id=str(alert_id), details=body.note,
+        ))
+        if decision == "confirmed" and was_pending:
+            released = await release_held_webhooks(alert)
+            if released:
+                alert.channels_sent = ",".join(filter(None, [alert.channels_sent, released]))
     db.commit()
-    return {"status": "updated", "id": alert_id}
+    return {"status": "updated", "id": alert_id, "review_status": alert.review_status,
+            "webhooks_released": released}
 
 
 @router.post("/{alert_id}/dispatch")
@@ -195,6 +226,10 @@ async def dispatch_police(
     alert.acknowledged = True
     alert.acknowledged_by = user.id
     alert.acknowledged_at = datetime.utcnow()
+    if alert.review_status == "pending":
+        alert.review_status = "confirmed"
+        alert.reviewed_by = user.id
+        alert.reviewed_at = datetime.utcnow()
     db.add(AuditLog(
         user_id=user.id,
         username=user.username,
