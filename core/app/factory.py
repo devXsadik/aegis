@@ -4,7 +4,7 @@ import os
 import threading
 
 from core import (
-    HumanDetector, WeaponDetector, HumanTracker, PoseAnalyzer,
+    HumanDetector, WeaponDetector, HumanTracker, PoseAnalyzer, FireSmokeDetector,
     FaceRecognizerDB, VehicleDetector, VehicleTracker,
     LicensePlateRecognizer, LicensePlateDatabase, AnomalyDetector,
 )
@@ -115,7 +115,30 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         lambda: FaceRecognizerDB(tolerance=face_tolerance,
                                  loader=watchlist_store.load_face_encodings),
     )
-    pose_analyzer = PoseAnalyzer()
+    pose_cfg = cfg.get("pose", {})
+    pose_analyzer = None
+    if pose_cfg.get("enabled", True):
+        pose_path = model_path(base_dir, model_dir, "pose_analyzer", "yolov8n-pose.pt")
+        pose_analyzer = _shared(
+            ("pose", pose_path),
+            lambda: PoseAnalyzer(pose_path, device=device, auto_download=True),
+        )
+        if not pose_analyzer.enabled:
+            logger.warning("Pose analysis DISABLED (model unavailable): no raised-arms / fall checks")
+
+    fire_detector = None
+    fire_path = model_path(base_dir, model_dir, "fire_detector", "fire_smoke_yolo.pt")
+    if os.path.exists(fire_path):
+        try:
+            fire_detector = _shared(
+                ("fire", fire_path),
+                lambda: FireSmokeDetector(fire_path, cfg.get("fire_conf_threshold", 0.5), device),
+            )
+            logger.info("Fire/smoke detector: ENABLED")
+        except Exception as e:
+            logger.warning(f"Fire/smoke detector DISABLED: {e}")
+    else:
+        logger.info(f"Fire/smoke detector off (no model at {fire_path})")
     anomaly_cfg = cfg.get("anomaly", {})
     anomaly_detector = AnomalyDetector(
         crowd_threshold=anomaly_cfg.get("crowd_threshold", 5),
@@ -148,6 +171,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         human_detector=human_detector,
         vehicle_detector=vehicle_detector,
         weapon_detector=weapon_detector,
+        fire_detector=fire_detector,
     ))
     pipeline.add_stage(TrackingStage(
         human_tracker=human_tracker,
@@ -163,6 +187,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         anomaly_detector=anomaly_detector,
         anpr=anpr,
         plate_db=plate_db,
+        pose_every_n=pose_cfg.get("every_n_frames", 2),
     ))
     pipeline.add_stage(AnalyticsStage())
     pipeline.add_stage(OutputStage(

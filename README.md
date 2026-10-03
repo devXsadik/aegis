@@ -106,7 +106,7 @@ Stages live under `core/pipeline/stages/` and share a `FrameContext`, so each st
 
 | Layer | Technologies |
 |-------|--------------|
-| **Computer Vision** | OpenCV, YOLOv8 (Ultralytics), MediaPipe, face_recognition, EasyOCR, Deep SORT |
+| **Computer Vision** | OpenCV, YOLOv8 + YOLOv8-pose (Ultralytics), face_recognition, EasyOCR, Deep SORT |
 | **Backend** | FastAPI, SQLAlchemy, PostgreSQL + pgvector, JWT, AES-256 |
 | **Frontend** | React 19, Vite 8 |
 | **Infrastructure** | Docker Compose, Redis (optional), nginx deploy config |

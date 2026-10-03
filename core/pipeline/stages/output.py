@@ -29,6 +29,8 @@ class OutputStage(PipelineStage):
         )
         self._last_saved: dict = {}
         self.weapon_confirmer = WeaponConfirmer(window=5, min_hits=3)
+        # Fire/smoke flickers more than weapons do: demand a longer persistence.
+        self.fire_confirmer = WeaponConfirmer(window=8, min_hits=5)
 
     def process(self, ctx: FrameContext) -> FrameContext:
         now = ctx.timestamp
@@ -40,6 +42,22 @@ class OutputStage(PipelineStage):
         assigned = associate(ctx.weapon_detections, ctx.tracks)
         confirmed_keys = self.weapon_confirmer.update(assigned)
         ctx.confirmed_weapons = {k: assigned[k] for k in confirmed_keys}
+
+        best_fire = max(ctx.fire_detections, key=lambda d: d["score"], default=None)
+        fire_keys = self.fire_confirmer.update({"fire": best_fire} if best_fire else {})
+        if "fire" in fire_keys:
+            ctx.confirmed_fire = {"fire": best_fire}
+            self.notifications.fire_smoke_detected(
+                camera_location=location, camera_id=camera_id, now=now,
+                kind=best_fire.get("class_name", "fire"), confidence=best_fire["score"],
+                camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+            )
+
+        for tid in ctx.fall_tracks:
+            self.notifications.fall_suspected(
+                camera_location=location, camera_id=camera_id, track_id=tid, now=now,
+                camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+            )
 
         if UNASSIGNED in ctx.confirmed_weapons:
             self.notifications.weapon_detected(

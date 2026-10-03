@@ -109,6 +109,58 @@ class NotificationHub:
             ),
         )
 
+    def fire_smoke_detected(
+        self,
+        camera_location: str,
+        camera_id: str,
+        now: float,
+        kind: str = "fire",
+        confidence: Optional[float] = None,
+        camera_lat: Optional[float] = None,
+        camera_lng: Optional[float] = None,
+    ) -> None:
+        if not self._should_fire(f"fire_{camera_id}", now):
+            return
+        self._sound_alarm()
+        dispatch_alert(
+            alert_type="FIRE_SMOKE_DETECTED",
+            severity="critical",
+            camera_location=camera_location,
+            camera_id=camera_id,
+            confidence=confidence,
+            camera_lat=camera_lat,
+            camera_lng=camera_lng,
+            message=self._geo_message(
+                f"{kind.upper()} DETECTED (confirmed over several frames)",
+                camera_location, camera_id, camera_lat, camera_lng,
+            ),
+        )
+
+    def fall_suspected(
+        self,
+        camera_location: str,
+        camera_id: str,
+        track_id: int,
+        now: float,
+        camera_lat: Optional[float] = None,
+        camera_lng: Optional[float] = None,
+    ) -> None:
+        if not self._should_fire(f"fall_{camera_id}_{track_id}", now):
+            return
+        dispatch_alert(
+            alert_type="FALL_SUSPECTED",
+            severity="high",
+            camera_location=camera_location,
+            camera_id=camera_id,
+            track_id=track_id,
+            camera_lat=camera_lat,
+            camera_lng=camera_lng,
+            message=self._geo_message(
+                "Possible fall — person down, please check on camera",
+                camera_location, camera_id, camera_lat, camera_lng,
+            ),
+        )
+
     def suspicious_behavior(
         self,
         name: str,

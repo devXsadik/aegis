@@ -65,6 +65,9 @@ class FrameContext:
     # --- Aggregated ---
     threat_score: int = 0
     weapon_present: bool = False                            # raw, unconfirmed
+    fire_detections: list = field(default_factory=list)
+    confirmed_fire: dict = field(default_factory=dict)      # {'fire': detection}
+    fall_tracks: dict = field(default_factory=dict)         # track_id → {'bbox'}
     confirmed_weapons: dict = field(default_factory=dict)   # track_id|-1 → detection
     alerts_to_send: list = field(default_factory=list)
     evidence_to_save: list = field(default_factory=list)

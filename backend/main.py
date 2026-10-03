@@ -192,12 +192,14 @@ def _model_status() -> dict:
     out = {}
     try:
         cfg = load_yaml(str(ROOT / "config" / "config.yaml")) or {}
-        for key in ("human_detector", "weapon_detector", "vehicle_detector"):
+        for key in ("human_detector", "weapon_detector", "vehicle_detector",
+                    "pose_analyzer", "fire_detector"):
             rel = load_model_registry(str(ROOT)).get(key, {}).get("path")
             if not rel:
                 continue
             path = os.path.join(str(ROOT), cfg.get("model_dir", "models"), os.path.basename(rel))
-            out[key] = "ok" if os.path.exists(path) else "missing"
+            optional = load_model_registry(str(ROOT)).get(key, {}).get("optional", False)
+            out[key] = "ok" if os.path.exists(path) else ("not_installed" if optional else "missing")
     except Exception as e:
         logger.warning(f"Model status check failed: {e}")
     return out

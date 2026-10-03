@@ -69,3 +69,7 @@ def test_events_search_filters_by_type_camera_and_time():
     db.close()
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
+    try:
+        os.remove("test_review.db")
+    except OSError:
+        pass

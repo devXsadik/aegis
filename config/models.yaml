@@ -41,10 +41,22 @@ models:
     # Upgrade path: InsightFace ArcFace-R100 (99.8% LFW)
 
   pose_analyzer:
-    name: "MediaPipe Pose"
-    type: mediapipe
-    version: "0.10.9"
-    description: "Human pose estimation (33 landmarks)"
+    name: "YOLOv8n-pose"
+    path: "models/yolov8n-pose.pt"
+    type: yolo
+    version: "8.3"
+    device: "auto"
+    description: "Multi-person pose (17 COCO keypoints): raised arms, fall suspicion"
+    optional: true
+
+  fire_detector:
+    name: "Fire/Smoke YOLO"
+    path: "models/fire_smoke_yolo.pt"
+    type: yolo
+    version: "custom"
+    device: "auto"
+    description: "Fire and smoke detection (needs a trained model; feature is OFF without it)"
+    optional: true
 
   anpr_ocr:
     name: "EasyOCR"
@@ -68,9 +80,4 @@ models:
 #   type: pytorchvideo
 #   description: "Action recognition (fighting, falling, running, etc.)"
 #
-# fire_detector:
-#   name: "Fire/Smoke YOLO"
-#   path: "models/fire_smoke_yolo.pt"
-#   type: yolo
-#   description: "Fire and smoke detection"
 

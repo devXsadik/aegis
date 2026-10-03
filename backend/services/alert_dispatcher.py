@@ -74,7 +74,7 @@ async def _send_webhooks(alert_type: str, payload: dict) -> str:
             if urls[key]:
                 await _post_webhook(urls[key], payload)
                 sent.append(key)
-    elif alert_type == "WEAPON_DETECTED":
+    elif alert_type in ("WEAPON_DETECTED", "FIRE_SMOKE_DETECTED"):
         for key in ("emergency", "security"):
             if urls[key]:
                 await _post_webhook(urls[key], payload)

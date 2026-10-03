@@ -23,6 +23,11 @@ human_model: "yolov8n.pt"         # Nano model for speed
 weapon_model: "weapon_yolo.pt"
 # vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
 
+# --- Pose (raised arms, fall suspicion) ---
+pose:
+  enabled: true
+  every_n_frames: 2                # pose is the costliest per-frame step
+
 # --- Detection Thresholds ---
 confidence_threshold: 0.5
 weapon_conf_threshold: 0.4

@@ -65,16 +65,17 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
             reasons.append("erratic_movement")
 
     if pose_landmarks:
-        # Raised arms or crouching posture heuristic via shoulder/hip Y delta
-        try:
-            ls, rs = pose_landmarks.get("left_shoulder"), pose_landmarks.get("right_shoulder")
-            lw, rw = pose_landmarks.get("left_wrist"), pose_landmarks.get("right_wrist")
-            if ls and rs and lw and rw:
-                shoulder_y = (ls[1] + rs[1]) / 2
-                if lw[1] < shoulder_y - 30 or rw[1] < shoulder_y - 30:
-                    reasons.append("raised_arms")
-        except Exception:
-            pass
+        # Raised arms: a wrist clearly above the shoulder line, scaled by torso length
+        # so the test holds at any camera distance/resolution.
+        ls, rs = pose_landmarks.get("left_shoulder"), pose_landmarks.get("right_shoulder")
+        lw, rw = pose_landmarks.get("left_wrist"), pose_landmarks.get("right_wrist")
+        if ls and rs and (lw or rw):
+            shoulder_y = (ls[1] + rs[1]) / 2
+            lh, rh = pose_landmarks.get("left_hip"), pose_landmarks.get("right_hip")
+            torso = abs(((lh[1] + rh[1]) / 2) - shoulder_y) if lh and rh else 0.0
+            margin = max(10.0, 0.4 * torso)
+            if any(w and w[1] < shoulder_y - margin for w in (lw, rw)):
+                reasons.append("raised_arms")
 
     return len(reasons) > 0, reasons
 

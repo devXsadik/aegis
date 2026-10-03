@@ -5,7 +5,7 @@ __all__ = [
     "PoseAnalyzer", "FaceRecognizerDB",
     "is_suspicious_behavior",
     "LicensePlateRecognizer", "LicensePlateDatabase",
-    "VehicleDetector", "VehicleTracker",
+    "VehicleDetector", "VehicleTracker", "FireSmokeDetector",
     "AnomalyDetector", "Analytics",
 ]
 
@@ -14,6 +14,7 @@ _modules = {
     "WeaponDetector": "core.detectors",
     "VehicleDetector": "core.detectors",
     "VehicleTracker": "core.detectors",
+    "FireSmokeDetector": "core.detectors",
     "HumanTracker": "core.tracking",
     "FaceRecognizerDB": "core.recognition",
     "is_suspicious_behavior": "core.analysis",
