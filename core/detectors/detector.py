@@ -1,15 +1,19 @@
-import cv2
+import threading
+
 import numpy as np
 from ultralytics import YOLO
 
 
 class HumanDetector:
-    def __init__(self, model_path: str, conf_threshold: float = 0.5):
+    def __init__(self, model_path: str, conf_threshold: float = 0.5, device: str = "cpu"):
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
+        self.device = device
+        self._lock = threading.Lock()   # one model instance is shared by all cameras
 
     def detect(self, frame: np.ndarray):
-        results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device="cpu")
+        with self._lock:
+            results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device=self.device)
         detections = []
         for result in results:
             for box in result.boxes:

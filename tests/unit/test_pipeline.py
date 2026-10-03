@@ -5,7 +5,6 @@ Tests for the pipeline base classes: FrameContext, PipelineStage, SurveillancePi
 These tests require NO external dependencies (no DB, no models).
 """
 
-import pytest
 import numpy as np
 from core.pipeline.base import FrameContext, PipelineStage, SurveillancePipeline
 

@@ -7,9 +7,7 @@ Provides individual drawing functions and a high-level `render_hud()`.
 
 import cv2
 import math
-import time
 import random
-import hashlib
 import numpy as np
 from core.pipeline.base import FrameContext
 

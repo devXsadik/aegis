@@ -13,6 +13,7 @@ from backend.db.database import SessionLocal
 from backend.models.alert import Alert
 from backend.models.audit_log import AuditLog
 from backend.models.camera import Camera
+from backend.services.event_store import record_event
 from backend.utils.events import broadcast_live_event
 from backend.utils.websocket import manager
 
@@ -106,6 +107,8 @@ async def dispatch_alert(
     camera_lat: Optional[float] = None,
     camera_lng: Optional[float] = None,
     db: Optional[Session] = None,
+    zone: Optional[str] = None,
+    confidence: Optional[float] = None,
 ) -> dict:
     """Fully automated alert dispatch with pinpoint camera GPS."""
     own_session = db is None
@@ -175,6 +178,13 @@ async def dispatch_alert(
             details=f"{alert_type}: {message} [camera={camera_id}]{geo_note}",
         )
         db.add(audit)
+        db.flush()
+        record_event(
+            db, alert_type, severity, camera_id=camera_id, camera_location=camera_location,
+            track_id=track_id, person_name=person_name, plate_number=plate_number,
+            alert_id=alert.id, message=message, zone=zone, confidence=confidence,
+            commit=False,
+        )
         db.commit()
         db.refresh(alert)
 

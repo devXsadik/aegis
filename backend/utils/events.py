@@ -1,6 +1,5 @@
 """Shared live-event payload builder and WebSocket broadcaster."""
 
-import json
 from datetime import datetime
 from typing import Optional
 

@@ -1,7 +1,6 @@
 """WebSocket endpoints for real-time alerts and system status."""
 
 import logging
-import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query

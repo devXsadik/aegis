@@ -5,26 +5,33 @@ face-recognition==1.3.0
 mediapipe==0.10.9
 deep-sort-realtime==1.3.2
 numpy==2.0.2
-ruamel.yaml==0.18.15
 
-# Phase 1: Security Foundation
+# Backend / security
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 pgvector==0.3.2
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
 python-multipart==0.0.12
 cryptography==43.0.3
 pydantic==2.9.2
-pydantic-settings==2.6.1
 
-# Phase 3: Enhanced Detection
+# Detection extras
 easyocr==1.7.2
 httpx==0.27.2
 
 # Utilities
 python-dotenv==1.0.0
-pandas==2.2.3
 alembic>=1.13.0
+
+# Previously imported but undeclared
+bcrypt>=4.0.1
+redis>=5.0.0
+requests>=2.31.0
+psutil>=5.9.0
+PyYAML>=6.0
+
+# Optional: scripts/convert_heic.py
+# Pillow>=10.0.0
+# pillow-heif>=0.16.0

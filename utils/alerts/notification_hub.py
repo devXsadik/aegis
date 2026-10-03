@@ -88,6 +88,7 @@ class NotificationHub:
         now: float,
         camera_lat: Optional[float] = None,
         camera_lng: Optional[float] = None,
+        confidence: Optional[float] = None,
     ) -> None:
         key = f"weapon_{camera_id}"
         if not self._should_fire(key, now):
@@ -100,6 +101,7 @@ class NotificationHub:
             camera_location=camera_location,
             camera_id=camera_id,
             track_id=track_id,
+            confidence=confidence,
             camera_lat=camera_lat,
             camera_lng=camera_lng,
             message=self._geo_message(
@@ -167,14 +169,19 @@ class NotificationHub:
         now: float,
         camera_lat: Optional[float] = None,
         camera_lng: Optional[float] = None,
+        zone: Optional[str] = None,
+        track_id: Optional[int] = None,
+        anomaly_type: str = "ANOMALY_DETECTED",
     ) -> None:
-        key = f"anomaly_{camera_id}_{anomaly_message[:20]}"
+        key = f"anomaly_{camera_id}_{anomaly_type}_{zone}_{track_id}"
         if not self._should_fire(key, now):
             return
 
         dispatch_alert(
-            alert_type="ANOMALY_DETECTED",
-            severity="medium",
+            alert_type=anomaly_type,
+            severity="high" if anomaly_type == "INTRUSION" else "medium",
+            zone=zone,
+            track_id=track_id,
             camera_location=camera_location,
             camera_id=camera_id,
             camera_lat=camera_lat,

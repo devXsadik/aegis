@@ -4,7 +4,6 @@ Ingests face encodings from data/watchlist/.
 """
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 

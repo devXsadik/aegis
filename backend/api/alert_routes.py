@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.db.database import get_db
-from backend.auth.auth import operator_or_admin, admin_only
+from backend.auth.auth import operator_or_admin
 from backend.models.user import User
 from backend.models.alert import Alert
 from backend.models.audit_log import AuditLog
@@ -12,7 +12,6 @@ from backend.services.alert_dispatcher import (
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
-import os
 
 from backend.auth.guards import verify_internal_key
 
@@ -56,10 +55,8 @@ class DispatchAlertRequest(BaseModel):
     camera_name: Optional[str] = None
     camera_lat: Optional[float] = None
     camera_lng: Optional[float] = None
-
-
-def _verify_internal_key(key: Optional[str]) -> None:
-    verify_internal_key(key)
+    zone: Optional[str] = None
+    confidence: Optional[float] = None
 
 
 @router.post("/dispatch")
@@ -71,7 +68,7 @@ async def auto_dispatch_alert(
     Fully automated alert dispatch from pipeline (any camera).
     Saves DB + audit log + WebSocket + webhooks in one call.
     """
-    _verify_internal_key(x_internal_key)
+    verify_internal_key(x_internal_key)
     result = await dispatch_alert(
         alert_type=body.alert_type,
         severity=body.severity,
@@ -84,6 +81,8 @@ async def auto_dispatch_alert(
         camera_name=body.camera_name,
         camera_lat=body.camera_lat,
         camera_lng=body.camera_lng,
+        zone=body.zone,
+        confidence=body.confidence,
     )
     return result
 
@@ -203,20 +202,10 @@ async def dispatch_police(
 ):
     """Operator-triggered police dispatch — reuses webhook channels + audit trail."""
     from backend.models.audit_log import AuditLog
-    import json
 
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-
-    lat = lng = camera_name = None
-    if alert.details:
-        try:
-            geo = json.loads(alert.details)
-            lat, lng = geo.get("lat"), geo.get("lng")
-            camera_name = geo.get("camera_name")
-        except Exception:
-            pass
 
     result = await redispatch_alert(
         alert,

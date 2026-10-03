@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -173,7 +172,6 @@ def state_dict(st: PTZState) -> dict:
 
 def apply_digital_crop(frame, camera_id: str):
     """Crop/zoom a BGR frame according to digital PTZ state."""
-    import numpy as np
     st = get_state(camera_id)
     if st.zoom <= 1.01 and abs(st.pan) < 0.01 and abs(st.tilt) < 0.01:
         return frame

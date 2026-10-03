@@ -2,7 +2,6 @@
 
 import hashlib
 import re
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -22,10 +21,6 @@ from paths import RECORDINGS_DIR, ROOT
 from backend.auth.guards import safe_media_path, verify_internal_key
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
-
-
-def _verify_internal(key: Optional[str]) -> None:
-    verify_internal_key(key)
 
 
 class ClipOut(BaseModel):
@@ -119,7 +114,7 @@ async def ingest_clip(
     db: Session = Depends(get_db),
 ):
     """Pipeline / recorder uploads an event clip (mp4 or jpg)."""
-    _verify_internal(x_internal_key)
+    verify_internal_key(x_internal_key)
     data = await file.read()
     if not data:
         raise HTTPException(400, "Empty file")

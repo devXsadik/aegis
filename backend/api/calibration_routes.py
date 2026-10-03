@@ -2,13 +2,12 @@
 
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 
 from backend.db.database import get_db
 from backend.models.user import User
@@ -105,7 +104,7 @@ def metrics(hours: int = 168, db: Session = Depends(get_db), user: User = Depend
         bucket[gt] = bucket.get(gt, 0) + 1
 
     tp, fp = counts["true_positive"], counts["false_positive"]
-    tn, fn = counts["true_negative"], counts["false_negative"]
+    fn = counts["false_negative"]
     precision = tp / (tp + fp) if (tp + fp) else None
     recall = tp / (tp + fn) if (tp + fn) else None
     f1 = (2 * precision * recall / (precision + recall)) if precision and recall else None

@@ -200,7 +200,7 @@ def ingest():
                     print(f"  ✗ DB error for {img_file.name}: {e}")
 
         print(f"\n{'='*50}")
-        print(f"✅ Ingest complete!")
+        print("✅ Ingest complete!")
         print(f"   Persons:   {total_persons} created")
         print(f"   Images:    {total_images} stored in DB")
         print(f"   Encodings: {total_encodings} stored in DB")

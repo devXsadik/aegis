@@ -4,8 +4,6 @@ Unit Tests — Anomaly Detector
 Tests for zone-based anomaly detection.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
 from core.analysis.anomaly_detector import AnomalyDetector
 

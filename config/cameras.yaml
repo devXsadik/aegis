@@ -58,3 +58,11 @@ cameras:
     enabled: true
     fps_limit: 8
 
+
+# Optional per-camera analytics geometry (normalized 0-1 coordinates), e.g.:
+#   - id: gate_1
+#     zones:
+#       - {name: door, type: restricted, polygon: [[0.1,0.2],[0.4,0.2],[0.4,0.9],[0.1,0.9]]}
+#     lines:
+#       - {name: entrance, p1: [0.5, 0.0], p2: [0.5, 1.0]}
+# With no zones, the frame is split into four quadrants (crowd/dwell only).

@@ -1,9 +1,6 @@
-import cv2
-import numpy as np
 import re
-from sqlalchemy.orm import Session
-from backend.db.database import SessionLocal
-from backend.models.vehicle import LicensePlate
+import time
+from typing import Callable, Optional, Set
 
 
 class LicensePlateRecognizer:
@@ -39,19 +36,19 @@ class LicensePlateRecognizer:
 
 
 class LicensePlateDatabase:
-    def __init__(self):
+    """Watchlisted plates from an injected loader, refreshed every `cache_ttl` seconds."""
+
+    def __init__(self, loader: Optional[Callable[[], Set[str]]] = None, cache_ttl: float = 60.0):
+        self.loader = loader or (lambda: set())
+        self.cache_ttl = cache_ttl
         self._cached = None
+        self._loaded_at = 0.0
 
     def _load_watchlist(self):
-        if self._cached is not None:
-            return self._cached
-        db: Session = SessionLocal()
-        try:
-            plates = db.query(LicensePlate).filter(LicensePlate.watchlisted == True).all()
-            self._cached = {p.plate_number for p in plates}
-            return self._cached
-        finally:
-            db.close()
+        if self._cached is None or time.time() - self._loaded_at > self.cache_ttl:
+            self._cached = self.loader()
+            self._loaded_at = time.time()
+        return self._cached
 
     def is_watchlisted(self, plate_number: str) -> bool:
         return plate_number.upper() in self._load_watchlist()

@@ -10,7 +10,7 @@ from sqlalchemy import desc
 
 from backend.db.database import get_db
 from backend.models.user import User
-from backend.models.incident import Incident, IncidentNote, IncidentEvent
+from backend.models.incident import Incident, IncidentNote
 from backend.models.alert import Alert
 from backend.auth.auth import operator_or_admin
 from backend.services.incident_service import (

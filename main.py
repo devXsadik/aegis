@@ -61,7 +61,10 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
         except Exception as e:
             logger.warning(f"ONVIF setup skipped for {cam_id}: {e}")
 
-    pipeline, criminal_names, _ = build_pipeline(cfg, base_dir, camera_location=cam_loc)
+    pipeline, criminal_names, _ = build_pipeline(
+        cfg, base_dir, camera_location=cam_loc,
+        zones=cam_cfg.get("zones"), lines=cam_cfg.get("lines"),
+    )
 
     stop_event = threading.Event()
 

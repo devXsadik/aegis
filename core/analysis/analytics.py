@@ -1,5 +1,5 @@
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
 
 
@@ -7,10 +7,12 @@ class Analytics:
     def __init__(self):
         self.heatmap = None
         self.dwell_data = defaultdict(list)
-        self.movement_paths = defaultdict(list)
+        self.movement_paths = defaultdict(deque)
+        self._frame_w = 640
 
     def update_heatmap(self, tracks, frame_shape):
         h, w = frame_shape[:2]
+        self._frame_w = w
         if self.heatmap is None:
             self.heatmap = np.zeros((h, w), dtype=np.float32)
         for track in tracks:
@@ -38,7 +40,10 @@ class Analytics:
         })
 
     def record_movement(self, track_id: int, x: float, y: float):
-        self.movement_paths[track_id].append((x, y, datetime.now().timestamp()))
+        path = self.movement_paths[track_id]
+        path.append((x, y, datetime.now().timestamp()))
+        while len(path) > 600:   # bound memory per track
+            path.popleft()
 
     def get_dwell_stats(self):
         stats = {}
@@ -57,6 +62,6 @@ class Analytics:
         for tid, path in self.movement_paths.items():
             for x, y, ts in path:
                 if ts >= cutoff:
-                    zone = "left" if x < 320 else "right"
+                    zone = "left" if x < self._frame_w / 2 else "right"
                     flow[zone] += 1
         return dict(flow)

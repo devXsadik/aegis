@@ -17,7 +17,6 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import cv2
 import yaml
 
 from core.app.factory import build_pipeline

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from backend.models.incident import Incident, IncidentEvent, IncidentNote
+from backend.models.incident import Incident, IncidentEvent
 from backend.models.alert import Alert
 
 

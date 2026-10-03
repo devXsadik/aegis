@@ -6,7 +6,6 @@ headers, viewer endpoints accept the JWT as a query parameter.
 """
 
 import asyncio
-import os
 import threading
 import time
 from typing import Optional
@@ -23,14 +22,6 @@ _frames: dict = {}  # camera_id -> (jpeg_bytes, monotonic_ts)
 _lock = threading.Lock()
 
 
-def _verify_internal_key(key: Optional[str]) -> None:
-    verify_internal_key(key)
-
-
-def _verify_viewer_token(token: Optional[str]) -> None:
-    verify_viewer_token(token)
-
-
 @router.post("/frame/{camera_id}")
 async def push_frame(
     camera_id: str,
@@ -38,7 +29,7 @@ async def push_frame(
     x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
 ):
     """Pipeline pushes the latest annotated JPEG frame for a camera."""
-    _verify_internal_key(x_internal_key)
+    verify_internal_key(x_internal_key)
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty frame")
@@ -50,7 +41,7 @@ async def push_frame(
 @router.get("/cameras")
 def streaming_cameras(token: Optional[str] = Query(default=None)):
     """Camera ids that pushed a frame recently (i.e. have live video)."""
-    _verify_viewer_token(token)
+    verify_viewer_token(token)
     now = time.monotonic()
     with _lock:
         return {
@@ -83,7 +74,7 @@ def _frame_with_digital_ptz(camera_id: str, jpeg_bytes: bytes) -> bytes:
 
 @router.get("/{camera_id}/snapshot")
 def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
-    _verify_viewer_token(token)
+    verify_viewer_token(token)
     with _lock:
         entry = _frames.get(camera_id)
     if not entry or time.monotonic() - entry[1] > FRAME_STALE_SECONDS:
@@ -96,7 +87,7 @@ def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
 @router.get("/{camera_id}/live")
 async def live_mjpeg(camera_id: str, token: Optional[str] = Query(default=None)):
     """MJPEG stream (multipart/x-mixed-replace) of the latest pipeline frames."""
-    _verify_viewer_token(token)
+    verify_viewer_token(token)
 
     async def generate():
         last_ts = 0.0

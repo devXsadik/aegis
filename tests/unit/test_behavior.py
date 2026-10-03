@@ -4,8 +4,6 @@ Unit Tests — Behavior Analysis
 Tests for suspicious behavior detection heuristics.
 """
 
-import pytest
-import math
 import time
 from core.analysis.behavior import is_suspicious_behavior
 

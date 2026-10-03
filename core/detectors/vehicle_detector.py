@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
@@ -9,13 +11,16 @@ VEHICLE_CLASSES = {
 
 
 class VehicleDetector:
-    def __init__(self, model_path: str, conf_threshold: float = 0.5):
+    def __init__(self, model_path: str, conf_threshold: float = 0.5, device: str = "cpu"):
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
+        self.device = device
+        self._lock = threading.Lock()
         self.vehicle_classes = list(VEHICLE_CLASSES.keys())
 
     def detect(self, frame: np.ndarray):
-        results = self.model(frame, conf=self.conf_threshold, classes=self.vehicle_classes, verbose=False, device="cpu")
+        with self._lock:
+            results = self.model(frame, conf=self.conf_threshold, classes=self.vehicle_classes, verbose=False, device=self.device)
         vehicles = []
         for result in results:
             for box in result.boxes:

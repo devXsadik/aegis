@@ -1,10 +1,9 @@
 """System status and pipeline heartbeat tracking."""
 
-import os
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 
 from backend.auth.auth import operator_or_admin
@@ -33,10 +32,6 @@ class HeartbeatPayload(BaseModel):
     threat_score: Optional[int] = None
     frame_number: Optional[int] = None
     analytics: Optional[dict] = None
-
-
-def _verify_internal_key(key: Optional[str]) -> None:
-    verify_internal_key(key)
 
 
 @router.get("/status")
@@ -68,7 +63,7 @@ async def pipeline_heartbeat(
     body: HeartbeatPayload,
     x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
 ):
-    _verify_internal_key(x_internal_key)
+    verify_internal_key(x_internal_key)
     now = datetime.utcnow().isoformat()
     _pipeline_status["online"] = True
     _pipeline_status["last_heartbeat"] = now

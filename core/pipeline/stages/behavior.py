@@ -5,7 +5,6 @@ Runs pose-based behavior analysis, anomaly detection, and ANPR.
 """
 
 import logging
-import time
 from collections import defaultdict
 from core.pipeline.base import PipelineStage, FrameContext
 from core.analysis.behavior import is_suspicious_behavior
@@ -30,6 +29,11 @@ class BehaviorStage(PipelineStage):
     def process(self, ctx: FrameContext) -> FrameContext:
         fh, fw = ctx.frame.shape[:2]
         now = ctx.timestamp
+
+        # Drop history for tracks that are gone (prevents unbounded growth)
+        live = {t.track_id for t in ctx.tracks}
+        for tid in [k for k in self._track_history if k not in live]:
+            del self._track_history[tid]
 
         # --- Per-person behavior analysis ---
         for track in ctx.tracks:

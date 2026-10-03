@@ -6,16 +6,15 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc
 
-from backend.db.database import get_db, SessionLocal
+from backend.db.database import get_db
 from backend.models.user import User
 from backend.models.recording import RecordingClip
 from backend.models.camera import Camera
@@ -27,10 +26,6 @@ from utils.media.dvr import purge_old_recordings
 from backend.auth.guards import safe_media_path, verify_internal_key
 
 router = APIRouter(prefix="/vms", tags=["vms"])
-
-
-def _verify_internal(key: Optional[str]) -> None:
-    verify_internal_key(key)
 
 
 class SegmentIngest(BaseModel):
@@ -129,7 +124,7 @@ def ingest_segment(
     x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
     db: Session = Depends(get_db),
 ):
-    _verify_internal(x_internal_key)
+    verify_internal_key(x_internal_key)
     started = datetime.fromisoformat(body.started_at.replace("Z", ""))
     ended = datetime.fromisoformat(body.ended_at.replace("Z", "")) if body.ended_at else None
 

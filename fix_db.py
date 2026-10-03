@@ -1,4 +1,3 @@
-from backend.main import app
 from backend.db.database import SessionLocal
 from backend.models.known_person import KnownPerson
 

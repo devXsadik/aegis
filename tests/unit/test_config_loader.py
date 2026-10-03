@@ -1,7 +1,6 @@
 """Tests for config loader utilities."""
 
 import os
-import pytest
 from utils.config import expand_env, load_cameras_config
 
 

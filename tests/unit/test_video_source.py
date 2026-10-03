@@ -1,7 +1,5 @@
 """Tests for video source resolution."""
 
-import os
-import pytest
 from utils.media import resolve_source
 
 

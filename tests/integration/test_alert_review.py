@@ -41,3 +41,31 @@ def test_criminal_alert_holds_webhooks_then_releases():
         os.remove("test_review.db")
     except OSError:
         pass
+
+
+def test_events_search_filters_by_type_camera_and_time():
+    import sys, types  # noqa: E401
+    sys.modules.setdefault("face_recognition", types.ModuleType("face_recognition"))
+    from datetime import datetime, timedelta
+    from fastapi.testclient import TestClient
+    from backend.auth.auth import create_access_token, hash_password
+    from backend.main import app
+    from backend.services.event_store import record_event
+
+    init_db()
+    db = SessionLocal()
+    u = User(username="op", email="op@x.io", hashed_password=hash_password("x"), role="operator")
+    db.add(u); db.commit()
+    record_event(db, "WEAPON_DETECTED", "critical", camera_id="cam3", track_id=7, confidence=0.8)
+    record_event(db, "INTRUSION", "high", camera_id="cam1", zone="door")
+    hdr = {"Authorization": "Bearer " + create_access_token({"user_id": u.id, "role": u.role})}
+    c = TestClient(app)
+    r = c.get("/api/v1/events/search?event_type=weapon_detected&camera_id=cam3", headers=hdr).json()
+    assert len(r) == 1 and r[0]["track_id"] == 7 and r[0]["confidence"] == 0.8
+    assert c.get("/api/v1/events/search?zone=door", headers=hdr).json()[0]["event_type"] == "INTRUSION"
+    future = (datetime.utcnow() + timedelta(days=1)).isoformat()
+    assert c.get(f"/api/v1/events/search?since={future}", headers=hdr).json() == []
+    assert c.get("/api/v1/events/search").status_code == 401
+    db.close()
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()

@@ -1,49 +1,67 @@
+import time
+from typing import Callable, List, Optional, Tuple
+
 import cv2
 import face_recognition
 import numpy as np
-from sqlalchemy.orm import Session
-from backend.db.database import SessionLocal
-from backend.models.face_encoding import FaceEncoding
-from backend.models.known_person import KnownPerson
+
+Loader = Callable[[], Tuple[List[np.ndarray], List[str]]]
 
 
 class FaceRecognizerDB:
-    def __init__(self, tolerance: float = 0.45):
+    """dlib face matcher with quality gating and a best-vs-second-best margin.
+
+    Encodings come from an injected `loader` (the composition root supplies the DB
+    one) and are refreshed every `cache_ttl` seconds so watchlist edits reach a
+    running pipeline without a restart.
+    """
+
+    def __init__(self, tolerance: float = 0.45, loader: Optional[Loader] = None,
+                 cache_ttl: float = 60.0, min_face_px: int = 40,
+                 min_sharpness: float = 25.0, min_margin: float = 0.04):
         self.tolerance = tolerance
+        self.loader = loader or (lambda: ([], []))
+        self.cache_ttl = cache_ttl
+        self.min_face_px = min_face_px
+        self.min_sharpness = min_sharpness
+        self.min_margin = min_margin
         self._cache = None
+        self._loaded_at = 0.0
 
     def _load_encodings(self):
-        if self._cache is not None:
-            return self._cache
-        db: Session = SessionLocal()
-        try:
-            records = db.query(FaceEncoding).all()
-            encodings = []
-            names = []
-            for rec in records:
-                enc = FaceEncoding.deserialize_encoding(rec.encoding)
-                if enc.size > 0:
-                    encodings.append(enc)
-                    names.append(rec.person.person_id)
-            self._cache = (encodings, names)
-            return self._cache
-        finally:
-            db.close()
+        if self._cache is None or time.time() - self._loaded_at > self.cache_ttl:
+            self._cache = self.loader()
+            self._loaded_at = time.time()
+        return self._cache
 
-    def recognize_person(self, face_roi):
+    def _quality_ok(self, rgb, box) -> bool:
+        top, right, bottom, left = box
+        if min(bottom - top, right - left) < self.min_face_px:
+            return False
+        crop = cv2.cvtColor(rgb[top:bottom, left:right], cv2.COLOR_RGB2GRAY)
+        return cv2.Laplacian(crop, cv2.CV_64F).var() >= self.min_sharpness
+
+    def match(self, distances: np.ndarray, names: List[str]) -> Optional[Tuple[str, float, float]]:
+        """Pure matching logic: (person, distance, margin) or None."""
+        best = {}
+        for d, n in zip(distances, names):
+            if n not in best or d < best[n]:
+                best[n] = float(d)
+        ranked = sorted(best.items(), key=lambda kv: kv[1])
+        if not ranked or ranked[0][1] > self.tolerance:
+            return None
+        margin = (ranked[1][1] - ranked[0][1]) if len(ranked) > 1 else 1.0
+        if margin < self.min_margin:
+            return None
+        return ranked[0][0], ranked[0][1], margin
+
+    def recognize_detail(self, face_roi) -> Optional[dict]:
         rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-        
-        # IP cameras often produce small person ROIs. 
-        # Upsample if the person ROI is small to help HOG find the face.
         h, w = rgb.shape[:2]
-        if h < 120 or w < 120:
-            upsample = 3
-        elif h < 300 or w < 300:
-            upsample = 2
-        else:
-            upsample = 1
-        
+        upsample = 3 if (h < 120 or w < 120) else 2 if (h < 300 or w < 300) else 1
+
         boxes = face_recognition.face_locations(rgb, model="hog", number_of_times_to_upsample=upsample)
+        boxes = [b for b in boxes if self._quality_ok(rgb, b)]
         if not boxes:
             return None
         encodings = face_recognition.face_encodings(rgb, boxes)
@@ -52,15 +70,15 @@ class FaceRecognizerDB:
         known_encodings, known_names = self._load_encodings()
         if not known_encodings:
             return None
-        matches = face_recognition.compare_faces(known_encodings, encodings[0], self.tolerance)
-        if not any(matches):
-            return None
         distances = face_recognition.face_distance(known_encodings, encodings[0])
-        best_idx = int(np.argmin(distances))
-        if matches[best_idx]:
-            return known_names[best_idx]
-        return None
+        res = self.match(distances, known_names)
+        if res is None:
+            return None
+        return {"name": res[0], "distance": res[1], "margin": res[2]}
+
+    def recognize_person(self, face_roi) -> Optional[str]:
+        res = self.recognize_detail(face_roi)
+        return res["name"] if res else None
 
     def invalidate_cache(self):
         self._cache = None
-

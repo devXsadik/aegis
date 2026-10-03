@@ -4,6 +4,12 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from backend.db.database import Base
 
+# Import every model so autogenerate sees the full schema.
+from backend.models import (  # noqa: F401
+    user, face_encoding, evidence, audit_log, known_person, person_image,
+    camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event,
+)
+
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)

@@ -9,6 +9,7 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from core.pipeline.base import PipelineStage, FrameContext
+from core.recognition.voting import IdentityVoter
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -17,11 +18,14 @@ class RecognitionStage(PipelineStage):
     """Runs face recognition on tracked person ROIs in the background."""
 
     def __init__(self, face_recognizer, criminal_names: set,
-                 rerecognize_every: int = 30, enabled: bool = True):
+                 rerecognize_every: int = 30, retry_every: int = 5,
+                 voter: IdentityVoter = None, enabled: bool = True):
         super().__init__(name="recognition", enabled=enabled)
         self.face_recognizer = face_recognizer
         self.criminal_names = criminal_names
         self.rerecognize_every = rerecognize_every
+        self.retry_every = retry_every          # faster retries until a name is confirmed
+        self.voter = voter or IdentityVoter(window=4, min_votes=2)
 
         # Per-track state (persists across frames)
         self._id_name_map: dict = {}           # track_id → name
@@ -34,10 +38,12 @@ class RecognitionStage(PipelineStage):
     def _run_recognition(self, track_id, proc_roi):
         try:
             name = self.face_recognizer.recognize_person(proc_roi)
-            if name:
-                self._id_name_map[track_id] = name
-                if name in self.criminal_names:
-                    logger.info(f"CRIMINAL DETECTED: {name} | ID:{track_id}")
+            self.voter.add(track_id, name)
+            confirmed = self.voter.confirmed(track_id)
+            if confirmed:
+                if self._id_name_map.get(track_id) != confirmed and confirmed in self.criminal_names:
+                    logger.info(f"WATCHLIST MATCH confirmed: {confirmed} | ID:{track_id}")
+                self._id_name_map[track_id] = confirmed
             elif track_id not in self._id_name_map:
                 self._id_name_map[track_id] = "Unknown"
         except Exception as e:
@@ -47,6 +53,12 @@ class RecognitionStage(PipelineStage):
 
     def process(self, ctx: FrameContext) -> FrameContext:
         fh, fw = ctx.frame.shape[:2]
+
+        live = {t.track_id for t in ctx.tracks}
+        self.voter.prune(live)
+        for tid in [k for k in self._id_name_map if k not in live]:
+            self._id_name_map.pop(tid, None)
+            self._id_frame_count.pop(tid, None)
 
         for track in ctx.tracks:
             if not track.is_confirmed():
@@ -63,9 +75,12 @@ class RecognitionStage(PipelineStage):
 
             # Decide whether to run face recognition
             self._id_frame_count[track_id] += 1
+            n = self._id_frame_count[track_id]
+            unconfirmed = self.voter.confirmed(track_id) is None
             should_recognize = (
                 (track_id not in self._id_name_map
-                 or self._id_frame_count[track_id] % self.rerecognize_every == 0)
+                 or n % self.rerecognize_every == 0
+                 or (unconfirmed and n % self.retry_every == 0))
                 and track_id not in self._pending_tasks
             )
 

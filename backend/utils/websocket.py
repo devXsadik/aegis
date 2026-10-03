@@ -2,7 +2,7 @@
 WebSocket manager for real-time alert streaming
 """
 from typing import Dict, Set
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 import json
 import logging
 

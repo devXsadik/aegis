@@ -1,6 +1,5 @@
 """Chain-of-custody + evidence integrity verification."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session

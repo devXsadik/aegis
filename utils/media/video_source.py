@@ -9,7 +9,7 @@ import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import cv2
+    pass
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -136,7 +136,6 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
 
 def read_frame_with_reconnect(cap, source, max_retries: int = 10):
     """Read a frame; reconnect on failure."""
-    import cv2
 
     is_video_file = isinstance(source, str) and source.lower().endswith(('.mp4', '.avi', '.mkv', '.mov'))
 

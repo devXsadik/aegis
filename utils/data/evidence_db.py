@@ -1,4 +1,3 @@
-import hashlib
 import cv2
 import numpy as np
 from backend.db.database import SessionLocal

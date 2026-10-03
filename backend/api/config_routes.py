@@ -1,6 +1,5 @@
 """Runtime configuration entries (thresholds, alert rules)."""
 
-import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException

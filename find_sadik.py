@@ -1,5 +1,4 @@
 import face_recognition
-import cv2
 import os
 
 # Load Sadik's known face (from his correct folder)

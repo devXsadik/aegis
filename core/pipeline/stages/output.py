@@ -46,6 +46,7 @@ class OutputStage(PipelineStage):
                 camera_location=location, camera_id=camera_id,
                 track_id=UNASSIGNED, now=now,
                 camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+                confidence=ctx.confirmed_weapons[UNASSIGNED]["score"],
             )
 
         for track in ctx.tracks:
@@ -88,6 +89,7 @@ class OutputStage(PipelineStage):
                     now=now,
                     camera_lat=ctx.camera_lat,
                     camera_lng=ctx.camera_lng,
+                    confidence=ctx.confirmed_weapons[track_id]["score"],
                 )
 
             if is_suspicious:
@@ -134,6 +136,8 @@ class OutputStage(PipelineStage):
             )
 
         for anomaly in ctx.anomalies:
+            if anomaly.get("type") == "line_cross":
+                continue   # counting event: analytics only, not an alert
             self.notifications.anomaly_detected(
                 anomaly_message=anomaly.get("message", "Anomaly detected"),
                 camera_location=location,
@@ -141,6 +145,9 @@ class OutputStage(PipelineStage):
                 now=now,
                 camera_lat=ctx.camera_lat,
                 camera_lng=ctx.camera_lng,
+                zone=anomaly.get("zone"),
+                track_id=anomaly.get("track_id"),
+                anomaly_type="INTRUSION" if anomaly.get("type") == "intrusion" else "ANOMALY_DETECTED",
             )
 
         ctx.threat_score = min(

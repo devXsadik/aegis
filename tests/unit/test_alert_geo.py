@@ -1,6 +1,5 @@
 """Tests for alert event payload geo fields."""
 
-import pytest
 from backend.utils.events import build_event_payload
 
 

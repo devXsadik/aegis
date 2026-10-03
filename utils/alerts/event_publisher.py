@@ -53,6 +53,8 @@ def dispatch_alert(
     camera_name: Optional[str] = None,
     camera_lat: Optional[float] = None,
     camera_lng: Optional[float] = None,
+    zone: Optional[str] = None,
+    confidence: Optional[float] = None,
 ) -> None:
     """One call → DB + audit + WebSocket + webhooks + dashboard (all cameras)."""
     if not AUTO_ALERTS_ENABLED:
@@ -71,6 +73,8 @@ def dispatch_alert(
             "camera_name": camera_name,
             "camera_lat": camera_lat,
             "camera_lng": camera_lng,
+            "zone": zone,
+            "confidence": confidence,
         },
     )
 

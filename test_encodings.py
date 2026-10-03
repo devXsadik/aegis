@@ -1,7 +1,5 @@
-import numpy as np
 from backend.db.database import SessionLocal
 from backend.models.face_encoding import FaceEncoding
-from backend.models.known_person import KnownPerson
 
 db = SessionLocal()
 records = db.query(FaceEncoding).all()
