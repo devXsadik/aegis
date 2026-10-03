@@ -56,12 +56,32 @@ echo "============================================"
 echo "  Aegis Command Center — Full System"
 echo "============================================"
 
-# --- Python ---
-PYTHON="python3"
-if [ -x ".venv/bin/python" ]; then
-  PYTHON=".venv/bin/python"
-  # shellcheck disable=SC1091
-  source .venv/bin/activate 2>/dev/null || true
+# --- Python: always use the project's own virtualenv ---
+# A random system/conda python is the usual cause of "dlib model not found" or
+# torch load errors, so we never fall back to it silently.
+if [ ! -x ".venv/bin/python" ]; then
+  BOOT=""
+  for cand in python3.12 python3.11 python3.10; do
+    if command -v "$cand" >/dev/null 2>&1; then BOOT="$cand"; break; fi
+  done
+  if [ -z "$BOOT" ]; then
+    echo "✗ Need Python 3.10–3.12 (found none). Install one, e.g.: brew install python@3.12"
+    exit 1
+  fi
+  echo "[env] Creating .venv with $BOOT and installing requirements (first run only, several minutes)…"
+  "$BOOT" -m venv .venv
+  .venv/bin/pip install -q --upgrade pip
+  .venv/bin/pip install -r requirements.txt
+fi
+PYTHON=".venv/bin/python"
+# shellcheck disable=SC1091
+source .venv/bin/activate
+
+CHECK_FLAGS=""
+[ "$NO_PIPELINE" -eq 1 ] && CHECK_FLAGS="--backend"
+if ! $PYTHON scripts/check_env.py $CHECK_FLAGS; then
+  echo "✗ Fix the environment problems above, then re-run ./run.sh"
+  exit 1
 fi
 
 # --- .env ---
@@ -82,6 +102,8 @@ set +a
 export BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8000}"
 export PIPELINE_STREAM_ENABLED="${PIPELINE_STREAM_ENABLED:-true}"
 export DVR_ENABLED="${DVR_ENABLED:-true}"
+# A video file is a demo source: loop it so the dashboard stays live.
+[ -f "$VIDEO" ] && export VIDEO_LOOP="${VIDEO_LOOP:-true}"
 export AUTO_ALERTS_ENABLED="${AUTO_ALERTS_ENABLED:-true}"
 export USE_SQLITE="${USE_SQLITE:-true}"
 export ALLOW_SQLITE_FALLBACK="${ALLOW_SQLITE_FALLBACK:-true}"

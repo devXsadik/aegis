@@ -194,10 +194,22 @@ data/demo/clips/sample.mp4
 | Login | `admin` / password printed by `scripts/seed_demo.py` (or `ADMIN_PASSWORD`) |
 
 ```bash
-./run.sh path/to/video.mp4   # custom video
+./run.sh path/to/video.mp4   # custom video (plays at its own frame rate, looped)
 ./run.sh --no-pipeline       # API + dashboard only
 make stop                    # free ports :8000 and :5173
 ```
+
+`run.sh` always uses the project's own `.venv` (created on first run with Python 3.10–3.12) and runs
+`scripts/check_env.py` first, so a broken system/conda Python can't take the backend down.
+
+**Troubleshooting**
+
+| Symptom | Fix |
+|---|---|
+| `Unable to open ...shape_predictor_68_face_landmarks.dat` / torch `libtorch_cpu.dylib` errors | You are on a broken Python. Delete nothing — just run `./run.sh`; it uses `.venv` |
+| Forgot the admin password (it is printed only once) | `python scripts/seed_demo.py --reset-password` |
+| Old recordings disappear | DVR retention deletes files older than `DVR_RETENTION_HOURS` (default 48). Set `0` to disable |
+| Weapon / vehicle detection "OFF" | Add `models/weapon_yolo.pt` / `models/yolov8l.pt` — see Overview → Needs attention |
 
 **Makefile shortcuts:**
 

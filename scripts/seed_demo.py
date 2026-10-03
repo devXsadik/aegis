@@ -16,7 +16,7 @@ from backend.models.user import User
 from backend.auth.auth import hash_password
 
 
-def seed_demo_user():
+def seed_demo_user(reset: bool = False):
     if os.getenv("ENVIRONMENT", "development") == "production":
         print("Skipping demo user seed in production.")
         return
@@ -24,8 +24,18 @@ def seed_demo_user():
     db = SessionLocal()
     try:
         existing = db.query(User).filter(User.username == "admin").first()
+        if existing and reset:
+            password = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+            existing.hashed_password = hash_password(password)
+            existing.is_active = True
+            db.commit()
+            print("Admin password reset:")
+            print(f"  username: admin\n  password: {password}" if not os.getenv("ADMIN_PASSWORD")
+                  else "  password: (from ADMIN_PASSWORD)")
+            return
         if existing:
             print("User 'admin' already exists; password unchanged.")
+            print("  Forgot it? Run: python scripts/seed_demo.py --reset-password")
             return
         password = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
         generated = not os.getenv("ADMIN_PASSWORD")
@@ -49,4 +59,4 @@ def seed_demo_user():
 
 
 if __name__ == "__main__":
-    seed_demo_user()
+    seed_demo_user(reset="--reset-password" in sys.argv)

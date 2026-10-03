@@ -1,6 +1,5 @@
-import face_recognition
 import numpy as np
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -51,6 +50,12 @@ def list_known_persons(skip: int = 0, limit: int = 100, db: Session = Depends(ge
 
 @router.post("/encode")
 def reencode_faces(db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    # Imported here, not at module level: if dlib's model files are broken,
+    # face_recognition can kill the whole process at import time.
+    try:
+        import face_recognition
+    except BaseException as e:
+        raise HTTPException(status_code=503, detail=f"Face recognition unavailable: {e}")
     persons = db.query(KnownPerson).all()
     results = {"encoded": 0, "errors": 0}
     for person in persons:

@@ -17,3 +17,5 @@ archive/
 
 .coverage
 *.db
+.venv/
+frontend/node_modules/

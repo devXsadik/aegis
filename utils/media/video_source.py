@@ -67,6 +67,60 @@ class ThreadedCamera:
         return self.cap.get(prop)
 
 
+class FileCapture:
+    """Sequential, real-time-paced reader for video files.
+
+    ThreadedCamera drops frames by design (right for live cameras, wrong for files:
+    it reads a whole clip in milliseconds and keeps only the newest frame). This
+    reader delivers every frame in order at the file's own frame rate, optionally
+    looping (VIDEO_LOOP=true) so a demo clip keeps the dashboard alive.
+    """
+
+    def __init__(self, cap, loop: bool = False, path: str = ""):
+        self.cap = cap
+        self.loop = loop
+        self.path = path
+        fps = cap.get(5) or 0          # cv2.CAP_PROP_FPS
+        self.interval = 1.0 / fps if 1 <= fps <= 120 else 1.0 / 25
+        self._next = None
+        self.stopped = False
+
+    def read(self):
+        if self.stopped:
+            return False, None
+        ret, frame = self.cap.read()
+        if not ret and self.loop:
+            self.cap.set(1, 0)         # cv2.CAP_PROP_POS_FRAMES
+            ret, frame = self.cap.read()
+        if not ret:
+            return False, None
+        now = time.monotonic()
+        if self._next is not None and self._next > now:
+            time.sleep(self._next - now)
+        self._next = max(now, self._next or now) + self.interval
+        return True, frame
+
+    def release(self):
+        self.stopped = True
+        self.cap.release()
+
+    def isOpened(self):
+        return self.cap.isOpened() and not self.stopped
+
+    def set(self, prop, value):
+        return self.cap.set(prop, value)
+
+    def get(self, prop):
+        return self.cap.get(prop)
+
+
+VIDEO_EXTS = (".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm")
+
+
+def is_video_file(source) -> bool:
+    return isinstance(source, str) and source.lower().endswith(VIDEO_EXTS)
+
+
 def resolve_source(source):
     """Expand env vars in source strings, e.g. ${RTSP_GATE_1}."""
     if not isinstance(source, str):
@@ -101,13 +155,16 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
     """Open a video source with retries (important for IP cameras)."""
     import cv2
 
-    configure_rtsp_options()
     resolved = resolve_source(source)
     is_network = isinstance(resolved, str) and (
         resolved.startswith("rtsp://")
         or resolved.startswith("http://")
         or resolved.startswith("https://")
     )
+    if is_network:
+        # Low-latency FFmpeg flags are for live streams only: on files they make
+        # FFmpeg drop the first frame.
+        configure_rtsp_options()
 
     for attempt in range(1, max_retries + 1):
         # Force FFMPEG backend for network streams to respect timeout options
@@ -126,6 +183,9 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
                     time.sleep(retry_delay)
                     continue
             logger.info(f"Opened video source: {resolved}")
+            if is_video_file(resolved):
+                loop = os.getenv("VIDEO_LOOP", "false").lower() == "true"
+                return FileCapture(cap, loop=loop, path=resolved)
             return ThreadedCamera(cap)
         cap.release()
         logger.warning(f"Open attempt {attempt}/{max_retries} failed for: {resolved}")
@@ -137,13 +197,13 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
 def read_frame_with_reconnect(cap, source, max_retries: int = 10):
     """Read a frame; reconnect on failure."""
 
-    is_video_file = isinstance(source, str) and source.lower().endswith(('.mp4', '.avi', '.mkv', '.mov'))
+    video_file = is_video_file(source)
 
     for _ in range(max_retries):
         ret, frame = cap.read()
         if ret and frame is not None:
             return cap, frame
-        if is_video_file:
+        if video_file:
             return cap, None
         logger.warning("Frame read failed — reconnecting...")
         try:
