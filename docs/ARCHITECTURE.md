@@ -75,4 +75,4 @@ GPS from `config/cameras.yaml` is attached to every alert payload.
 | Run cameras | `core/runtime/camera_worker.py` |
 | Paths | `paths.py` |
 | Watchlist ingest | `scripts/ingest_watchlist.py` |
-| Demo launcher | `scripts/run_defense_demo.sh` |
+| Launcher | `run.sh` |

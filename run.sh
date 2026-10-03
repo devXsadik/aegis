@@ -39,6 +39,7 @@ cleanup() {
   echo ""
   echo "Stopping Aegis…"
   for pid in "${PIDS[@]:-}"; do
+    pkill -P "$pid" 2>/dev/null || true     # children (the pipeline python) first
     kill "$pid" 2>/dev/null || true
   done
   # Kill anything still bound to our ports (orphans from prior runs)
@@ -146,14 +147,32 @@ for i in $(seq 1 30); do
   fi
 done
 
-# --- Pipeline ---
+# --- Pipeline (supervised: restarted if it ever dies) ---
+mkdir -p logs
+supervise_pipeline() {
+  local fast=0 delay=3 t0 code
+  while true; do
+    t0=$(date +%s)
+    $PYTHON main.py "$@" 2>&1 | tee -a logs/pipeline.out
+    code=${PIPESTATUS[0]}
+    [ "$code" -eq 0 ] && return 0                       # clean exit (e.g. finished a file)
+    if [ $(( $(date +%s) - t0 )) -lt 20 ]; then fast=$((fast + 1)); else fast=0; delay=3; fi
+    if [ "$fast" -ge 5 ]; then
+      echo "✗ Pipeline keeps crashing right after start (code $code). See logs/pipeline.out"
+      return 1
+    fi
+    echo "⚠ Pipeline exited with code $code — restarting in ${delay}s (see logs/pipeline.out)"
+    sleep "$delay"; delay=$(( delay < 30 ? delay * 2 : 30 ))
+  done
+}
+
 if [ "$NO_PIPELINE" -eq 0 ]; then
   if [ -f "$VIDEO" ]; then
     echo "[2/3] Pipeline → $VIDEO"
-    $PYTHON main.py --video "$VIDEO" &
+    supervise_pipeline --video "$VIDEO" &
   else
     echo "[2/3] Pipeline → webcam / config (no file at $VIDEO)"
-    $PYTHON main.py --multi --no-display &
+    supervise_pipeline --multi --no-display &
   fi
   PIPELINE_PID=$!
   PIDS+=("$PIPELINE_PID")

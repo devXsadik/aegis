@@ -28,9 +28,9 @@ Sync to database: `python scripts/seed_cameras.py`
 ### One-command demo
 
 ```bash
-./scripts/run_defense_demo.sh
+./run.sh
 # or with video:
-./scripts/run_defense_demo.sh data/demo/clips/sample.mp4
+./run.sh data/demo/clips/sample.mp4
 ```
 
 Ensure `.env` has matching `INTERNAL_API_KEY` for pipeline ↔ backend.
@@ -41,7 +41,7 @@ Ensure `.env` has matching `INTERNAL_API_KEY` for pipeline ↔ backend.
 
 ```bash
 # Terminal 1 — Database + backend
-./setup_phase1.sh
+./scripts/setup.sh
 python scripts/seed_demo.py
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 

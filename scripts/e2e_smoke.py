@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 _tmp = tempfile.mkdtemp(prefix="aegis_e2e_")
 os.environ.update({
     "DATABASE_URL": f"sqlite:///{_tmp}/e2e.db",
+    "USE_SQLITE": "false",          # otherwise .env's USE_SQLITE=true ignores DATABASE_URL
     "AUTO_ALERTS_ENABLED": "false",
     "PIPELINE_EVENTS_ENABLED": "false",
     "DVR_ENABLED": "false",

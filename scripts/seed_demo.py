@@ -17,7 +17,10 @@ from backend.auth.auth import hash_password
 
 
 def seed_demo_user(reset: bool = False):
-    if os.getenv("ENVIRONMENT", "development") == "production":
+    # Seeding a default admin is a development convenience and is skipped in production
+    # (use scripts/bootstrap_admin.py there). A password RESET is an explicit operator
+    # action that already needs shell access, so it is always allowed.
+    if os.getenv("ENVIRONMENT", "development") == "production" and not reset:
         print("Skipping demo user seed in production.")
         return
     init_db()

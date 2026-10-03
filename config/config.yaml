@@ -23,6 +23,10 @@ human_model: "yolov8n.pt"         # Nano model for speed
 weapon_model: "weapon_yolo.pt"
 # vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
 
+# --- Tracking ---
+tracking:
+  appearance: histogram            # histogram (fast) | cnn (more robust to occlusion, ~100 ms/person on CPU)
+
 # --- Pose (raised arms, fall suspicion) ---
 pose:
   enabled: true

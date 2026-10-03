@@ -69,20 +69,36 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
     stop_event = threading.Event()
 
     def worker():
-        run_camera_loop(
-            pipeline=pipeline,
-            criminal_names=criminal_names,
-            source=source,
-            camera_id=cam_id,
-            camera_location=cam_loc,
-            camera_name=cam_name,
-            camera_lat=cam_lat,
-            camera_lng=cam_lng,
-            target_fps=fps,
-            show_window=show_window,
-            window_title=f"AI-SSS — {cam_name}",
-            stop_event=stop_event,
-        )
+        # A camera that is unreachable (phone app closed, Wi-Fi down) or whose stream
+        # drops must keep retrying; otherwise its thread dies and it stays off for good.
+        delay = 10.0
+        while not stop_event.is_set():
+            started = time.time()
+            try:
+                run_camera_loop(
+                    pipeline=pipeline,
+                    criminal_names=criminal_names,
+                    source=source,
+                    camera_id=cam_id,
+                    camera_location=cam_loc,
+                    camera_name=cam_name,
+                    camera_lat=cam_lat,
+                    camera_lng=cam_lng,
+                    target_fps=fps,
+                    show_window=show_window,
+                    window_title=f"AI-SSS — {cam_name}",
+                    stop_event=stop_event,
+                )
+            except Exception as e:
+                logger.error(f"[{cam_id}] camera unavailable: {e}")
+            if stop_event.is_set():
+                break
+            if time.time() - started > 60:      # it was healthy for a while: retry soon
+                delay = 10.0
+            logger.warning(f"[{cam_id}] offline — retrying in {int(delay)}s")
+            if stop_event.wait(delay):
+                break
+            delay = min(delay * 2, 120.0)
 
     t = threading.Thread(target=worker, name=f"camera-{cam_id}", daemon=True)
     t.start()
@@ -110,6 +126,16 @@ def main():
         if not cameras:
             logger.error("No enabled cameras in config/cameras.yaml")
             return
+        local = {}
+        for c in cameras:
+            if isinstance(c.get("source", 0), int):
+                local.setdefault(c["source"], []).append(c["id"])
+        for src, ids in local.items():
+            if len(ids) > 1:
+                logger.warning(
+                    f"Cameras {', '.join(ids)} all use local webcam {src}: they share one device and "
+                    f"each runs a full pipeline on it. Disable all but one in config/cameras.yaml."
+                )
         logger.info(f"Starting multi-camera mode: {len(cameras)} camera(s)")
         threads_and_events = {c["id"]: _start_camera_thread(c, cfg, base_dir, show_window) for c in cameras}
         try:

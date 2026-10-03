@@ -9,7 +9,7 @@
 ## Initial Setup
 
 ```bash
-./setup_phase1.sh
+./scripts/setup.sh
 python scripts/seed_demo.py    # creates admin; password printed once (or set ADMIN_PASSWORD)
 ```
 

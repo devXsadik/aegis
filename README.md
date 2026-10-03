@@ -147,7 +147,6 @@ cd final-year-project
 ```bash
 ./scripts/setup.sh
 # or: make setup
-# or: ./setup_phase1.sh   # thin wrapper → scripts/setup.sh
 ```
 
 Setup will:
@@ -175,6 +174,37 @@ Place a short MP4 at:
 ```
 data/demo/clips/sample.mp4
 ```
+
+---
+
+## Run with Docker
+
+One command brings up the whole stack: PostgreSQL, Redis, the API, the AI pipeline and the dashboard.
+
+```bash
+cp .env.example .env
+# Edit .env: set POSTGRES_PASSWORD, SECRET_KEY, ENCRYPTION_KEY, ENCRYPTION_SALT, INTERNAL_API_KEY
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"   # generate each one
+# Optionally set ADMIN_PASSWORD (otherwise one is generated: docker compose logs backend)
+docker compose up -d --build
+```
+
+Open **http://localhost:8080** and sign in as `admin`. The first build takes several minutes
+(it compiles dlib and downloads CPU-only PyTorch); later starts take seconds.
+
+| Command | What it does |
+|---|---|
+| `docker compose logs -f backend pipeline` | Watch the API / AI workers |
+| `make docker-admin` | Reset the admin password |
+| `docker compose down` | Stop (data is kept in volumes); add `-v` to wipe it |
+
+Notes:
+- **Cameras:** a container cannot open your laptop's webcam. Use RTSP/HTTP cameras in
+  `config/cameras.yaml` (mounted into the container and re-read every few seconds).
+- **Models:** drop `weapon_yolo.pt` etc. into `./models/` (mounted). The pose model downloads on first start.
+- **Secrets:** the containers refuse to start with missing or default secrets.
+- **GPU:** the image is CPU-only. On Apple silicon, running natively with `./run.sh` is faster (uses the Apple GPU).
+- Only the dashboard port is published; the API is reached through it (`/api`, `/docs`, `/health`).
 
 ---
 
@@ -334,7 +364,6 @@ Register display names under `criminal_names` in `config/config.yaml`.
 ├── main.py                     # CLI entrypoint
 ├── paths.py                    # Central path constants
 ├── run.sh                      # One-command full system
-├── setup_phase1.sh             # Wrapper → scripts/setup.sh
 ├── Makefile                    # Common commands
 │
 ├── core/                       # Computer vision

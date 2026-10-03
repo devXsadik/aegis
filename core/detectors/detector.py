@@ -1,4 +1,4 @@
-import threading
+from core.detectors.device import lock_for
 
 import numpy as np
 from ultralytics import YOLO
@@ -9,7 +9,7 @@ class HumanDetector:
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         self.device = device
-        self._lock = threading.Lock()   # one model instance is shared by all cameras
+        self._lock = lock_for(device)   # one model instance is shared by all cameras
 
     def detect(self, frame: np.ndarray):
         with self._lock:

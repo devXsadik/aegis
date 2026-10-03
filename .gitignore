@@ -19,3 +19,8 @@ archive/
 *.db
 .venv/
 frontend/node_modules/
+data/recordings/
+*.DS_Store
+.DS_Store
+frontend/dist/
+*.out

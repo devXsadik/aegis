@@ -6,7 +6,6 @@ mediapipe / protobuf<4 / opencv-contrib dependency chain.
 """
 
 import logging
-import threading
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("HumanAnalysis")
@@ -51,7 +50,8 @@ class PoseAnalyzer:
         self.device = device
         self.conf = conf
         self.min_kpt_conf = min_kpt_conf
-        self._lock = threading.Lock()
+        from core.detectors.device import lock_for   # lazy: keeps this module torch-free
+        self._lock = lock_for(device)
         self.model = None
         if model_path:
             try:

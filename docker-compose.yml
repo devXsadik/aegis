@@ -1,11 +1,43 @@
-version: '3.8'
+# Aegis — full stack:   cp .env.example .env  (set secrets)  →  docker compose up -d --build
+# Dashboard: http://localhost:${HTTP_PORT:-8080}
+
+x-app: &app
+  build: .
+  image: aegis-app:latest
+  env_file: .env
+  environment: &app-env
+    ENVIRONMENT: production
+    HEADLESS: "true"          # containers have no display; .env may say false
+    USE_SQLITE: "false"
+    ALLOW_SQLITE_FALLBACK: "false"
+    DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-aegis}
+    REDIS_URL: redis://redis:6379/0
+    BACKEND_URL: http://backend:8000
+    SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
+    ENCRYPTION_SALT: ${ENCRYPTION_SALT:?set ENCRYPTION_SALT in .env}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+  restart: unless-stopped
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegis}
+      POSTGRES_USER: ${POSTGRES_USER:-aegis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
-    container_name: surveillance_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -15,105 +47,54 @@ services:
       retries: 5
     restart: unless-stopped
 
-  db:
-    image: postgres:16-alpine
-    container_name: surveillance_db
-    env_file:
-      - .env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-surveillance_db}
-      POSTGRES_USER: ${POSTGRES_USER:-surveillance}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U surveillance" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: surveillance_backend
-    env_file:
-      - .env
+    <<: *app
+    command: ["api"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-surveillance}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-surveillance_db}
-      SECRET_KEY: ${SECRET_KEY}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      ENCRYPTION_SALT: ${ENCRYPTION_SALT}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      BACKEND_URL: http://backend:8000
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8000:8000"
+      <<: *app-env
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
     volumes:
-      - ./evidence:/app/evidence
+      - recordings:/app/data/recordings
       - ./models:/app/models
       - ./config:/app/config
-      - ./data/watchlist:/app/data/watchlist
-      - ./data/recordings:/app/data/recordings
-    restart: unless-stopped
+      - ./data/watchlist:/app/data/watchlist:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: surveillance_frontend
-    ports:
-      - "5173:80"
+  # AI workers. Containers cannot reach a laptop webcam: point cameras at RTSP/HTTP
+  # sources in config/cameras.yaml (it is mounted, and re-read every few seconds).
+  pipeline:
+    <<: *app
+    command: ["pipeline"]
     depends_on:
-      - backend
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: surveillance_nginx
-    ports:
-      - "8080:80"
+      backend: { condition: service_healthy }
     volumes:
-      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - backend
-      - frontend
-    restart: unless-stopped
-
-  surveillance:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: surveillance_main
-    command: [ "python", "main.py", "--video", "data/demo/clips/sample.mp4" ]
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-surveillance}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-surveillance_db}
-      BACKEND_URL: http://backend:8000
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      CAMERA_INDEX: ${CAMERA_INDEX:-0}
-    volumes:
+      - recordings:/app/data/recordings
+      - ./models:/app/models
       - ./config:/app/config
-      - ./data/watchlist:/app/data/watchlist
-      - ./evidence:/app/evidence
-      - ./data/demo:/app/data/demo
-      - ./data/recordings:/app/data/recordings
+      - ./data/watchlist:/app/data/watchlist:ro
+
+  web:
+    build: ./frontend
+    image: aegis-web:latest
+    ports:
+      - "${HTTP_PORT:-8080}:80"
     depends_on:
-      - backend
+      backend: { condition: service_healthy }
     restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
+  recordings:
 
 networks:
   default:
-    name: surveillance_network
+    name: aegis_network

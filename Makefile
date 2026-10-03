@@ -1,4 +1,4 @@
-.PHONY: setup demo test backend pipeline frontend ingest run all stop
+.PHONY: setup demo test backend pipeline frontend ingest run all stop docker-build docker-up docker-down docker-logs docker-admin
 
 setup:
 	./scripts/setup.sh
@@ -28,3 +28,21 @@ frontend:
 
 ingest:
 	python scripts/ingest_watchlist.py
+
+# ---- Docker (full stack: Postgres, Redis, API, AI pipeline, dashboard) ----
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d --build
+	@echo "Dashboard: http://localhost:$${HTTP_PORT:-8080}"
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f --tail=100
+
+# Lost the admin password? Reset it inside the running container:
+docker-admin:
+	docker compose exec backend python scripts/seed_demo.py --reset-password

@@ -58,7 +58,7 @@ export function showBrowserNotification(title, body) {
   try {
     new Notification(title, {
       body,
-      icon: '/vite.svg',
+      icon: '/favicon.svg',
       tag: 'ai-sss-alert',
       requireInteraction: true,
     })

@@ -108,8 +108,9 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     else:
         logger.warning(f"Vehicle detector DISABLED: model not found at {vehicle_model_path}")
 
-    human_tracker = HumanTracker()
-    vehicle_tracker = VehicleTracker()
+    appearance = cfg.get("tracking", {}).get("appearance", "histogram")
+    human_tracker = HumanTracker(appearance)
+    vehicle_tracker = VehicleTracker(appearance)
     face_recognizer = _shared(
         ("face", face_tolerance),
         lambda: FaceRecognizerDB(tolerance=face_tolerance,

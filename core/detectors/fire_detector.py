@@ -1,4 +1,4 @@
-import threading
+from core.detectors.device import lock_for
 
 import numpy as np
 from ultralytics import YOLO
@@ -11,7 +11,7 @@ class FireSmokeDetector:
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         self.device = device
-        self._lock = threading.Lock()
+        self._lock = lock_for(device)
 
     def detect(self, frame: np.ndarray):
         with self._lock:
