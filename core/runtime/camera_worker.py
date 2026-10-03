@@ -67,7 +67,7 @@ def run_camera_loop(
     """Run the CV pipeline on one video source until quit or stream end."""
     cap = open_capture(source)
     frame_skipper = FrameSkipper(target_fps=target_fps)
-    config_sync = RuntimeConfigSync(pipeline)
+    config_sync = RuntimeConfigSync(pipeline, camera_id=camera_id)
     resource_monitor = ResourceMonitor()
     perf_enabled = os.getenv("PERF_MONITOR", "false").lower() == "true"
 

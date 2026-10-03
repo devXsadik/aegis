@@ -146,6 +146,8 @@ _ADDITIVE_COLUMNS = [
     ("alerts", "reviewed_by", "INTEGER"),
     ("alerts", "reviewed_at", "TIMESTAMP"),
     ("alerts", "review_note", "TEXT"),
+    ("cameras", "geometry", "TEXT"),
+    ("cameras", "geometry_updated_at", "TIMESTAMP"),
 ]
 
 

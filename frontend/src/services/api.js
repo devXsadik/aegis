@@ -197,6 +197,17 @@ export function snapshotUrl(cameraId) {
   return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/snapshot${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 }
 
+export async function fetchCameraGeometry(cameraId) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}/geometry`);
+}
+
+export async function saveCameraGeometry(cameraId, { zones, lines }) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}/geometry`, {
+    method: 'PUT',
+    body: JSON.stringify({ zones, lines }),
+  });
+}
+
 export function evidenceImageUrl(evidenceId, kind = 'frame') {
   const token = getToken();
   return `${API_BASE}/evidence/${evidenceId}/image?kind=${kind}${token ? `&token=${encodeURIComponent(token)}` : ''}`;

@@ -95,6 +95,9 @@ export const Icons = {
   clock: () => (
     <svg viewBox="0 0 24 24" {...stroke}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
   ),
+  zone: () => (
+    <svg viewBox="0 0 24 24" {...stroke}><path d="M4 7l6-3 9 4-2 11-9 1-4-6 0-7z"/><circle cx="4" cy="7" r="1.2"/><circle cx="10" cy="4" r="1.2"/><circle cx="19" cy="8" r="1.2"/><circle cx="17" cy="19" r="1.2"/></svg>
+  ),
   fire: () => (
     <svg viewBox="0 0 24 24" {...stroke}><path d="M12 22c4 0 7-2.8 7-7 0-3-1.8-5-3.5-7C14 6 13 4 13 2c-3 2-5 5-5 8-1-.8-1.6-2-2-3.2C4.7 8.6 5 11 5 13c0 4.7 3 9 7 9z"/></svg>
   ),

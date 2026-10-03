@@ -8,7 +8,11 @@ import logging
 from backend.db.database import get_db
 from backend.models.camera import Camera
 from backend.models.user import User
-from backend.auth.auth import operator_or_admin, admin_only
+from backend.auth.auth import operator_or_admin, admin_only, supervisor_or_admin
+from backend.models.audit_log import AuditLog
+from core.analysis.zones import validate_geometry
+import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -185,3 +189,51 @@ def delete_camera(camera_id: str, db: Session = Depends(get_db), admin: User = D
     db.delete(camera)
     db.commit()
     return {"status": "deleted"}
+
+
+class GeometryBody(BaseModel):
+    zones: list = []
+    lines: list = []
+
+
+def _geometry_of(cam: Camera) -> dict:
+    if not cam.geometry:
+        return {"zones": [], "lines": []}
+    try:
+        g = json.loads(cam.geometry)
+        return {"zones": g.get("zones", []), "lines": g.get("lines", [])}
+    except ValueError:
+        return {"zones": [], "lines": []}
+
+
+@router.get("/{camera_id}/geometry")
+def get_geometry(camera_id: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return {**_geometry_of(cam), "configured": cam.geometry is not None,
+            "updated_at": cam.geometry_updated_at.isoformat() if cam.geometry_updated_at else None}
+
+
+@router.put("/{camera_id}/geometry")
+def put_geometry(camera_id: str, body: GeometryBody, db: Session = Depends(get_db),
+                 user: User = Depends(supervisor_or_admin)):
+    """Replace a camera's zones and lines. Cameras pick it up within ~30 s."""
+    cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    try:
+        clean = validate_geometry(body.zones, body.lines)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    before = _geometry_of(cam)
+    cam.geometry = json.dumps(clean)
+    cam.geometry_updated_at = datetime.utcnow()
+    db.add(AuditLog(
+        user_id=user.id, username=user.username, action="GEOMETRY_CHANGE",
+        resource="camera", resource_id=camera_id,
+        details=f"zones {len(before['zones'])}->{len(clean['zones'])}, "
+                f"lines {len(before['lines'])}->{len(clean['lines'])}",
+    ))
+    db.commit()
+    return {**clean, "configured": True, "updated_at": cam.geometry_updated_at.isoformat()}

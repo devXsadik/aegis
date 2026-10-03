@@ -18,6 +18,22 @@ LIMITS = {
 }
 
 
+def apply_geometry(pipeline, geometry) -> bool:
+    """Apply dashboard-defined zones/lines. Returns True if the geometry changed."""
+    if not isinstance(geometry, dict):
+        return False        # never configured in the dashboard: keep cameras.yaml / defaults
+    for stage in pipeline.stages:
+        det = getattr(stage, "anomaly_detector", None)
+        if stage.name == "behavior" and det is not None:
+            zones, lines = geometry.get("zones") or [], geometry.get("lines") or []
+            if (zones, lines) == (getattr(det, "_applied_zones", None), getattr(det, "_applied_lines", None)):
+                return False
+            det.set_geometry(zones, lines)
+            det._applied_zones, det._applied_lines = zones, lines
+            return True
+    return False
+
+
 def apply_runtime_config(pipeline, values: dict) -> dict:
     """Set thresholds on the pipeline's stages; return what was actually applied."""
     clean = {k: float(v) for k, v in values.items()
@@ -43,8 +59,9 @@ def apply_runtime_config(pipeline, values: dict) -> dict:
 class RuntimeConfigSync:
     """Polls the backend every `interval` seconds on a side thread (never blocks the loop)."""
 
-    def __init__(self, pipeline, interval: float = 30.0):
+    def __init__(self, pipeline, interval: float = 30.0, camera_id: str = ""):
         self.pipeline = pipeline
+        self.camera_id = camera_id
         self.interval = interval
         self._last = 0.0
         self._busy = False
@@ -64,9 +81,15 @@ class RuntimeConfigSync:
 
             from utils.alerts.event_publisher import BACKEND_URL, INTERNAL_API_KEY
             r = httpx.get(f"{BACKEND_URL}/api/v1/config/runtime",
+                          params={"camera_id": self.camera_id} if self.camera_id else None,
                           headers={"X-Internal-Key": INTERNAL_API_KEY}, timeout=3.0)
             if r.status_code == 200:
-                applied = apply_runtime_config(self.pipeline, r.json())
+                data = r.json()
+                if apply_geometry(self.pipeline, data.get("geometry")):
+                    g = data["geometry"]
+                    logger.info(f"[{self.camera_id}] zones updated: "
+                                f"{len(g.get('zones', []))} zones, {len(g.get('lines', []))} lines")
+                applied = apply_runtime_config(self.pipeline, data)
                 if applied != self.last_applied:
                     logger.info(f"Runtime thresholds applied: {applied}")
                     self.last_applied = applied

@@ -1192,3 +1192,45 @@ kbd {
 .chip-n { font-family: var(--font-mono); font-size: 0.74rem; opacity: 0.8; }
 .dc-msg { font-size: 0.83rem; color: var(--text-2); }
 .load-more { display: flex; justify-content: center; margin-top: 16px; }
+
+/* ——— Zone editor ——— */
+.ze { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .ze { grid-template-columns: 1fr; } }
+.ze-side { display: flex; flex-direction: column; gap: 14px; }
+.ze-hint { font-size: 0.8rem; margin: 10px 0; }
+.ze-canvas {
+  position: relative; width: 100%; max-height: 72vh; background: #020617; overflow: hidden; touch-action: none;
+  background-image: linear-gradient(rgba(148,163,184,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.08) 1px, transparent 1px);
+  background-size: 10% 10%;
+}
+.ze-canvas.drawing { cursor: crosshair; }
+.ze-canvas > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; user-select: none; }
+.ze-nofeed { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; color: var(--text-3); font-size: 0.82rem; padding: 20px; pointer-events: none; }
+.ze-nofeed svg { width: 32px; height: 32px; }
+.ze-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ze-zone { stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; pointer-events: all; }
+.ze-zone.monitor { fill: rgba(56,189,248,.18); stroke: #38bdf8; }
+.ze-zone.restricted { fill: rgba(248,113,113,.24); stroke: #f87171; }
+.ze-zone.on { stroke-width: 3.5; fill-opacity: 0.34; }
+.ze-line { stroke: #fbbf24; stroke-width: 3; vector-effect: non-scaling-stroke; cursor: pointer; pointer-events: stroke; }
+.ze-line.on { stroke-width: 5; }
+.ze-draft { stroke: #fff; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; fill: none; }
+.ze-label { position: absolute; transform: translate(-50%, -50%); font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgba(2,6,23,.78); color: #fff; pointer-events: none; white-space: nowrap; }
+.ze-label.restricted { background: rgba(185,28,28,.85); }
+.ze-label.line { background: rgba(180,120,0,.88); }
+.ze-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px var(--primary); pointer-events: none; }
+.ze-handle {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; border-radius: 50%;
+  background: #fff; border: 3px solid var(--primary); cursor: grab; display: grid; place-items: center;
+  font-size: 0.6rem; font-weight: 800; color: #0f172a; touch-action: none;
+}
+.ze-handle:active { cursor: grabbing; }
+.ze-handle:focus-visible { outline: none; box-shadow: var(--ring); }
+.ze-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; margin-bottom: 4px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.ze-item b { flex: 1; font-size: 0.86rem; }
+.ze-item:hover { background: var(--surface-2); }
+.ze-item.on { border-color: var(--primary); background: var(--primary-soft); }
+.ze-item:focus-visible { outline: none; box-shadow: var(--ring); }
+.ze-swatch { width: 12px; height: 12px; border-radius: 3px; background: #38bdf8; }
+.ze-swatch.restricted { background: #f87171; }
+.ze-swatch.line { background: #fbbf24; height: 4px; }

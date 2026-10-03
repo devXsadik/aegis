@@ -46,12 +46,29 @@ def list_config(db: Session = Depends(get_db), user: User = Depends(operator_or_
 
 @router.get("/runtime")
 def runtime_config(
+    camera_id: Optional[str] = None,
     x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
     db: Session = Depends(get_db),
 ):
-    """Pipeline polls this to pick up threshold changes without a restart."""
+    """Pipeline polls this to pick up threshold and zone changes without a restart.
+
+    Flat threshold numbers stay at the top level; per-camera geometry is under
+    "geometry" and is null when the dashboard has never configured that camera.
+    """
     verify_internal_key(x_internal_key)
-    return {k: float(v) for k, v in _effective_thresholds(db).items()}
+    out = {k: float(v) for k, v in _effective_thresholds(db).items()}
+    geometry = None
+    if camera_id:
+        import json
+        from backend.models.camera import Camera
+        cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+        if cam and cam.geometry:
+            try:
+                geometry = json.loads(cam.geometry)
+            except ValueError:
+                geometry = None
+    out["geometry"] = geometry
+    return out
 
 
 @router.get("/{key}")

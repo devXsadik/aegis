@@ -20,9 +20,18 @@ class AnomalyDetector:
                  zones: Optional[list] = None, lines: Optional[list] = None):
         self.crowd_threshold = crowd_threshold
         self.dwell_seconds = dwell_seconds
+        self.zone_counts = defaultdict(int)
+        self.set_geometry(zones, lines)
+
+    def set_geometry(self, zones: Optional[list], lines: Optional[list]) -> None:
+        """Replace zones/lines (also used for live edits from the dashboard).
+
+        Per-track state is reset: dwell timers and 'already reported' flags belong to
+        the old zones and would be meaningless — or suppress alerts — under new ones.
+        """
         self.zones: List[Zone] = parse_zones(zones) or parse_zones(QUADRANT_ZONES)
         self.lines: List[Line] = parse_lines(lines)
-        self.zone_counts = defaultdict(int)
+        self.zone_counts.clear()
         self._entered = {z.name: {} for z in self.zones}      # zone → {tid: entry_ts}
         self._reported = {z.name: set() for z in self.zones}  # (dwell/intrusion) once per entry
         self._last_pos = {}                                   # tid → (nx, ny)

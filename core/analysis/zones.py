@@ -88,3 +88,72 @@ def parse_lines(raw: Optional[list]) -> List[Line]:
         Line(str(l["name"]), tuple(map(float, l["p1"])), tuple(map(float, l["p2"])))
         for l in (raw or []) if "p1" in l and "p2" in l
     ]
+
+
+MAX_ZONES = 20
+MAX_LINES = 10
+MAX_POINTS = 40
+ZONE_TYPES = ("monitor", "restricted")
+
+
+def _point(p, where: str):
+    try:
+        x, y = float(p[0]), float(p[1])
+    except (TypeError, ValueError, IndexError):
+        raise ValueError(f"{where}: points must be [x, y] numbers")
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        raise ValueError(f"{where}: coordinates must be between 0 and 1")
+    return [round(x, 4), round(y, 4)]
+
+
+def _polygon_area(poly) -> float:
+    a = 0.0
+    for i in range(len(poly)):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % len(poly)]
+        a += x1 * y2 - x2 * y1
+    return abs(a) / 2
+
+
+def validate_geometry(zones, lines) -> dict:
+    """Return a cleaned {zones, lines} dict or raise ValueError with a readable message."""
+    zones = zones or []
+    lines = lines or []
+    if len(zones) > MAX_ZONES:
+        raise ValueError(f"At most {MAX_ZONES} zones per camera")
+    if len(lines) > MAX_LINES:
+        raise ValueError(f"At most {MAX_LINES} lines per camera")
+
+    names = set()
+    out_zones = []
+    for z in zones:
+        name = str(z.get("name", "")).strip()
+        if not name or len(name) > 50:
+            raise ValueError("Every zone needs a name (1-50 characters)")
+        if name.lower() in names:
+            raise ValueError(f"Duplicate name: {name}")
+        names.add(name.lower())
+        ztype = z.get("type", "monitor")
+        if ztype not in ZONE_TYPES:
+            raise ValueError(f"{name}: type must be one of {', '.join(ZONE_TYPES)}")
+        pts = z.get("polygon") or []
+        if not 3 <= len(pts) <= MAX_POINTS:
+            raise ValueError(f"{name}: a zone needs 3-{MAX_POINTS} points")
+        poly = [_point(p, name) for p in pts]
+        if _polygon_area(poly) < 0.0005:
+            raise ValueError(f"{name}: zone is too small or its points are in a straight line")
+        out_zones.append({"name": name, "type": ztype, "polygon": poly})
+
+    out_lines = []
+    for l in lines:
+        name = str(l.get("name", "")).strip()
+        if not name or len(name) > 50:
+            raise ValueError("Every line needs a name (1-50 characters)")
+        if name.lower() in names:
+            raise ValueError(f"Duplicate name: {name}")
+        names.add(name.lower())
+        p1, p2 = _point(l.get("p1"), name), _point(l.get("p2"), name)
+        if p1 == p2:
+            raise ValueError(f"{name}: line start and end are the same point")
+        out_lines.append({"name": name, "p1": p1, "p2": p2})
+    return {"zones": out_zones, "lines": out_lines}

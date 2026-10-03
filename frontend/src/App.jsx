@@ -29,6 +29,7 @@ import { Vehicles } from './pages/Vehicles'
 import { Reports } from './pages/Reports'
 import { Users } from './pages/Users'
 import { Settings } from './pages/Settings'
+import { ZoneEditor } from './pages/ZoneEditor'
 
 const NAV = [
   {
@@ -61,6 +62,7 @@ const NAV = [
     group: 'Administration',
     pages: [
       { id: 'cameras', label: 'Camera Management', icon: Icons.camera },
+      { id: 'zones', label: 'Zones & Lines', icon: Icons.zone },
       { id: 'users', label: 'Users & Roles', icon: Icons.users },
       { id: 'settings', label: 'Settings', icon: Icons.settings },
     ],
@@ -104,7 +106,7 @@ const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
   alerts: Triage, incidents: Incidents, evidence: EvidencePage,
   watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
-  cameras: Cameras, users: Users, settings: Settings,
+  cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
 }
 
 function formatEvent(evt) {
@@ -304,6 +306,10 @@ function App() {
   /* Keyboard shortcuts */
   useEffect(() => {
     const onKey = (e) => {
+      // Never hijack typing: plain-letter shortcuts must not fire inside form fields.
+      const t = e.target
+      const typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)
+      if (typing && !((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') && e.key !== 'Escape') return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setShowPalette((v) => !v)

@@ -66,3 +66,5 @@ cameras:
 #     lines:
 #       - {name: entrance, p1: [0.5, 0.0], p2: [0.5, 1.0]}
 # With no zones, the frame is split into four quadrants (crowd/dwell only).
+# Zones drawn in the dashboard (Zones & Lines page) are stored in the database and take
+# precedence over this file once saved; cameras apply changes within ~30 s.
