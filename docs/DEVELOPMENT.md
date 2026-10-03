@@ -10,7 +10,7 @@
 
 ```bash
 ./setup_phase1.sh
-python scripts/seed_demo.py    # creates admin / admin123 for dashboard
+python scripts/seed_demo.py    # creates admin; password printed once (or set ADMIN_PASSWORD)
 ```
 
 Place `yolov8s.pt` (or configured model) in `models/`.
@@ -47,7 +47,7 @@ python main.py --multi
 ```bash
 cd frontend && npm install && npm run dev
 ```
-Open http://localhost:5173 → login **admin / admin123**
+Open http://localhost:5173 → login as **admin** with the password printed by `seed_demo.py`
 
 ---
 

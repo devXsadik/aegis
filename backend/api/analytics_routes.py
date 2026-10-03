@@ -33,15 +33,15 @@ def analytics_summary(hours: int = 24, db: Session = Depends(get_db),
 @router.get("/trends")
 def analytics_trends(days: int = 7, db: Session = Depends(get_db),
                      user: User = Depends(operator_or_admin)):
-    from sqlalchemy import cast, Date
     cutoff = datetime.utcnow() - timedelta(days=days)
+    day = func.date(Evidence.timestamp)   # portable: CAST(.. AS DATE) breaks on SQLite
     results = (
         db.query(
-            cast(Evidence.timestamp, Date).label("date"),
+            day.label("date"),
             func.count(Evidence.id).label("count"),
         )
         .filter(Evidence.timestamp >= cutoff)
-        .group_by(cast(Evidence.timestamp, Date))
+        .group_by(day)
         .order_by("date")
         .all()
     )

@@ -52,7 +52,7 @@ python main.py --video data/demo/clips/sample.mp4
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173 → login **admin / admin123**
+Open http://localhost:5173 → login as **admin** with the password printed by `seed_demo.py`
 
 ---
 

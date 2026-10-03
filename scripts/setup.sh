@@ -43,7 +43,7 @@ echo "5. Ingesting known persons (face encodings)..."
 python3 -m backend.migrate 2>/dev/null || python3 scripts/ingest_watchlist.py 2>/dev/null || echo "   Run: python3 scripts/ingest_watchlist.py"
 
 echo ""
-echo "6. Creating demo admin (admin / admin123)..."
+echo "6. Creating admin user (password is printed below; save it)..."
 python3 scripts/seed_demo.py 2>/dev/null || true
 
 echo ""

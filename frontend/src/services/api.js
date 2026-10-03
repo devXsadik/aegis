@@ -45,6 +45,35 @@ export async function fetchAlerts(limit = 20) {
   return apiFetch(`/alerts/?limit=${limit}`);
 }
 
+export async function fetchAlertsFiltered({ reviewStatus, dismissed, acknowledged, limit = 100 } = {}) {
+  const q = new URLSearchParams({ limit });
+  if (reviewStatus) q.set('review_status', reviewStatus);
+  if (dismissed !== undefined) q.set('dismissed', dismissed);
+  if (acknowledged !== undefined) q.set('acknowledged', acknowledged);
+  return apiFetch(`/alerts/?${q}`);
+}
+
+export async function fetchAlertContext(alertId) {
+  return apiFetch(`/alerts/${alertId}/context`);
+}
+
+export async function fetchReviewCount() {
+  return apiFetch('/alerts/review-queue-count');
+}
+
+export async function searchEvents({ since, until, eventTypes, cameraId, limit = 500 } = {}) {
+  const q = new URLSearchParams({ limit });
+  if (since) q.set('since', since);
+  if (until) q.set('until', until);
+  if (eventTypes) q.set('event_types', eventTypes);
+  if (cameraId) q.set('camera_id', cameraId);
+  return apiFetch(`/events/search?${q}`);
+}
+
+export async function fetchThresholdSpecs() {
+  return apiFetch('/config/thresholds/specs');
+}
+
 export async function fetchSystemStatus() {
   return apiFetch('/system/status');
 }
@@ -126,10 +155,10 @@ export async function fetchAuditLogs(limit = 100) {
   return apiFetch(`/audit/?limit=${limit}`);
 }
 
-export async function acknowledgeAlert(alertId, { acknowledged = true, dismissed = false } = {}) {
+export async function acknowledgeAlert(alertId, { acknowledged = true, dismissed = false, note = null } = {}) {
   return apiFetch(`/alerts/${alertId}/acknowledge`, {
     method: 'PUT',
-    body: JSON.stringify({ acknowledged, dismissed }),
+    body: JSON.stringify({ acknowledged, dismissed, note }),
   });
 }
 

@@ -1,34 +1,57 @@
 import { useEffect, useState } from 'react'
 import { Card, Tag } from '../components/ui'
-import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold } from '../services/api'
+import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs } from '../services/api'
 import { useToast } from '../components/Toast'
 
-function ThresholdSlider({ id, label, def, thresholds, onSet }) {
+const THRESHOLD_UI = {
+  confidence_threshold: { label: 'Person detection confidence', step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, hint: 'Higher = fewer false people, may miss distant ones' },
+  weapon_conf_threshold: { label: 'Weapon detection confidence', step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, hint: 'Higher = fewer false alarms, may miss real weapons' },
+  face_tolerance: { label: 'Face match strictness', step: 0.01, fmt: (v) => v.toFixed(2), hint: 'Lower = stricter (fewer wrong matches). Default 0.45' },
+  loiter_seconds: { label: 'Loitering time', step: 1, fmt: (v) => `${v}s`, hint: 'Time standing still before it counts as loitering' },
+  crowd_threshold: { label: 'Crowd size', step: 1, fmt: (v) => `${v} people`, hint: 'People in one zone before a crowd alert' },
+}
+
+function ThresholdSlider({ id, spec, value, canEdit, onCommit }) {
+  const ui = THRESHOLD_UI[id]
+  const [draft, setDraft] = useState(null)
+  const shown = draft ?? value
+  const dirtyDefault = value !== spec.default
   return (
-    <label className="field" style={{ marginBottom: 14 }}>
-      <span>{label} — <b>{thresholds[id] ?? def}%</b></span>
+    <div className="field" style={{ marginBottom: 16 }}>
+      <label htmlFor={`thr-${id}`} style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>{ui.label}</span><b>{ui.fmt(shown)}</b>
+      </label>
       <input
-        type="range" min="30" max="99" value={thresholds[id] ?? def}
-        onChange={(e) => onSet(id, Number(e.target.value))}
+        id={`thr-${id}`} type="range" min={spec.min} max={spec.max} step={ui.step}
+        value={shown} disabled={!canEdit}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={() => { if (draft != null) { onCommit(id, draft); setDraft(null) } }}
+        onKeyUp={() => { if (draft != null) { onCommit(id, draft); setDraft(null) } }}
       />
-    </label>
+      <span className="meta muted" style={{ fontSize: '0.74rem' }}>
+        {ui.hint}
+        {canEdit && dirtyDefault && (
+          <> · <button type="button" className="link-btn" onClick={() => onCommit(id, spec.default)}>Reset to {ui.fmt(spec.default)}</button></>
+        )}
+      </span>
+    </div>
   )
 }
 
 export function Settings({ ctx }) {
   const { push: toast } = useToast()
-  const { theme, setTheme, systemStatus } = ctx
+  const { theme, setTheme, systemStatus, me } = ctx
+  const canEdit = me?.role === 'admin'
+  const [specs, setSpecs] = useState(null)
+  const [thresholds, setThresholds] = useState({})
+
   useEffect(() => {
-    fetchConfigThresholds().then((t) => {
-      setThresholds((prev) => ({ ...prev, ...Object.fromEntries(
-        Object.entries(t).map(([k, v]) => [k, parseFloat(v) || prev[k] || v])
-      ) }))
+    Promise.all([fetchThresholdSpecs(), fetchConfigThresholds()]).then(([sp, t]) => {
+      setSpecs(sp)
+      setThresholds(Object.fromEntries(Object.entries(t).map(([k, v]) => [k, parseFloat(v)])))
     }).catch(() => {})
   }, [])
 
-  const [thresholds, setThresholds] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ai_sss_thresholds')) || {} } catch { return {} }
-  })
   const [integrations, setIntegrations] = useState(null)
   const [testMsg, setTestMsg] = useState(null)
 
@@ -36,10 +59,16 @@ export function Settings({ ctx }) {
     fetchIntegrationStatus().then(setIntegrations).catch(() => {})
   }, [])
 
-  const set = (key, val) => {
-    const next = { ...thresholds, [key]: val }
-    setThresholds(next)
-    localStorage.setItem('ai_sss_thresholds', JSON.stringify(next))
+  const commit = async (key, val) => {
+    const prev = thresholds[key]
+    setThresholds((t) => ({ ...t, [key]: val }))
+    try {
+      await saveConfigThreshold(key, val)
+      toast('Saved — cameras pick this up within about 30 seconds', 'ok')
+    } catch (e) {
+      setThresholds((t) => ({ ...t, [key]: prev }))
+      toast(e.message || 'Could not save', 'danger')
+    }
   }
 
   const runTest = async (channel) => {
@@ -57,11 +86,29 @@ export function Settings({ ctx }) {
   return (
     <div className="grid grid-2">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Card title="AI Detection Thresholds" sub="stored locally · pipeline reads config/models.yaml">
-          <ThresholdSlider id="face" label="Face recognition confidence" def={60} thresholds={thresholds} onSet={set} />
-          <ThresholdSlider id="weapon" label="Weapon detection confidence" def={55} thresholds={thresholds} onSet={set} />
-          <ThresholdSlider id="behavior" label="Suspicious behavior score" def={50} thresholds={thresholds} onSet={set} />
-          <ThresholdSlider id="plate" label="License plate OCR confidence" def={70} thresholds={thresholds} onSet={set} />
+        <Card title="Detection thresholds" sub={canEdit ? 'applied live to every camera' : 'read-only — admin only'}>
+          {!specs && <p className="muted">Loading…</p>}
+          {specs && Object.keys(THRESHOLD_UI).filter((k) => specs[k]).map((k) => (
+            <ThresholdSlider
+              key={k} id={k} spec={specs[k]}
+              value={thresholds[k] ?? specs[k].default} canEdit={canEdit} onCommit={commit}
+            />
+          ))}
+          <p className="muted" style={{ fontSize: '0.74rem' }}>
+            Changes are written to the audit log. Re-check false alarms for a day after loosening anything.
+          </p>
+        </Card>
+
+        <Card title="AI models" sub="what is actually running">
+          {Object.entries(systemStatus?.models || {}).map(([key, status]) => (
+            <div className="row" key={key}>
+              <span>{{ human_detector: 'Person detection', weapon_detector: 'Weapon detection', vehicle_detector: 'Vehicle detection', pose_analyzer: 'Pose / fall checks', fire_detector: 'Fire & smoke detection' }[key] || key}</span>
+              <Tag tone={status === 'ok' ? 'ok' : status === 'missing' ? 'danger' : 'muted'}>
+                {status === 'ok' ? 'Loaded' : status === 'missing' ? 'OFF — model file missing' : 'Not installed (optional)'}
+              </Tag>
+            </div>
+          ))}
+          {!systemStatus?.models && <p className="muted">Status unavailable.</p>}
         </Card>
 
         <Card title="External Integrations" sub="CAD / SMS / radio / security webhooks">
@@ -99,10 +146,10 @@ export function Settings({ ctx }) {
           )}
         </Card>
 
-        <Card title="Alert Rules">
-          <div className="row"><span>Auto-dispatch on criminal detection</span><Tag tone="ok">Enabled</Tag></div>
-          <div className="row"><span>Auto-incident ticket creation</span><Tag tone="ok">Enabled</Tag></div>
-          <div className="row"><span>GPS pinpoint push</span><Tag tone="ok">Enabled</Tag></div>
+        <Card title="Alert rules">
+          <div className="row"><span>Watchlist match → external notification</span><Tag tone="info">After operator confirms</Tag></div>
+          <div className="row"><span>Weapon and fire alerts</span><Tag tone="info">Multi-frame confirmed</Tag></div>
+          <div className="row"><span>Incident ticket for critical / high alerts</span><Tag tone="ok">Automatic</Tag></div>
           <div className="row"><span>Heartbeat / camera SLA</span><Tag tone={systemStatus?.online ? 'ok' : 'warn'}>{systemStatus?.online ? 'Healthy' : 'No signal'}</Tag></div>
         </Card>
       </div>
@@ -148,6 +195,8 @@ export function Settings({ ctx }) {
           <div className="row"><span>Command palette</span><span className="mono">⌘K / Ctrl+K</span></div>
           <div className="row"><span>Notifications</span><span className="mono">N</span></div>
           <div className="row"><span>AI Copilot</span><span className="mono">C</span></div>
+          <div className="row"><span>Triage: next / previous</span><span className="mono">J / K</span></div>
+          <div className="row"><span>Triage: confirm / reject</span><span className="mono">V / D</span></div>
         </Card>
       </div>
     </div>

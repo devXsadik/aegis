@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 /* Shared UI primitives: icons, tags, cards, stats, modal, empty states. */
+import { parseTs } from '../lib/time'
 
 const stroke = {
   fill: 'none',
@@ -178,9 +179,9 @@ export const SEVERITY_TONE = { critical: 'danger', high: 'orange', medium: 'warn
 
 export function timeAgo(ts) {
   if (!ts) return '—'
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return String(ts)
-  const s = Math.floor((Date.now() - d.getTime()) / 1000)
+  const d = parseTs(ts)
+  if (!d) return String(ts)
+  const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000))
   if (s < 60) return `${s}s ago`
   if (s < 3600) return `${Math.floor(s / 60)}m ago`
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`

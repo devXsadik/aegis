@@ -16,7 +16,7 @@ function useCamFeed(cam, index) {
   return { online, fps, streaming, label, setStreamFailed, streamFailed }
 }
 
-function CamFeed({ cam, index, alerting, objectFit = 'cover' }) {
+function CamFeed({ cam, index, objectFit = 'cover' }) {
   const { online, fps, streaming, label, setStreamFailed, streamFailed } = useCamFeed(cam, index)
 
   return (

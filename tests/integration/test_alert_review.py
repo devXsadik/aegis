@@ -73,3 +73,60 @@ def test_events_search_filters_by_type_camera_and_time():
         os.remove("test_review.db")
     except OSError:
         pass
+
+
+def test_thresholds_validated_audited_and_served_to_pipeline():
+    import sys, types  # noqa: E401
+    sys.modules.setdefault("face_recognition", types.ModuleType("face_recognition"))
+    from fastapi.testclient import TestClient
+    from backend.auth.auth import create_access_token, hash_password
+    from backend.main import app
+    from backend.models.audit_log import AuditLog
+
+    init_db()
+    db = SessionLocal()
+    admin = User(username="adm", email="a@x.io", hashed_password=hash_password("x"), role="admin")
+    db.add(admin); db.commit()
+    hdr = {"Authorization": "Bearer " + create_access_token({"user_id": admin.id, "role": "admin"})}
+    c = TestClient(app)
+    ok = c.put("/api/v1/config/threshold.face_tolerance", json={"value": "0.40"}, headers=hdr)
+    assert ok.status_code == 200
+    assert c.put("/api/v1/config/threshold.face_tolerance", json={"value": "0.99"}, headers=hdr).status_code == 400
+    assert c.put("/api/v1/config/threshold.bogus", json={"value": "1"}, headers=hdr).status_code == 400
+    assert db.query(AuditLog).filter(AuditLog.action == "CONFIG_CHANGE").count() == 1
+    key = os.environ["INTERNAL_API_KEY"]
+    r = c.get("/api/v1/config/runtime", headers={"X-Internal-Key": key})
+    assert r.status_code == 200 and r.json()["face_tolerance"] == 0.40
+    assert c.get("/api/v1/config/runtime").status_code == 401
+    db.close()
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    try:
+        os.remove("test_review.db")
+    except OSError:
+        pass
+
+
+def test_trends_endpoint_works_on_sqlite():
+    import sys, types  # noqa: E401
+    sys.modules.setdefault("face_recognition", types.ModuleType("face_recognition"))
+    from fastapi.testclient import TestClient
+    from backend.auth.auth import create_access_token, hash_password
+    from backend.main import app
+    from backend.models.evidence import Evidence
+
+    init_db()
+    db = SessionLocal()
+    u = User(username="tr", email="t@x.io", hashed_password=hash_password("x"), role="operator")
+    db.add(u); db.add(Evidence(camera_location="Gate", track_id=1, category="suspicious"))
+    db.commit()
+    hdr = {"Authorization": "Bearer " + create_access_token({"user_id": u.id, "role": u.role})}
+    r = TestClient(app).get("/api/v1/analytics/trends?days=7", headers=hdr)
+    assert r.status_code == 200 and r.json()[0]["events"] == 1
+    db.close()
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    try:
+        os.remove("test_review.db")
+    except OSError:
+        pass

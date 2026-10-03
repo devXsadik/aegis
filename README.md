@@ -157,7 +157,7 @@ Setup will:
 3. Install Python dependencies from `requirements.txt`
 4. Initialize the database schema
 5. Ingest watchlist faces from `data/watchlist/`
-6. Seed demo admin (`admin` / `admin123`)
+6. Create the admin user (password printed once, or set `ADMIN_PASSWORD`)
 7. Sync camera GPS into the database
 
 For a zero-Postgres local demo, keep `USE_SQLITE=true` in `.env` (default in `.env.example`).
@@ -191,7 +191,7 @@ data/demo/clips/sample.mp4
 |---------|-----|
 | Dashboard | http://localhost:5173 |
 | API docs | http://localhost:8000/docs |
-| Login | `admin` / `admin123` |
+| Login | `admin` / password printed by `scripts/seed_demo.py` (or `ADMIN_PASSWORD`) |
 
 ```bash
 ./run.sh path/to/video.mp4   # custom video

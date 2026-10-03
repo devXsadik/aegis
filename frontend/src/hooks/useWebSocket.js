@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { wsUrl } from '../services/api';
 
-export function useWebSocket(channel = 'alerts', onMessage) {
+export function useWebSocket(channel = 'alerts', onMessage, enabled = true) {
   const [connected, setConnected] = useState(false);
   const onMessageRef = useRef(onMessage);
 
@@ -10,6 +10,7 @@ export function useWebSocket(channel = 'alerts', onMessage) {
   }, [onMessage]);
 
   useEffect(() => {
+    if (!enabled) return undefined;   // no token before sign-in: don't hammer the server
     let ws = null;
     let retryTimer = null;
     let disposed = false;
@@ -40,7 +41,7 @@ export function useWebSocket(channel = 'alerts', onMessage) {
       clearTimeout(retryTimer);
       ws?.close();
     };
-  }, [channel]);
+  }, [channel, enabled]);
 
-  return { connected };
+  return { connected: enabled && connected };
 }

@@ -8,6 +8,7 @@ from typing import Optional
 
 import cv2
 
+from core.runtime.runtime_config import RuntimeConfigSync
 from core.visualization.hud import render_full_hud
 from utils.media import open_capture, read_frame_with_reconnect, ContinuousRecorder
 from utils.alerts import publish_event_clip, publish_frame, publish_heartbeat
@@ -66,6 +67,7 @@ def run_camera_loop(
     """Run the CV pipeline on one video source until quit or stream end."""
     cap = open_capture(source)
     frame_skipper = FrameSkipper(target_fps=target_fps)
+    config_sync = RuntimeConfigSync(pipeline)
     resource_monitor = ResourceMonitor()
     perf_enabled = os.getenv("PERF_MONITOR", "false").lower() == "true"
 
@@ -105,6 +107,7 @@ def run_camera_loop(
         while True:
             if stop_event and stop_event.is_set():
                 break
+            config_sync.maybe_sync()
             cap, frame = read_frame_with_reconnect(cap, source)
             if frame is None:
                 logger.error(f"Stream lost for {camera_id}")

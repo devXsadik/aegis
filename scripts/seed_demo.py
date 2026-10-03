@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Create demo admin user for graduation defense demo."""
+"""Create the initial admin user.
 
-import sys
+Password comes from ADMIN_PASSWORD, or is generated and printed once. There is no
+fixed default password.
+"""
+
 import os
+import secrets
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,20 +25,25 @@ def seed_demo_user():
     try:
         existing = db.query(User).filter(User.username == "admin").first()
         if existing:
-            print("Demo user 'admin' already exists.")
+            print("User 'admin' already exists; password unchanged.")
             return
+        password = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+        generated = not os.getenv("ADMIN_PASSWORD")
         user = User(
             username="admin",
             email="admin@ai-sss.local",
-            hashed_password=hash_password("admin123"),
+            hashed_password=hash_password(password),
             role="admin",
             is_active=True,
         )
         db.add(user)
         db.commit()
-        print("Created demo admin user:")
+        print("Created admin user:")
         print("  username: admin")
-        print("  password: admin123")
+        if generated:
+            print(f"  password: {password}   <- generated, shown once; change it after login")
+        else:
+            print("  password: (from ADMIN_PASSWORD)")
     finally:
         db.close()
 

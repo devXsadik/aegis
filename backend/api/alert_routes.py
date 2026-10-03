@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.db.database import get_db
@@ -7,7 +7,7 @@ from backend.models.user import User
 from backend.models.alert import Alert
 from backend.models.audit_log import AuditLog
 from backend.services.alert_dispatcher import (
-    dispatch_alert, redispatch_alert, release_held_webhooks,
+    REVIEW_REQUIRED_TYPES, dispatch_alert, redispatch_alert, release_held_webhooks,
 )
 from pydantic import BaseModel
 from datetime import datetime
@@ -32,6 +32,10 @@ class AlertResponse(BaseModel):
     channels_sent: Optional[str]
     review_status: Optional[str] = None
     review_note: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    camera_id: Optional[str] = None
+    track_id: Optional[int] = None
+    evidence_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -95,10 +99,16 @@ def list_alerts(
     severity: Optional[str] = None,
     acknowledged: Optional[bool] = None,
     dismissed: Optional[bool] = None,
+    review_status: Optional[str] = Query(default=None, pattern="^(pending|confirmed|rejected|not_required)$"),
+    camera_id: Optional[str] = None,
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
 ):
     query = db.query(Alert)
+    if review_status:
+        query = query.filter(Alert.review_status == review_status)
+    if camera_id:
+        query = query.filter(Alert.camera_id == camera_id)
     if alert_type:
         query = query.filter(Alert.alert_type == alert_type.upper())
     if severity:
@@ -147,6 +157,67 @@ def alert_stats(
         "total": total,
         "unacknowledged": unack,
         "by_type": type_counts,
+    }
+
+
+@router.get("/review-queue-count")
+def review_queue_count(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    pending = db.query(Alert).filter(Alert.review_status == "pending", Alert.dismissed == False).count()  # noqa: E712
+    return {"pending": pending}
+
+
+@router.get("/{alert_id}/context")
+def alert_context(alert_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(operator_or_admin)):
+    """Everything an operator needs to judge one alert without leaving the screen."""
+    from datetime import timedelta
+    from backend.models.evidence import Evidence
+    from backend.models.event import Event
+
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    ev_q = db.query(Evidence).filter(
+        Evidence.timestamp >= alert.timestamp - timedelta(seconds=60),
+        Evidence.timestamp <= alert.timestamp + timedelta(seconds=60),
+    )
+    if alert.camera_location:
+        ev_q = ev_q.filter(Evidence.camera_location == alert.camera_location)
+    if alert.track_id is not None and alert.track_id >= 0:
+        ev_q = ev_q.filter(Evidence.track_id == alert.track_id)
+    evidence = sorted(
+        ev_q.limit(20).all(),
+        key=lambda e: abs((e.timestamp - alert.timestamp).total_seconds()),
+    )[:3]
+
+    own = db.query(Event).filter(Event.alert_id == alert_id).first()
+    related = []
+    if alert.camera_id:
+        related = (
+            db.query(Event)
+            .filter(Event.camera_id == alert.camera_id, Event.alert_id != alert_id)
+            .order_by(desc(Event.timestamp)).limit(5).all()
+        )
+    return {
+        "alert_id": alert_id,
+        "evidence": [
+            {"id": e.id, "category": e.category, "has_image": bool(e.frame_data),
+             "timestamp": e.timestamp.isoformat() if e.timestamp else None}
+            for e in evidence
+        ],
+        "confidence": own.confidence if own else None,
+        "zone": own.zone if own else None,
+        "related_events": [
+            {"id": r.id, "type": r.event_type, "severity": r.severity,
+             "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+             "message": r.message}
+            for r in related
+        ],
+        "holds_external_notification": (
+            alert.review_status == "pending"
+            and alert.alert_type in REVIEW_REQUIRED_TYPES
+        ),
     }
 
 

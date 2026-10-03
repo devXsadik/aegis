@@ -46,8 +46,11 @@ def get_system_status(user: User = Depends(operator_or_admin)):
         if sla == "offline":
             offline += 1
 
+    from backend.services.model_health import model_status
+
     return {
         **_pipeline_status,
+        "models": model_status(),
         "cameras": cameras,
         "offline_cameras": offline,
         "redis": redis_health(),

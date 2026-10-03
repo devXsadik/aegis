@@ -93,6 +93,7 @@ class EventOut(BaseModel):
 @router.get("/search", response_model=List[EventOut])
 def search_events(
     event_type: Optional[str] = None,
+    event_types: Optional[str] = Query(default=None, description="comma-separated"),
     camera_id: Optional[str] = None,
     track_id: Optional[int] = None,
     zone: Optional[str] = None,
@@ -108,6 +109,8 @@ def search_events(
     q = db.query(Event)
     if event_type:
         q = q.filter(Event.event_type == event_type.upper())
+    if event_types:
+        q = q.filter(Event.event_type.in_([t.strip().upper() for t in event_types.split(",") if t.strip()]))
     if camera_id:
         q = q.filter(Event.camera_id == camera_id)
     if track_id is not None:

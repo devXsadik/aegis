@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   login, clearToken, getToken, fetchAlerts, fetchSystemStatus,
   fetchKnownPersons, fetchEvidence, fetchMapCameras, fetchMapEvents,
   fetchIncidentReport, fetchCameras, fetchAnalyticsSummary,
   fetchAnalyticsTrends, fetchAnalyticsLocations, fetchVehiclePlates,
   fetchVehicleDetections, fetchAuditLogs, fetchMe, fetchStreamingCameras,
+  fetchReviewCount,
 } from './services/api'
+import { parseTs } from './lib/time'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAutoAlerts } from './hooks/useAutoAlerts'
 import { Icons, Pill } from './components/ui'
@@ -17,7 +19,7 @@ import { Overview } from './pages/Overview'
 import { LiveMonitoring } from './pages/LiveMonitoring'
 import { MapPage } from './pages/MapPage'
 import { DetectionCenter } from './pages/DetectionCenter'
-import { AlertCenter } from './pages/AlertCenter'
+import { Triage } from './pages/Triage'
 import { Incidents } from './pages/Incidents'
 import { Cameras } from './pages/Cameras'
 import { Analytics } from './pages/Analytics'
@@ -41,7 +43,7 @@ const NAV = [
   {
     group: 'Response',
     pages: [
-      { id: 'alerts', label: 'Alert Center', icon: Icons.alert },
+      { id: 'alerts', label: 'Alert Triage', icon: Icons.alert },
       { id: 'incidents', label: 'Incidents', icon: Icons.incident },
       { id: 'evidence', label: 'Evidence Center', icon: Icons.evidence },
     ],
@@ -100,7 +102,7 @@ function applyTheme(t) {
 
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
-  alerts: AlertCenter, incidents: Incidents, evidence: EvidencePage,
+  alerts: Triage, incidents: Incidents, evidence: EvidencePage,
   watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
   cameras: Cameras, users: Users, settings: Settings,
 }
@@ -126,8 +128,8 @@ function formatEvent(evt) {
 }
 
 function LoginForm({ onLogin, theme, setTheme }) {
-  const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('admin123')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -157,11 +159,10 @@ function LoginForm({ onLogin, theme, setTheme }) {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1><span className="brand-logo">AG</span> Aegis Command Center</h1>
         <p className="login-sub">AI Smart Surveillance · threat detection · GPS dispatch</p>
-        {error && <div className="login-error">{error}</div>}
-        <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
-        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
-        <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
-        <p className="login-hint">Demo: <code>admin</code> / <code>admin123</code></p>
+        {error && <div className="login-error" role="alert">{error}</div>}
+        <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required /></label>
+        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+        <button type="submit" className="btn btn-primary" disabled={loading || !username || !password}>{loading ? 'Signing in…' : 'Sign in'}</button>
       </form>
     </div>
   )
@@ -172,7 +173,7 @@ function App() {
   const [page, setPageState] = useState(pageFromHash())
   const setPage = (id) => {
     setPageState(id)
-    window.location.hash = `#/${id}`
+    window.history.pushState(null, '', `#/${id}`)
   }
   const [theme, setThemeState] = useState(() => {
     try {
@@ -186,7 +187,9 @@ function App() {
   const [events, setEvents] = useState([])
   const [systemStatus, setSystemStatus] = useState(null)
 
-  const [threatLevel, setThreatLevel] = useState('low')
+  const [clearedAt, setClearedAt] = useState(0)
+  const [nowTick, setNowTick] = useState(() => Date.now())   // re-evaluates the 15-min window
+  const [reviewPending, setReviewPending] = useState(0)
   const [knownPersons, setKnownPersons] = useState([])
   const [evidence, setEvidence] = useState([])
   const [mapCameras, setMapCameras] = useState([])
@@ -230,7 +233,6 @@ function App() {
   }, [])
 
   const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
-    setThreatLevel('critical')
     setCriticalBanner(alert)
   })
 
@@ -239,16 +241,10 @@ function App() {
     const formatted = formatEvent(data)
     setEvents((prev) => [formatted, ...prev].slice(0, 200))
     handleAutoAlert(data)
-
-    if (data.threat_score >= 50) setThreatLevel('high')
-    if (data.severity === 'critical') setThreatLevel('critical')
   }, [handleAutoAlert])
 
-  const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage)
-  const { connected: statusWsConnected } = useWebSocket('status', (data) => {
-    if (data.threat_score >= 50) setThreatLevel('high')
-    if (data.severity === 'critical') setThreatLevel('critical')
-  })
+  const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage, authed)
+  const { connected: statusWsConnected } = useWebSocket('status', () => {}, authed)
 
   const reloadVehicles = useCallback(() => {
     fetchVehiclePlates().then(setPlates).catch(() => {})
@@ -259,9 +255,7 @@ function App() {
   useEffect(() => {
     if (!authed) return
     fetchAlerts(50).then((alerts) => {
-      const mapped = alerts.map((a) => formatEvent(a))
-      setEvents(mapped)
-      if (mapped.some((e) => e.severity === 'critical' && !e.dismissed)) setThreatLevel('critical')
+      setEvents(alerts.map((a) => formatEvent(a)))
     }).catch(() => {})
 
     fetchMe().then(setMe).catch(() => {})
@@ -281,13 +275,7 @@ function App() {
     fetchSystemStatus().then(setSystemStatus).catch(() => {})
     fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
     const interval = setInterval(() => {
-      fetchSystemStatus().then((s) => {
-        setSystemStatus(s)
-        const cams = Object.values(s.cameras || {})
-        const maxThreat = Math.max(0, ...cams.map((c) => c.threat_score || 0))
-        if (maxThreat >= 50) setThreatLevel('critical')
-        else if (maxThreat >= 20) setThreatLevel('high')
-      }).catch(() => {})
+      fetchSystemStatus().then(setSystemStatus).catch(() => {})
       fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
     }, 3000)
     return () => clearInterval(interval)
@@ -331,9 +319,39 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  const refreshReviewCount = useCallback(() => {
+    fetchReviewCount().then((r) => setReviewPending(r.pending || 0)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!authed) return undefined
+    refreshReviewCount()
+    const t = setInterval(refreshReviewCount, 15000)
+    return () => clearInterval(t)
+  }, [authed, refreshReviewCount])
+
   const reloadCameras = useCallback(() => {
     fetchCameras().then(setCameras).catch(() => {})
   }, [])
+
+  /* Threat level is derived, so it falls back by itself once alerts are handled:
+     unhandled alerts from the last 15 minutes, or a hot camera score from the pipeline. */
+  const threatLevel = useMemo(() => {
+    const cutoff = Math.max(nowTick - 15 * 60 * 1000, clearedAt)
+    const live = events.filter((e) => {
+      const t = parseTs(e.time)?.getTime() || 0
+      return t >= cutoff && !e.acknowledged && !e.dismissed
+    })
+    const maxScore = Math.max(0, ...Object.values(systemStatus?.cameras || {}).map((c) => c.threat_score || 0))
+    if (live.some((e) => e.severity === 'critical') || maxScore >= 50) return 'critical'
+    if (live.some((e) => e.severity === 'high') || maxScore >= 20) return 'high'
+    return 'low'
+  }, [events, systemStatus, clearedAt, nowTick])
 
   if (!authed) {
     return (
@@ -345,7 +363,7 @@ function App() {
     )
   }
 
-  const criticalEvents = events.filter((e) => e.severity === 'critical')
+  const criticalEvents = events.filter((e) => e.severity === 'critical' && !e.acknowledged && !e.dismissed)
   const pipelineOnline = systemStatus?.online
   const activePage = ALL_PAGES.find((p) => p.id === page)
   const PageComponent = PAGE_COMPONENTS[page] || Overview
@@ -358,6 +376,7 @@ function App() {
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
     me, streamingCams, reloadCameras, setPage,
+    reviewPending, refreshReviewCount,
     theme, setTheme,
   }
 
@@ -378,18 +397,22 @@ function App() {
               {group.pages.map((p) => {
                 const Icon = p.icon
                 return (
-                  <div
+                  <button
                     key={p.id}
+                    type="button"
                     className={`nav-item ${page === p.id ? 'active' : ''}`}
+                    aria-current={page === p.id ? 'page' : undefined}
                     data-alert-nav={p.id === 'alerts' && criticalEvents.length > 0 ? 'true' : undefined}
                     onClick={() => { setPage(p.id); setSidebarOpen(false) }}
                   >
                     <Icon />
                     {p.label}
-                    {p.id === 'alerts' && criticalEvents.length > 0 && (
-                      <span className="nav-badge">{criticalEvents.length}</span>
+                    {p.id === 'alerts' && (reviewPending > 0 || criticalEvents.length > 0) && (
+                      <span className="nav-badge" aria-label={`${reviewPending || criticalEvents.length} need attention`}>
+                        {reviewPending || criticalEvents.length}
+                      </span>
                     )}
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -399,7 +422,7 @@ function App() {
           <div className="session-chip">
             <span className="avatar">{(me?.username || 'AD').slice(0, 2).toUpperCase()}</span>
             <div className="who"><b>{me?.username || 'admin'}</b><span>{me?.role || 'operator'}</span></div>
-            <button className="icon-btn" title="Sign out" onClick={() => { clearToken(); setAuthed(false) }}>
+            <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={() => { clearToken(); setAuthed(false) }}>
               <Icons.logout />
             </button>
           </div>
@@ -430,13 +453,14 @@ function App() {
           <div className="topbar-right">
             <div className="status-rail" aria-label="System status">
 
-              <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
-              <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
-              <Pill tone={statusWsConnected ? 'ok' : 'muted'}>{statusWsConnected ? 'PIPE' : 'PIPE —'}</Pill>
+              <Pill tone={pipelineOnline ? 'ok' : 'warn'}>{pipelineOnline ? 'AI online' : 'AI offline'}</Pill>
+              <Pill tone={wsConnected && statusWsConnected ? 'ok' : 'danger'}>
+                {wsConnected && statusWsConnected ? 'Live updates' : 'Reconnecting…'}
+              </Pill>
             </div>
             <div className="topbar-actions">
-              <button type="button" className="icon-btn" title="Command Assistant" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
-              <button type="button" className="icon-btn" title="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
+              <button type="button" className="icon-btn" title="Command Assistant" aria-label="Command Assistant" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
+              <button type="button" className="icon-btn" title="Notifications" aria-label="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
                 <Icons.bell />
                 {criticalEvents.length > 0 && (
                   <span className="nav-badge" style={{ position: 'absolute', top: 2, right: 2 }}>{criticalEvents.length}</span>
@@ -474,7 +498,7 @@ function App() {
         />
       )}
       {showNotifs && (
-        <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => { setEvents([]); setThreatLevel('low'); }} />
+        <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => { setEvents([]); setClearedAt(Date.now()) }} />
       )}
       {showCopilot && (
         <Copilot ctx={{ events, summary, cameras, threatLevel, locations }} onClose={() => setShowCopilot(false)} />
