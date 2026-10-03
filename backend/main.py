@@ -21,6 +21,8 @@ from backend.api.reid_routes import router as reid_router
 from backend.api.integration_routes import router as integration_router
 from backend.api.calibration_routes import router as calibration_router
 from backend.api.vms_routes import router as vms_router
+from backend.api.config_routes import router as config_router
+from backend.api.metrics_routes import router as metrics_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger("HumanAnalysis")
@@ -116,6 +118,8 @@ app.include_router(reid_router, prefix=API_V1)
 app.include_router(integration_router, prefix=API_V1)
 app.include_router(calibration_router, prefix=API_V1)
 app.include_router(vms_router, prefix=API_V1)
+app.include_router(config_router, prefix=API_V1)
+app.include_router(metrics_router, prefix=API_V1)
 
 
 # ---------------------------------------------------------------------------
@@ -127,16 +131,46 @@ async def startup_event():
     init_db()
     from scripts.seed_cameras import seed_cameras
     seed_cameras()
+    try:
+        from utils.config import load_yaml, expand_env
+        from utils.alerts.event_publisher import set_auto_alerts_enabled
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.yaml")
+        if os.path.exists(cfg_path):
+            cfg = expand_env(load_yaml(cfg_path))
+            if "auto_alerts_enabled" in cfg:
+                set_auto_alerts_enabled(bool(cfg.get("auto_alerts_enabled", True)))
+    except Exception as e:
+        logger.warning(f"Config auto_alerts load skipped: {e}")
     logger.info("✅ AI-SSS Backend started successfully")
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "healthy",
-        "version": "5.0.0",
-        "phase": "5 - Production Architecture",
-    }
+    checks = {"database": "unknown", "redis": "unknown", "pipeline": "unknown"}
+    status = "healthy"
+    try:
+        from backend.db.database import SessionLocal
+        db = SessionLocal()
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db.close()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = str(e)
+        status = "degraded"
+    try:
+        from backend.services.ha import redis_health
+        rh = redis_health()
+        checks["redis"] = rh.get("status", "unknown")
+    except Exception as e:
+        checks["redis"] = str(e)
+    try:
+        from backend.api.system_routes import _pipeline_status
+        checks["pipeline"] = "online" if _pipeline_status.get("online") else "standby"
+        if _pipeline_status.get("last_heartbeat"):
+            checks["last_heartbeat"] = _pipeline_status["last_heartbeat"]
+    except Exception:
+        checks["pipeline"] = "unknown"
+    return {"status": status, "version": "5.0.0", "checks": checks}
 
 
 

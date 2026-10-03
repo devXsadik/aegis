@@ -13,6 +13,11 @@ EVENTS_ENABLED = os.getenv("PIPELINE_EVENTS_ENABLED", "true").lower() == "true"
 AUTO_ALERTS_ENABLED = os.getenv("AUTO_ALERTS_ENABLED", "true").lower() == "true"
 
 
+def set_auto_alerts_enabled(enabled: bool) -> None:
+    global AUTO_ALERTS_ENABLED
+    AUTO_ALERTS_ENABLED = bool(enabled)
+
+
 def _headers() -> dict:
     return {"X-Internal-Key": INTERNAL_API_KEY, "Content-Type": "application/json"}
 
@@ -180,6 +185,7 @@ def publish_heartbeat(
     fps: Optional[float] = None,
     threat_score: Optional[int] = None,
     frame_number: Optional[int] = None,
+    analytics: Optional[dict] = None,
 ) -> None:
     if not EVENTS_ENABLED:
         return
@@ -191,6 +197,7 @@ def publish_heartbeat(
             "fps": fps,
             "threat_score": threat_score,
             "frame_number": frame_number,
+            "analytics": analytics,
         },
     )
 

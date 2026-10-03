@@ -12,6 +12,7 @@ import { Icons, Pill } from './components/ui'
 import { CommandPalette } from './components/CommandPalette'
 import { NotificationDrawer } from './components/NotificationDrawer'
 import { Copilot } from './components/Copilot'
+import { CriticalAlertBanner } from './components/CriticalAlertBanner'
 import { Overview } from './pages/Overview'
 import { LiveMonitoring } from './pages/LiveMonitoring'
 import { MapPage } from './pages/MapPage'
@@ -64,6 +65,26 @@ const NAV = [
   },
 ]
 const ALL_PAGES = NAV.flatMap((g) => g.pages)
+
+const ROLE_PAGES = {
+  viewer: new Set(['overview', 'live', 'map', 'alerts']),
+  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'analytics', 'reports', 'cameras']),
+  police: new Set(['overview', 'live', 'map', 'alerts', 'incidents']),
+  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'watchlist', 'vehicles', 'analytics', 'reports']),
+  supervisor: null,
+  admin: null,
+}
+
+function filterNavByRole(role) {
+  const allowed = ROLE_PAGES[role]
+  if (!allowed) return NAV
+  return NAV.map((g) => ({ ...g, pages: g.pages.filter((p) => allowed.has(p.id)) })).filter((g) => g.pages.length)
+}
+
+function pageFromHash() {
+  const id = (window.location.hash || '#/overview').replace('#/', '').split('?')[0]
+  return ALL_PAGES.some((p) => p.id === id) ? id : 'overview'
+}
 
 function normalizeTheme(t) {
   return t === 'light' ? 'light' : 'dark'
@@ -148,7 +169,11 @@ function LoginForm({ onLogin, theme, setTheme }) {
 
 function App() {
   const [authed, setAuthed] = useState(!!getToken())
-  const [page, setPage] = useState('overview')
+  const [page, setPageState] = useState(pageFromHash())
+  const setPage = (id) => {
+    setPageState(id)
+    window.location.hash = `#/${id}`
+  }
   const [theme, setThemeState] = useState(() => {
     try {
       return applyTheme(localStorage.getItem('ai_sss_theme') || 'dark')
@@ -180,6 +205,7 @@ function App() {
   const [showPalette, setShowPalette] = useState(false)
   const [showNotifs, setShowNotifs] = useState(false)
   const [showCopilot, setShowCopilot] = useState(false)
+  const [criticalBanner, setCriticalBanner] = useState(null)
 
   const setTheme = (t) => {
     setThemeState(applyTheme(t))
@@ -188,8 +214,24 @@ function App() {
     applyTheme(theme)
   }, [theme])
 
-  const { handleAlert: handleAutoAlert } = useAutoAlerts(() => {
+  useEffect(() => {
+    const onHash = () => setPageState(pageFromHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  useEffect(() => {
+    const onAuthExpired = () => {
+      clearToken()
+      setAuthed(false)
+    }
+    window.addEventListener('auth_expired', onAuthExpired)
+    return () => window.removeEventListener('auth_expired', onAuthExpired)
+  }, [])
+
+  const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
     setThreatLevel('critical')
+    setCriticalBanner(alert)
   })
 
   const handleWsMessage = useCallback((data) => {
@@ -203,6 +245,10 @@ function App() {
   }, [handleAutoAlert])
 
   const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage)
+  const { connected: statusWsConnected } = useWebSocket('status', (data) => {
+    if (data.threat_score >= 50) setThreatLevel('high')
+    if (data.severity === 'critical') setThreatLevel('critical')
+  })
 
   const reloadVehicles = useCallback(() => {
     fetchVehiclePlates().then(setPlates).catch(() => {})
@@ -273,6 +319,10 @@ function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setShowPalette((v) => !v)
+      } else if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey) {
+        setShowNotifs((v) => !v)
+      } else if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) {
+        setShowCopilot((v) => !v)
       } else if (e.key === 'Escape') {
         setShowPalette(false); setShowNotifs(false); setShowCopilot(false)
       }
@@ -307,7 +357,7 @@ function App() {
     knownPersons, evidence, mapCameras, mapEvents, cameras,
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
-    me, streamingCams, reloadCameras,
+    me, streamingCams, reloadCameras, setPage,
     theme, setTheme,
   }
 
@@ -315,13 +365,14 @@ function App() {
 
   return (
     <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
+      <CriticalAlertBanner alert={criticalBanner} onDismiss={() => setCriticalBanner(null)} />
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
           <span className="brand-logo">AG</span>
           <div>Aegis<small>COMMAND CENTER</small></div>
         </div>
         <div className="nav-scroll">
-          {NAV.map((group) => (
+          {filterNavByRole(me?.role || 'admin').map((group) => (
             <div className="nav-group" key={group.group}>
               <div className="nav-group-label">{group.group}</div>
               {group.pages.map((p) => {
@@ -381,9 +432,10 @@ function App() {
 
               <Pill tone={pipelineOnline ? 'ok' : 'muted'}>{pipelineOnline ? 'AI ONLINE' : 'AI STANDBY'}</Pill>
               <Pill tone={wsConnected ? 'info' : 'danger'}>{wsConnected ? 'LIVE' : 'NO LINK'}</Pill>
+              <Pill tone={statusWsConnected ? 'ok' : 'muted'}>{statusWsConnected ? 'PIPE' : 'PIPE —'}</Pill>
             </div>
             <div className="topbar-actions">
-              <button type="button" className="icon-btn" title="AI Copilot" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
+              <button type="button" className="icon-btn" title="Command Assistant" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
               <button type="button" className="icon-btn" title="Notifications" onClick={() => setShowNotifs(true)} style={{ position: 'relative' }}>
                 <Icons.bell />
                 {criticalEvents.length > 0 && (
@@ -413,7 +465,7 @@ function App() {
           pages={ALL_PAGES}
           actions={[
             { id: 'act-theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`, icon: theme === 'dark' ? Icons.sun : Icons.moon, hint: 'Action', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
-            { id: 'act-copilot', label: 'Open AI Copilot', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
+            { id: 'act-copilot', label: 'Open Command Assistant', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
             { id: 'act-notifs', label: 'Open Notification Center', icon: Icons.bell, hint: 'Action', run: () => setShowNotifs(true) },
             { id: 'act-logout', label: 'Sign out', icon: Icons.logout, hint: 'Action', run: () => { clearToken(); setAuthed(false) } },
           ]}

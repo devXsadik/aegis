@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Card, Icons, Tag, Empty, Seg, Modal } from '../components/ui'
 import { Sparkline } from '../components/charts'
-import { resolveIp, addCamera, updateCamera, liveStreamUrl } from '../services/api'
+import { resolveIp, addCamera, updateCamera, liveStreamUrl, deleteCamera } from '../services/api'
+import { useToast } from '../components/Toast'
 
 function healthOf(cam, live) {
   if (live) return { label: 'Streaming', tone: 'ok', pct: 98 }
@@ -10,7 +11,8 @@ function healthOf(cam, live) {
 }
 
 export function Cameras({ ctx }) {
-  const { cameras, systemStatus, reloadCameras } = ctx
+  const { cameras, systemStatus, reloadCameras, me } = ctx
+  const { push: toast } = useToast()
   const [view, setView] = useState('grid')
   
   // Add Camera State
@@ -18,6 +20,18 @@ export function Cameras({ ctx }) {
   const [addForm, setAddForm] = useState({ ipLink: '', camera_id: '', name: '', location: '', lat: '', lng: '', rtsp_url: '' })
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState('')
+
+  const handleDelete = async (cam) => {
+    if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
+    if (!confirm(`Delete camera ${cam.camera_id}?`)) return
+    try {
+      await deleteCamera(cam.camera_id)
+      toast('Camera deleted', 'ok')
+      reloadCameras?.()
+    } catch (e) {
+      toast(e.message || 'Delete failed', 'danger')
+    }
+  }
 
   const handleToggle = async (cam) => {
     try {
@@ -96,7 +110,8 @@ export function Cameras({ ctx }) {
                     <b style={{ fontSize: '0.86rem' }}>{cam.name || cam.camera_id}</b>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <Tag tone={cam.health.tone}>{cam.health.label}</Tag>
-                      <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
+                  <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
                         {cam.active ? 'Stop' : 'Start'}
                       </button>
                     </div>
@@ -127,7 +142,8 @@ export function Cameras({ ctx }) {
                   <td className="mono">v2.4.1</td>
                   <td className="mono">{cam.lat != null ? `${cam.lat.toFixed(4)}, ${cam.lng.toFixed(4)}` : '—'}</td>
                   <td>
-                    <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
+                  <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
                       {cam.active ? 'Stop' : 'Start'}
                     </button>
                   </td>

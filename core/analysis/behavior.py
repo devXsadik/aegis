@@ -1,9 +1,21 @@
+from typing import Optional
+
 import math
 
 
 SUSPICIOUS_SPEED_THRESHOLD = 150
 SUSPICIOUS_LOITER_SECONDS = 15
 SUSPICIOUS_ERRATIC_ANGLE = 60
+
+
+def configure_behavior(cfg=None) -> None:
+    """Apply behavior thresholds from config.yaml."""
+    global SUSPICIOUS_SPEED_THRESHOLD, SUSPICIOUS_LOITER_SECONDS, SUSPICIOUS_ERRATIC_ANGLE
+    if not cfg:
+        return
+    SUSPICIOUS_SPEED_THRESHOLD = cfg.get("speed_threshold", SUSPICIOUS_SPEED_THRESHOLD)
+    SUSPICIOUS_LOITER_SECONDS = cfg.get("loiter_seconds", SUSPICIOUS_LOITER_SECONDS)
+    SUSPICIOUS_ERRATIC_ANGLE = cfg.get("erratic_angle", SUSPICIOUS_ERRATIC_ANGLE)
 
 
 def is_suspicious_behavior(track_history, pose_landmarks=None):
@@ -52,6 +64,18 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
                     direction_changes += 1
         if direction_changes >= 4:
             reasons.append("erratic_movement")
+
+    if pose_landmarks:
+        # Raised arms or crouching posture heuristic via shoulder/hip Y delta
+        try:
+            ls, rs = pose_landmarks.get("left_shoulder"), pose_landmarks.get("right_shoulder")
+            lw, rw = pose_landmarks.get("left_wrist"), pose_landmarks.get("right_wrist")
+            if ls and rs and lw and rw:
+                shoulder_y = (ls[1] + rs[1]) / 2
+                if lw[1] < shoulder_y - 30 or rw[1] < shoulder_y - 30:
+                    reasons.append("raised_arms")
+        except Exception:
+            pass
 
     return len(reasons) > 0, reasons
 

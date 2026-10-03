@@ -14,6 +14,7 @@ from core.pipeline.stages import (
     BehaviorStage, AnalyticsStage, OutputStage,
 )
 from utils.system import logger
+from core.analysis.behavior import configure_behavior
 from utils.config import model_path, model_setting
 
 
@@ -34,6 +35,7 @@ def build_pipeline(cfg, base_dir, camera_location=None):
         model_setting(base_dir, "face_recognizer", "tolerance", 0.45),
     )
     loc = camera_location or cfg.get("camera_location", "Camera_1")
+    configure_behavior(cfg.get("behavior"))
     criminal_names = set(cfg.get("criminal_names", []))
 
     try:
@@ -84,7 +86,11 @@ def build_pipeline(cfg, base_dir, camera_location=None):
     vehicle_tracker = VehicleTracker()
     face_recognizer = FaceRecognizerDB(tolerance=face_tolerance)
     pose_analyzer = PoseAnalyzer()
-    anomaly_detector = AnomalyDetector()
+    anomaly_cfg = cfg.get("anomaly", {})
+    anomaly_detector = AnomalyDetector(
+        crowd_threshold=anomaly_cfg.get("crowd_threshold", 5),
+        dwell_seconds=anomaly_cfg.get("dwell_seconds", 300),
+    )
     anpr_cfg = cfg.get("anpr", {})
     anpr = LicensePlateRecognizer(
         languages=anpr_cfg.get(

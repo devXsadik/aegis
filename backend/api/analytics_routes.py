@@ -62,3 +62,10 @@ def analytics_locations(hours: int = 24, db: Session = Depends(get_db),
         .all()
     )
     return [{"location": r.camera_location, "events": r.count} for r in results]
+
+
+@router.get("/live")
+def analytics_live(user: User = Depends(operator_or_admin)):
+  """Live pipeline analytics (heatmap summary, dwell, traffic) from last heartbeat."""
+  from backend.api.system_routes import get_live_analytics
+  return get_live_analytics()

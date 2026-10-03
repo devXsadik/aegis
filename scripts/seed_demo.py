@@ -12,6 +12,9 @@ from backend.auth.auth import hash_password
 
 
 def seed_demo_user():
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        print("Skipping demo user seed in production.")
+        return
     init_db()
     db = SessionLocal()
     try:

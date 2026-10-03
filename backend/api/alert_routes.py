@@ -5,7 +5,7 @@ from backend.db.database import get_db
 from backend.auth.auth import operator_or_admin, admin_only
 from backend.models.user import User
 from backend.models.alert import Alert
-from backend.services.alert_dispatcher import dispatch_alert
+from backend.services.alert_dispatcher import dispatch_alert, redispatch_alert
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
@@ -187,18 +187,9 @@ async def dispatch_police(
         except Exception:
             pass
 
-    result = await dispatch_alert(
-        alert_type=alert.alert_type,
-        severity=alert.severity or "critical",
-        camera_location=alert.camera_location,
-        camera_id=alert.camera_id,
-        track_id=alert.track_id,
-        person_name=alert.person_name,
-        plate_number=alert.plate_number,
+    result = await redispatch_alert(
+        alert,
         message=f"[MANUAL DISPATCH by {user.username}] {alert.message or alert.alert_type}",
-        camera_name=camera_name,
-        camera_lat=lat,
-        camera_lng=lng,
         db=db,
     )
     alert.acknowledged = True
@@ -213,6 +204,6 @@ async def dispatch_police(
         details=f"Police dispatched for alert {alert_id}",
     ))
     db.commit()
-    return {"status": "dispatched", "alert_id": alert_id, "new_alert": result}
+    return {"status": "dispatched", "alert_id": alert_id, "redispatch": result}
 
 

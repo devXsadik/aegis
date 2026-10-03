@@ -65,7 +65,7 @@ def reencode_faces(db: Session = Depends(get_db), admin: User = Depends(admin_on
                 encodings = face_recognition.face_encodings(rgb, num_jitters=3)
                 if encodings:
                     enc_record = FaceEncoding(
-                        person_id=person.person_id,
+                        person_id=person.id,
                         encoding=FaceEncoding.serialize_encoding(encodings[0]),
                     )
                     db.add(enc_record)
@@ -74,3 +74,4 @@ def reencode_faces(db: Session = Depends(get_db), admin: User = Depends(admin_on
                 results["errors"] += 1
     db.commit()
     return results
+

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Card, Icons, Tag, Empty, timeAgo, SEVERITY_TONE, Seg } from '../components/ui'
-import { acknowledgeAlert, dispatchPolice } from '../services/api'
+import { acknowledgeAlert, dispatchPolice, createIncidentFromAlert } from '../services/api'
+import { useToast } from '../components/Toast'
 
 const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, info: 3, low: 4 }
 
 export function AlertCenter({ ctx }) {
-  const { events, setEvents } = ctx
+  const { events, setEvents, setPage } = ctx
+  const { push: toast } = useToast()
   const [filter, setFilter] = useState('all')
   const [handled, setHandled] = useState({})
 
@@ -31,8 +33,19 @@ export function AlertCenter({ ctx }) {
           ? { ...e, acknowledged: status !== 'dismissed', dismissed: status === 'dismissed' }
           : e
       )))
-    } catch {
-      /* keep UI optimistic */
+    } catch (err) {
+      toast(err.message || 'Action failed', 'danger')
+    }
+  }
+
+  const openIncident = async (evt) => {
+    if (!evt?.id) { toast('Save alert to DB before creating incident', 'danger'); return }
+    try {
+      await createIncidentFromAlert(evt.id)
+      toast('Incident created from alert', 'ok')
+      setPage?.('incidents')
+    } catch (err) {
+      toast(err.message || 'Failed to create incident', 'danger')
     }
   }
 
@@ -93,6 +106,7 @@ export function AlertCenter({ ctx }) {
                   <>
                     <button className="btn btn-sm" onClick={() => mark(key, 'verified', evt)}><Icons.check /> Verify</button>
                     <button className="btn btn-sm btn-primary" onClick={() => mark(key, 'dispatched', evt)}><Icons.dispatch /> Dispatch Police</button>
+                    <button className="btn btn-sm" onClick={() => openIncident(evt)}>Create Incident</button>
                     {evt.mapsUrl && (
                       <a className="btn btn-sm" href={evt.mapsUrl} target="_blank" rel="noreferrer"><Icons.map /> Open Map</a>
                     )}

@@ -4,15 +4,18 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
+from backend.auth.auth import operator_or_admin
+from backend.models.user import User
 from backend.utils.websocket import manager
 from backend.utils.events import build_event_payload
 
 router = APIRouter(prefix="/system", tags=["system"])
 
 _INSECURE_KEYS = {"", "pipeline-internal-key-change-me"}
+_live_analytics: dict = {}
 _pipeline_status: dict = {
     "online": False,
     "last_heartbeat": None,
@@ -27,6 +30,7 @@ class HeartbeatPayload(BaseModel):
     fps: Optional[float] = None
     threat_score: Optional[int] = None
     frame_number: Optional[int] = None
+    analytics: Optional[dict] = None
 
 
 def _verify_internal_key(key: Optional[str]) -> None:
@@ -36,7 +40,7 @@ def _verify_internal_key(key: Optional[str]) -> None:
 
 
 @router.get("/status")
-def get_system_status():
+def get_system_status(user: User = Depends(operator_or_admin)):
     from backend.services.ha import redis_health, camera_offline_sla
 
     cameras = {}
@@ -85,7 +89,19 @@ async def pipeline_heartbeat(
     )
     payload["fps"] = body.fps
     payload["threat_score"] = body.threat_score
+    if body.analytics:
+        update_live_analytics(body.camera_id, body.analytics)
     await manager.broadcast(payload, "status")
     return {"status": "ok", "camera_id": body.camera_id}
 
 
+
+
+
+
+def get_live_analytics() -> dict:
+    return _live_analytics
+
+
+def update_live_analytics(camera_id: str, data: dict) -> None:
+    _live_analytics[camera_id] = {**data, "camera_id": camera_id, "updated_at": datetime.utcnow().isoformat()}

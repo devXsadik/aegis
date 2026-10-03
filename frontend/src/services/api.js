@@ -314,3 +314,31 @@ export function wsUrl(channel = 'alerts') {
 }
 
 
+
+
+export async function fetchConfigThresholds() {
+  return apiFetch('/config/thresholds/all');
+}
+
+export async function saveConfigThreshold(key, value) {
+  return apiFetch(`/config/threshold.${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value: String(value) }),
+  });
+}
+
+export async function deleteCamera(cameraId) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}`, { method: 'DELETE' });
+}
+
+export async function deleteVehiclePlate(plate) {
+  return apiFetch(`/vehicles/plates/${encodeURIComponent(plate)}`, { method: 'DELETE' });
+}
+
+export async function fetchLiveAnalytics() {
+  return apiFetch('/analytics/live');
+}
+
+export async function fetchEvidenceBundle(hours = 24) {
+  return apiFetch(`/reports/evidence-bundle?hours=${hours}`);
+}

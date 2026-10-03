@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Icons } from './ui'
 
 /*
- * AI Copilot — on-device analyst assistant.
+ * Command Assistant — on-device analyst assistant.
  * Answers from live dashboard data (alerts, cameras, analytics) using
  * rule-based intent matching. Designed so an LLM endpoint can be plugged
  * in later by replacing `answer()` with an API call.
@@ -105,23 +105,23 @@ export function Copilot({ ctx, onClose }) {
       <div className="drawer-overlay" onClick={onClose} />
       <div className="drawer">
         <div className="drawer-head">
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icons.bot /> AI Copilot</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icons.bot /> Command Assistant</span>
           <button className="icon-btn" onClick={onClose}><Icons.close /></button>
         </div>
         <div className="drawer-body" ref={bodyRef}>
-          <div className="copilot-suggestions">
+          <div className="assistant-suggestions">
             {SUGGESTIONS.map((s) => (
               <button key={s} className="btn btn-sm" onClick={() => send(s)}>{s}</button>
             ))}
           </div>
           {messages.map((m, i) => (
-            <div key={i} className={`copilot-msg ${m.role === 'user' ? 'user' : ''}`}>
+            <div key={i} className={`assistant-msg ${m.role === 'user' ? 'user' : ''}`}>
               {m.role === 'bot' && <span className="m-icon">AI</span>}
               <div className="m-body">{m.text}</div>
             </div>
           ))}
         </div>
-        <div className="copilot-input">
+        <div className="assistant-input">
           <input
             className="input"
             placeholder="Ask about alerts, threats, cameras…"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Tag } from '../components/ui'
-import { fetchIntegrationStatus, testIntegration } from '../services/api'
+import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold } from '../services/api'
+import { useToast } from '../components/Toast'
 
 function ThresholdSlider({ id, label, def, thresholds, onSet }) {
   return (
@@ -15,7 +16,16 @@ function ThresholdSlider({ id, label, def, thresholds, onSet }) {
 }
 
 export function Settings({ ctx }) {
+  const { push: toast } = useToast()
   const { theme, setTheme, systemStatus } = ctx
+  useEffect(() => {
+    fetchConfigThresholds().then((t) => {
+      setThresholds((prev) => ({ ...prev, ...Object.fromEntries(
+        Object.entries(t).map(([k, v]) => [k, parseFloat(v) || prev[k] || v])
+      ) }))
+    }).catch(() => {})
+  }, [])
+
   const [thresholds, setThresholds] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ai_sss_thresholds')) || {} } catch { return {} }
   })

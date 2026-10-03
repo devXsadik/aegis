@@ -11,6 +11,16 @@
 #   onvif_user / onvif_pass / onvif_profile
 
 cameras:
+  - id: gate_1
+    name: "Main Gate Camera 1"
+    source: 0
+    location: "Gate_1"
+    lat: 23.8103
+    lng: 90.4125
+    enabled: true
+    fps_limit: 8
+    priority: high
+
   - id: laptop
     name: "Laptop Camera"
     source: 0
@@ -47,3 +57,4 @@ cameras:
     location: "uttara sector 9"
     enabled: true
     fps_limit: 8
+

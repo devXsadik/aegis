@@ -1,40 +1,32 @@
 import { MapPin } from './MapPin'
 
-export function CameraMapOverview({ cameras, events }) {
-  const withGps = (cameras || []).filter((c) => c.lat != null && c.lng != null)
-  const primary = withGps[0]
+export function CameraMapOverview({ cameras = [], events = [] }) {
+  const primary = cameras[0]
+  const eventPins = (events || []).filter((e) => e.lat != null && e.lng != null).slice(0, 5)
 
-  if (!primary) {
-    return <p className="empty-state">No camera GPS configured. Run <code>python scripts/seed_cameras.py</code></p>
-  }
+  if (!primary) return null
 
   return (
     <div>
       <MapPin lat={primary.lat} lng={primary.lng} label={primary.name || primary.location} height={280} />
-      <div className="map-camera-list">
-        <h4>All Cameras ({withGps.length})</h4>
-        {withGps.map((cam) => (
-          <div key={cam.camera_id} className="camera-row">
-            <div>
-              <strong>{cam.name}</strong> — {cam.location}
-              <div className="event-gps">{cam.lat?.toFixed(5)}, {cam.lng?.toFixed(5)}</div>
-            </div>
-            <span className={`status-badge ${cam.active ? 'status-active' : 'status-warn'}`}>
-              {cam.active ? 'Active' : 'Off'}
-            </span>
-          </div>
-        ))}
+      <div className="map-legend" style={{ marginTop: 10 }}>
+        <span className="key"><span className="swatch" style={{ background: 'var(--ok)' }} /> Camera</span>
+        <span className="key"><span className="swatch" style={{ background: 'var(--danger)' }} /> Detection</span>
       </div>
-      {events?.length > 0 && (
-        <div className="map-events-list">
-          <h4>Recent Detections on Map</h4>
-          {events.slice(0, 8).map((ev, i) => (
-            <div key={i} className="log-entry">
-              <span>{ev.description} @ {ev.camera_name}</span>
-              <span className={`status-badge ${ev.severity === 'high' ? 'status-alert' : 'status-active'}`}>
-                {ev.severity}
-              </span>
+      {cameras.length > 1 && (
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          {cameras.map((c) => (
+            <div key={c.camera_id} className="meta">
+              {c.name || c.camera_id}: {c.lat?.toFixed(4)}, {c.lng?.toFixed(4)}
             </div>
+          ))}
+        </div>
+      )}
+      {eventPins.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <b style={{ fontSize: 12 }}>Recent event locations</b>
+          {eventPins.map((ev, i) => (
+            <div key={i} className="meta">{ev.description || ev.event_type} @ {Number(ev.lat).toFixed(4)}, {Number(ev.lng).toFixed(4)}</div>
           ))}
         </div>
       )}

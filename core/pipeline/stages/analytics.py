@@ -34,7 +34,16 @@ class AnalyticsStage(PipelineStage):
         # Make analytics data available to downstream stages
         ctx.heatmap = self.analytics.get_heatmap_normalized()
         ctx.dwell_stats = self.analytics.get_dwell_stats()
+        for anomaly in ctx.anomalies or []:
+            if anomaly.get("type") == "dwell":
+                self.analytics.record_dwell(
+                    anomaly.get("track_id", 0),
+                    anomaly.get("zone", "unknown"),
+                    float(anomaly.get("duration_seconds", 0)),
+                )
+
         ctx.traffic_flow = self.analytics.get_traffic_flow()
+        ctx.dwell_stats = self.analytics.get_dwell_stats()
 
         return ctx
 

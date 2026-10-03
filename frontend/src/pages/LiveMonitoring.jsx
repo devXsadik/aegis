@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Icons, Seg, Pill, Tag, Empty, timeAgo } from '../components/ui'
 import {
   liveStreamUrl,
@@ -6,40 +6,18 @@ import {
   ptzSavePreset, ptzGotoPreset, openVmsPlayback,
 } from '../services/api'
 
-function seeded(i) {
-  const x = Math.sin(i * 999 + 7) * 10000
-  return x - Math.floor(x)
-}
-
-function useCamFeed(cam, index, aiOverlay, alerting) {
+function useCamFeed(cam, index) {
   const online = cam?.online ?? true
-  const fps = cam?.fps ?? Math.round(22 + seeded(index) * 8)
+  const fps = cam?.fps ?? null
   const [streamFailed, setStreamFailed] = useState(false)
   const streaming = cam?.streaming && !streamFailed
-
-  const boxes = useMemo(() => {
-    if (!aiOverlay || !online || streaming) return []
-    const n = 1 + Math.floor(seeded(index * 3) * 2)
-    return Array.from({ length: n }, (_, k) => {
-      const threat = alerting && k === 0
-      return {
-        left: 12 + seeded(index * 7 + k) * 55,
-        top: 18 + seeded(index * 11 + k) * 40,
-        w: 14 + seeded(index * 13 + k) * 12,
-        h: 26 + seeded(index * 17 + k) * 18,
-        label: threat ? `THREAT ${(88 + seeded(index + k) * 10).toFixed(0)}%` : `person ${(72 + seeded(index * 5 + k) * 25).toFixed(0)}%`,
-        threat,
-      }
-    })
-  }, [aiOverlay, online, index, alerting, streaming])
-
   const label = cam?.name || cam?.camera_location || `CAM-${String(index + 1).padStart(2, '0')}`
 
-  return { online, fps, streaming, boxes, label, setStreamFailed }
+  return { online, fps, streaming, label, setStreamFailed, streamFailed }
 }
 
-function CamFeed({ cam, index, aiOverlay, alerting, objectFit = 'cover' }) {
-  const { online, fps, streaming, boxes, label, setStreamFailed } = useCamFeed(cam, index, aiOverlay, alerting)
+function CamFeed({ cam, index, alerting, objectFit = 'cover' }) {
+  const { online, fps, streaming, label, setStreamFailed, streamFailed } = useCamFeed(cam, index)
 
   return (
     <>
@@ -60,13 +38,15 @@ function CamFeed({ cam, index, aiOverlay, alerting, objectFit = 'cover' }) {
       </div>
       {online ? (
         <>
-          {!streaming && boxes.map((b, k) => (
-            <div key={k} className={`bbox ${b.threat ? 'threat' : ''}`} style={{ left: `${b.left}%`, top: `${b.top}%`, width: `${b.w}%`, height: `${b.h}%` }}>
-              <span className="bbox-tag">{b.label}</span>
+          {!streaming && (
+            <div className="cam-offline">
+              <Icons.camera />
+              <div>{streamFailed ? 'Stream offline' : 'No live feed'}</div>
+              {cam?.last_seen && <div className="cam-offline-meta">Last seen: {cam.last_seen}</div>}
             </div>
-          ))}
+          )}
           <div className="cam-stats">
-            <span>{fps} FPS{streaming ? ' · MJPEG' : ''}</span>
+            <span>{fps != null ? `${fps} FPS` : '— FPS'}{streaming ? ' · MJPEG' : ''}</span>
             <span>THREAT {cam?.threat_score ?? 0}</span>
           </div>
         </>
@@ -77,7 +57,7 @@ function CamFeed({ cam, index, aiOverlay, alerting, objectFit = 'cover' }) {
   )
 }
 
-function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
+function CamTile({ cam, index, alerting, focused, onFocus }) {
   return (
     <div
       className={`cam-tile ${alerting ? 'alerting' : ''}`}
@@ -85,12 +65,12 @@ function CamTile({ cam, index, aiOverlay, alerting, focused, onFocus }) {
       style={{ cursor: 'pointer', outline: focused ? '2px solid var(--primary)' : 'none' }}
       title="Click for full-screen view"
     >
-      <CamFeed cam={cam} index={index} aiOverlay={aiOverlay} alerting={alerting} />
+      <CamFeed cam={cam} index={index} alerting={alerting} />
     </div>
   )
 }
 
-function CamFullscreen({ cam, index, aiOverlay, alerting, onClose }) {
+function CamFullscreen({ cam, index, alerting, onClose }) {
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -117,7 +97,7 @@ function CamFullscreen({ cam, index, aiOverlay, alerting, onClose }) {
         </button>
       </div>
       <div className={`cam-tile cam-fullscreen-tile ${alerting ? 'alerting' : ''}`}>
-        <CamFeed cam={cam} index={index} aiOverlay={aiOverlay} alerting={alerting} objectFit="contain" />
+        <CamFeed cam={cam} index={index} alerting={alerting} objectFit="contain" />
       </div>
     </div>
   )
@@ -197,7 +177,6 @@ function PtzPad({ cameraId }) {
 export function LiveMonitoring({ ctx }) {
   const { systemStatus, cameras, threatLevel, streamingCams = [] } = ctx
   const [layout, setLayout] = useState(4)
-  const [aiOverlay, setAiOverlay] = useState(true)
   const [focused, setFocused] = useState(0)
   const [fullscreenIdx, setFullscreenIdx] = useState(null)
   const [timeline, setTimeline] = useState([])
@@ -269,9 +248,6 @@ export function LiveMonitoring({ ctx }) {
               onChange={setLayout}
               options={[{ value: 1, label: '1' }, { value: 4, label: '4' }, { value: 9, label: '9' }, { value: 16, label: '16' }]}
             />
-            <button className={`btn btn-sm ${aiOverlay ? 'btn-primary' : ''}`} onClick={() => setAiOverlay(!aiOverlay)}>
-              <Icons.ai /> AI {aiOverlay ? 'ON' : 'OFF'}
-            </button>
             <Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{systemStatus?.online ? 'LIVE' : 'STANDBY'}</Pill>
             <Pill tone="danger">DVR</Pill>
           </div>
@@ -283,8 +259,7 @@ export function LiveMonitoring({ ctx }) {
               key={i}
               cam={cam}
               index={i}
-              aiOverlay={aiOverlay}
-              alerting={i === alertingIdx}
+                  alerting={i === alertingIdx}
               focused={focused === i && layout > 1}
               onFocus={() => {
                 setFocused(i)
@@ -353,7 +328,6 @@ export function LiveMonitoring({ ctx }) {
         <CamFullscreen
           cam={tiles[fullscreenIdx]}
           index={fullscreenIdx}
-          aiOverlay={aiOverlay}
           alerting={fullscreenIdx === alertingIdx}
           onClose={() => setFullscreenIdx(null)}
         />

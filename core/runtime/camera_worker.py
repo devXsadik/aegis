@@ -152,12 +152,25 @@ def run_camera_loop(
 
             now = time.time()
             if now - last_heartbeat >= heartbeat_interval:
+                analytics_snapshot = None
+                try:
+                    analytics_stage = next((s for s in pipeline.stages if s.name == "analytics"), None)
+                    if analytics_stage and hasattr(analytics_stage, "analytics"):
+                        a = analytics_stage.analytics
+                        analytics_snapshot = {
+                            "dwell_stats": a.get_dwell_stats(),
+                            "traffic_flow": a.get_traffic_flow(),
+                            "track_count": len(ctx.tracks) if hasattr(ctx, "tracks") else 0,
+                        }
+                except Exception:
+                    pass
                 publish_heartbeat(
                     camera_id=camera_id,
                     camera_location=camera_location,
                     fps=round(current_fps, 1),
                     threat_score=ctx.threat_score,
                     frame_number=ctx.frame_number,
+                    analytics=analytics_snapshot,
                 )
                 last_heartbeat = now
 

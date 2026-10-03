@@ -1,13 +1,27 @@
 import { useState } from 'react'
 import { Card, Icons, Tag, Empty, timeAgo } from '../components/ui'
-import { addVehiclePlate } from '../services/api'
+import { addVehiclePlate, deleteVehiclePlate } from '../services/api'
+import { useToast } from '../components/Toast'
 
 export function Vehicles({ ctx }) {
-  const { plates, vehicleDetections, reloadVehicles } = ctx
+  const { plates, vehicleDetections, reloadVehicles, me } = ctx
+  const { push: toast } = useToast()
   const [newPlate, setNewPlate] = useState('')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+
+  const removePlate = async (plate) => {
+    if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
+    if (!confirm(`Remove plate ${plate}?`)) return
+    try {
+      await deleteVehiclePlate(plate)
+      toast('Plate removed', 'ok')
+      reloadVehicles?.()
+    } catch (e) {
+      toast(e.message || 'Remove failed', 'danger')
+    }
+  }
 
   const addPlate = async () => {
     if (!newPlate.trim()) return
@@ -71,7 +85,12 @@ export function Vehicles({ ctx }) {
                 <b className="mono">{p.plate_number}</b>
                 <div className="meta">{p.reason || 'No reason recorded'} · added {timeAgo(p.created_at)}</div>
               </div>
-              <Tag tone={p.watchlisted ? 'danger' : 'muted'}>{p.watchlisted ? 'Watchlisted' : 'Cleared'}</Tag>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Tag tone={p.watchlisted ? 'danger' : 'muted'}>{p.watchlisted ? 'Watchlisted' : 'Cleared'}</Tag>
+                {me?.role === 'admin' && (
+                  <button className="btn btn-sm btn-ghost" onClick={() => removePlate(p.plate_number)}>Remove</button>
+                )}
+              </div>
             </div>
           ))}
         </Card>

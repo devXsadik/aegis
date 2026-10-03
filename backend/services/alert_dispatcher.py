@@ -59,7 +59,7 @@ def _geo_details(lat, lng, camera_name, camera_id) -> Optional[str]:
     })
 
 
-def _send_webhooks(alert_type: str, payload: dict) -> str:
+async def _send_webhooks(alert_type: str, payload: dict) -> str:
     if os.getenv("ALERTS_ENABLED", "false").lower() != "true":
         return ""
     urls = _webhook_urls()
@@ -67,12 +67,12 @@ def _send_webhooks(alert_type: str, payload: dict) -> str:
     if alert_type == "CRIMINAL_DETECTED":
         for key in ("law_enforcement", "security"):
             if urls[key]:
-                _post_webhook(urls[key], payload)
+                await _post_webhook(urls[key], payload)
                 sent.append(key)
     elif alert_type == "WEAPON_DETECTED":
         for key in ("emergency", "security"):
             if urls[key]:
-                _post_webhook(urls[key], payload)
+                await _post_webhook(urls[key], payload)
                 sent.append(key)
     elif alert_type == "SUSPICIOUS_VEHICLE":
         if urls["law_enforcement"]:
@@ -81,9 +81,10 @@ def _send_webhooks(alert_type: str, payload: dict) -> str:
     return ",".join(sent)
 
 
-def _post_webhook(url: str, payload: dict) -> None:
+async def _post_webhook(url: str, payload: dict) -> None:
     try:
-        httpx.post(url, json=payload, timeout=5.0)
+        async with httpx.AsyncClient() as client:
+            await client.post(url, json=payload, timeout=5.0)
     except Exception as e:
         logger.warning(f"Webhook failed ({url}): {e}")
 
@@ -137,7 +138,7 @@ async def dispatch_alert(
             "message": message,
             "timestamp": datetime.utcnow().isoformat(),
         }
-        channels = _send_webhooks(alert_type, webhook_payload)
+        channels = await _send_webhooks(alert_type, webhook_payload)
 
         alert = Alert(
             alert_type=alert_type,
@@ -205,6 +206,84 @@ async def dispatch_alert(
 
     except Exception as e:
         logger.error(f"Alert dispatch failed: {e}")
+        if own_session:
+            db.rollback()
+        raise
+    finally:
+        if own_session:
+            db.close()
+
+async def redispatch_alert(
+    alert: Alert,
+    message: Optional[str] = None,
+    db: Optional[Session] = None,
+) -> dict:
+    """Re-broadcast an existing alert without creating a duplicate DB row."""
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
+    try:
+        camera_lat = camera_lng = camera_name = None
+        if alert.details:
+            try:
+                geo = json.loads(alert.details)
+                camera_lat = geo.get("lat")
+                camera_lng = geo.get("lng")
+                camera_name = geo.get("camera_name")
+            except Exception:
+                pass
+
+        camera_lat, camera_lng, camera_name = _resolve_camera_geo(
+            db, alert.camera_id, camera_lat, camera_lng, camera_name,
+        )
+
+        dispatch_message = message or alert.message or alert.alert_type.replace("_", " ").title()
+
+        webhook_payload = {
+            "alert_type": alert.alert_type,
+            "severity": alert.severity or "critical",
+            "criminal_name": alert.person_name,
+            "person_name": alert.person_name,
+            "camera_location": alert.camera_location,
+            "camera_id": alert.camera_id,
+            "camera_name": camera_name,
+            "camera_lat": camera_lat,
+            "camera_lng": camera_lng,
+            "maps_url": f"https://www.google.com/maps?q={camera_lat},{camera_lng}" if camera_lat else None,
+            "track_id": alert.track_id,
+            "plate_number": alert.plate_number,
+            "message": dispatch_message,
+            "timestamp": datetime.utcnow().isoformat(),
+            "alert_id": alert.id,
+            "manual_redispatch": True,
+        }
+        channels = await _send_webhooks(alert.alert_type, webhook_payload)
+
+        payload = await broadcast_live_event(
+            event_type=alert.alert_type,
+            severity=alert.severity or "critical",
+            camera_location=alert.camera_location,
+            camera_id=alert.camera_id,
+            track_id=alert.track_id,
+            person_name=alert.person_name,
+            message=dispatch_message,
+            camera_name=camera_name,
+            camera_lat=camera_lat,
+            camera_lng=camera_lng,
+        )
+        payload["alert_id"] = alert.id
+        payload["manual_redispatch"] = True
+        payload["channels_sent"] = channels or "websocket,dashboard"
+
+        await manager.broadcast(payload, "alerts")
+        await manager.broadcast(payload, "status")
+
+        logger.info(f"REDISPATCH: alert {alert.id} ({alert.alert_type})")
+        return {"status": "redispatched", "alert_id": alert.id, "payload": payload}
+
+    except Exception as e:
+        logger.error(f"Alert redispatch failed: {e}")
         if own_session:
             db.rollback()
         raise

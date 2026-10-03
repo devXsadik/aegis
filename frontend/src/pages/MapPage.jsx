@@ -1,24 +1,15 @@
 import { Card, Icons, Tag, Empty, timeAgo, SEVERITY_TONE } from '../components/ui'
-import { MapPin } from '../components/MapPin'
+import { CameraMapOverview } from '../components/CameraMapOverview'
 
 export function MapPage({ ctx }) {
   const { mapCameras, mapEvents } = ctx
   const withGps = mapCameras.filter((c) => c.lat != null && c.lng != null)
-  const primary = withGps[0]
 
   return (
     <div className="grid grid-23">
-      <Card title="GIS Camera Map" sub={`${withGps.length} geolocated cameras`}>
-        {primary ? (
-          <>
-            <MapPin lat={primary.lat} lng={primary.lng} label={primary.name || primary.location} height={340} />
-            <div className="map-legend">
-              <span className="key"><span className="swatch" style={{ background: 'var(--ok)' }} /> Camera online</span>
-              <span className="key"><span className="swatch" style={{ background: 'var(--danger)' }} /> Threat location</span>
-              <span className="key"><span className="swatch" style={{ background: 'var(--primary)' }} /> Police station</span>
-              <span className="key"><span className="swatch" style={{ background: 'var(--warn)' }} /> Restricted zone</span>
-            </div>
-          </>
+      <Card title="GIS Camera Map" sub={`${withGps.length} geolocated cameras · events plotted`}>
+        {withGps.length ? (
+          <CameraMapOverview cameras={withGps} events={mapEvents || []} />
         ) : (
           <Empty icon={Icons.map}>No camera GPS configured. Run <code>python scripts/seed_cameras.py</code></Empty>
         )}
@@ -40,7 +31,7 @@ export function MapPage({ ctx }) {
         </Card>
         <Card title="Detections on Map" sub="last 24h">
           {(!mapEvents || mapEvents.length === 0) && <Empty icon={Icons.eye}>No geolocated detections yet</Empty>}
-          {(mapEvents || []).slice(0, 8).map((ev, i) => (
+          {(mapEvents || []).slice(0, 12).map((ev, i) => (
             <div key={i} className="row">
               <div>
                 <b>{ev.description || ev.event_type}</b>
