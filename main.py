@@ -98,7 +98,7 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
             logger.warning(f"[{cam_id}] offline — retrying in {int(delay)}s")
             if stop_event.wait(delay):
                 break
-            delay = min(delay * 2, 120.0)
+            delay = min(delay * 2, float(os.getenv("CAMERA_RETRY_MAX", "30")))
 
     t = threading.Thread(target=worker, name=f"camera-{cam_id}", daemon=True)
     t.start()

@@ -194,6 +194,8 @@ function App() {
   const [reviewPending, setReviewPending] = useState(0)
   const [knownPersons, setKnownPersons] = useState([])
   const [evidence, setEvidence] = useState([])
+  const reloadKnownPersons = useCallback(
+    () => fetchKnownPersons().then(setKnownPersons).catch(() => {}), [])
   const [mapCameras, setMapCameras] = useState([])
   const [mapEvents, setMapEvents] = useState([])
   const [cameras, setCameras] = useState([])
@@ -378,7 +380,7 @@ function App() {
 
   const ctx = {
     events, setEvents, systemStatus, threatLevel, wsConnected,
-    knownPersons, evidence, mapCameras, mapEvents, cameras,
+    knownPersons, reloadKnownPersons, evidence, mapCameras, mapEvents, cameras,
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
     me, streamingCams, reloadCameras, setPage,

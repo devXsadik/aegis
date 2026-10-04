@@ -10,6 +10,7 @@ class FaceEncoding(Base):
     id = Column(Integer, primary_key=True, index=True)
     person_id = Column(Integer, ForeignKey("known_persons.id"), nullable=False, index=True)
     encoding = Column(LargeBinary, nullable=False)
+    image_id = Column(Integer, ForeignKey("person_images.id", ondelete="SET NULL"), nullable=True, index=True)
     image_path = Column(String(255), nullable=True)
     encoding_version = Column(String(20), default="1.0")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

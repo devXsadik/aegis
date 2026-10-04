@@ -105,7 +105,7 @@ def publish_live_event(
 
 
 _STREAM_ENABLED = os.getenv("PIPELINE_STREAM_ENABLED", "true").lower() == "true"
-_stream_busy = threading.Event()
+_stream_busy: dict = {}   # camera_id -> Event; one in-flight upload per camera
 
 
 def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
@@ -114,11 +114,11 @@ def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
     Drops frames if a previous upload is still in flight so the CV loop
     never blocks on network I/O.
     """
-    if not _STREAM_ENABLED or _stream_busy.is_set():
+    busy = _stream_busy.setdefault(camera_id, threading.Event())
+    if not _STREAM_ENABLED or busy.is_set():
         return
 
     def _send():
-        _stream_busy.set()
         try:
             import httpx
 
@@ -134,8 +134,9 @@ def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
         except Exception as e:
             logger.error(f"publish_frame failed for {camera_id}: {e}")
         finally:
-            _stream_busy.clear()
+            busy.clear()
 
+    busy.set()
     threading.Thread(target=_send, daemon=True).start()
 
 

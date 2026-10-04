@@ -16,7 +16,7 @@ async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (options.body && !headers['Content-Type']) {
+  if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -27,7 +27,8 @@ async function apiFetch(path, options = {}) {
       window.dispatchEvent(new Event('auth_expired'));
     }
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Request failed');
+    const d = err.detail;
+    throw new Error((typeof d === 'object' && d ? d.message : d) || 'Request failed');
   }
   return res.json();
 }
@@ -102,6 +103,51 @@ export async function updateCamera(cameraId, patch) {
 
 export async function fetchKnownPersons() {
   return apiFetch('/faces/known-persons');
+}
+
+export function personImageUrl(imageId) {
+  const token = getToken();
+  return `${API_BASE}/faces/images/${imageId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}
+
+export async function enrollPerson({ name, category, criminalStatus, threatLevel, notes, files }) {
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('category', category);
+  fd.append('criminal_status', criminalStatus);
+  fd.append('threat_level', String(threatLevel));
+  if (notes) fd.append('notes', notes);
+  files.forEach((f) => fd.append('files', f));
+  return apiFetch('/faces/persons', { method: 'POST', body: fd });
+}
+
+export async function addPersonImages(personId, files) {
+  const fd = new FormData();
+  files.forEach((f) => fd.append('files', f));
+  return apiFetch(`/faces/persons/${encodeURIComponent(personId)}/images`, { method: 'POST', body: fd });
+}
+
+export async function fetchPersonDetail(personId) {
+  return apiFetch(`/faces/persons/${encodeURIComponent(personId)}`);
+}
+
+export async function updatePerson(personId, patch) {
+  return apiFetch(`/faces/persons/${encodeURIComponent(personId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function deletePerson(personId) {
+  return apiFetch(`/faces/persons/${encodeURIComponent(personId)}`, { method: 'DELETE' });
+}
+
+export async function deletePersonImage(imageId) {
+  return apiFetch(`/faces/images/${imageId}`, { method: 'DELETE' });
+}
+
+export async function verifyFace(file, personId) {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (personId) fd.append('person_id', personId);
+  return apiFetch('/faces/verify', { method: 'POST', body: fd });
 }
 
 export async function fetchFaceEncodings() {

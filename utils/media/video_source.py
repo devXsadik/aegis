@@ -19,27 +19,42 @@ class ThreadedCamera:
     This prevents OpenCV's internal buffer from accumulating old frames
     when the ML pipeline runs slower than the camera's framerate,
     completely eliminating live streaming lag.
+
+    Failure handling: a few failed reads in a row are tolerated (MJPEG/RTSP streams
+    glitch), but if no new frame arrives for `stall_seconds` the camera is reported
+    as lost so the caller reconnects, instead of re-serving the last frame forever.
     """
-    def __init__(self, cap):
+    MAX_CONSECUTIVE_FAILS = 25
+
+    def __init__(self, cap, stall_seconds: float | None = None):
         self.cap = cap
+        self.stall_seconds = stall_seconds or float(os.getenv("CAMERA_STALL_SECONDS", "8"))
         self.ret, self.frame = self.cap.read()
+        self.last_ok = time.monotonic()
         self.stopped = False
         self.new_frame_event = threading.Event()
         self.new_frame_event.set()
-        
+
         self.thread = threading.Thread(target=self._update, daemon=True)
         self.thread.start()
 
     def _update(self):
+        fails = 0
         while not self.stopped:
             ret, frame = self.cap.read()
             if not ret:
-                self.ret = False
-                self.stopped = True
-                self.new_frame_event.set()
-                break
+                fails += 1
+                if fails >= self.MAX_CONSECUTIVE_FAILS:
+                    self.ret = False
+                    self.stopped = True
+                    self.new_frame_event.set()
+                    break
+                time.sleep(0.05)
+                continue
+            fails = 0
             self.ret = ret
             self.frame = frame
+            self.last_ok = time.monotonic()
             self.new_frame_event.set()
 
     def read(self):
@@ -47,6 +62,9 @@ class ThreadedCamera:
         self.new_frame_event.wait(timeout=2.0)
         self.new_frame_event.clear()
         if self.stopped and not self.ret:
+            return False, None
+        if time.monotonic() - self.last_ok > self.stall_seconds:
+            logger.warning("No new frame for %.0fs - treating camera as lost", self.stall_seconds)
             return False, None
         return self.ret, self.frame
 
@@ -59,10 +77,10 @@ class ThreadedCamera:
 
     def isOpened(self):
         return self.cap.isOpened() and not self.stopped
-    
+
     def set(self, prop, value):
         return self.cap.set(prop, value)
-    
+
     def get(self, prop):
         return self.cap.get(prop)
 

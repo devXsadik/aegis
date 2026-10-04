@@ -148,6 +148,7 @@ _ADDITIVE_COLUMNS = [
     ("alerts", "review_note", "TEXT"),
     ("cameras", "geometry", "TEXT"),
     ("cameras", "geometry_updated_at", "TIMESTAMP"),
+    ("face_encodings", "image_id", "INTEGER"),
 ]
 
 
