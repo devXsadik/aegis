@@ -150,6 +150,10 @@ export async function verifyFace(file, personId) {
   return apiFetch('/faces/verify', { method: 'POST', body: fd });
 }
 
+export async function verifyEvidence(evidenceId) {
+  return apiFetch(`/faces/verify-evidence/${evidenceId}`, { method: 'POST' });
+}
+
 export async function fetchFaceEncodings() {
   return apiFetch('/faces/');
 }

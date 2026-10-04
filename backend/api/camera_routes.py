@@ -88,9 +88,14 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
         try:
             with open(yaml_path, "r") as f:
                 ydata = yaml.safe_load(f) or {}
-            existing_ids = {c.camera_id for c in db.query(Camera.camera_id).all()}
+            existing = {c.camera_id: c for c in db.query(Camera).all()}
+            existing_ids = set(existing)
             for cam in ydata.get("cameras", []):
                 cam_id = cam.get("id")
+                if cam_id in existing:
+                    # cameras.yaml is what the pipeline actually runs: mirror its enabled flag.
+                    existing[cam_id].active = bool(cam.get("enabled", True))
+                    continue
                 if cam_id and cam_id not in existing_ids:
                     db.add(Camera(
                         camera_id=cam_id,

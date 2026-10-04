@@ -46,8 +46,9 @@ class PoseAnalyzer:
 
     def __init__(self, model_path: Optional[str] = None, device: str = "cpu",
                  conf: float = 0.4, min_kpt_conf: float = 0.3,
-                 auto_download: bool = False):
+                 auto_download: bool = False, imgsz: Optional[int] = None):
         self.device = device
+        self.imgsz = imgsz
         self.conf = conf
         self.min_kpt_conf = min_kpt_conf
         from core.detectors.device import lock_for   # lazy: keeps this module torch-free
@@ -75,7 +76,8 @@ class PoseAnalyzer:
         if self.model is None:
             return []
         with self._lock:
-            results = self.model(frame, conf=self.conf, verbose=False, device=self.device)
+            results = self.model(frame, conf=self.conf, verbose=False, device=self.device,
+                                 **({"imgsz": self.imgsz} if self.imgsz else {}))
         poses = []
         for r in results:
             if r.keypoints is None or r.boxes is None:

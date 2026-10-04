@@ -7,15 +7,18 @@ enrollments reach live cameras within the recognizer's cache TTL.
 """
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
 
+from utils.face_detect import locate_faces
 from backend.models.face_encoding import FaceEncoding
 from backend.models.known_person import KnownPerson
 from backend.models.person_image import PersonImage
 
+_DLIB_LOCK = threading.Lock()   # dlib models are not thread-safe
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_DIM = 1600
 DEFAULT_TOLERANCE = 0.45
@@ -92,10 +95,11 @@ def to_jpeg(rgb: np.ndarray) -> bytes:
 def encode_faces(rgb: np.ndarray, num_jitters: int = 1):
     """Return (boxes, encodings) for every face in the image."""
     fr = _engine()
-    boxes = fr.face_locations(rgb, model="hog", number_of_times_to_upsample=1)
-    if not boxes:
-        return [], []
-    return boxes, fr.face_encodings(rgb, boxes, num_jitters=num_jitters)
+    with _DLIB_LOCK:
+        boxes = locate_faces(rgb, fr, upsample=1)
+        if not boxes:
+            return [], []
+        return boxes, fr.face_encodings(rgb, boxes, num_jitters=num_jitters)
 
 
 def encode_single_face(rgb: np.ndarray) -> np.ndarray:
@@ -155,3 +159,26 @@ def enroll_image(db, person: KnownPerson, data: bytes, filename: Optional[str], 
     return {"image_id": img.id, "filename": filename,
             "possible_duplicate_of": [{"person_id": c.person_id, "name": c.name,
                                        "distance": c.distance} for c in dup]}
+
+
+def verify_bytes(db, data: bytes, target: Optional[KnownPerson], tolerance: float) -> dict:
+    """Match every face in an image against stored records (1:N, or 1:1 when `target`).
+
+    status: match | no_match | no_face. Raises FaceError for unreadable images.
+    """
+    rgb = decode_image(data)
+    boxes, encs = encode_faces(rgb)
+    faces = []
+    for (top, right, bottom, left), enc in zip(boxes, encs):
+        cands = rank_candidates(enc, db, tolerance, top_k=5, only_person=target.id if target else None)
+        faces.append({"box": {"top": top, "right": right, "bottom": bottom, "left": left},
+                      "candidates": [c.__dict__ for c in cands],
+                      "best": cands[0].__dict__ if cands and cands[0].is_match else None})
+    if not faces:
+        status = "no_face"
+    else:
+        status = "match" if any(f["best"] for f in faces) else "no_match"
+    best = min((f["best"] for f in faces if f["best"]), key=lambda c: c["distance"], default=None)
+    return {"status": status, "mode": "1:1" if target else "1:N", "threshold": tolerance,
+            "image": {"width": int(rgb.shape[1]), "height": int(rgb.shape[0])},
+            "face_count": len(faces), "best_match": best, "faces": faces}

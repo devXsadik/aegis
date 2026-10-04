@@ -73,6 +73,13 @@ services:
   pipeline:
     <<: *app
     command: ["pipeline"]
+    environment:
+      <<: *app-env
+      # Webcam index sources (source: 0) read the host webcam through
+      # scripts/webcam_bridge.py (run `make webcam-bridge` on the host).
+      LOCAL_CAMERA_URL: ${LOCAL_CAMERA_URL:-http://host.docker.internal:8090/video}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       backend: { condition: service_healthy }
     volumes:

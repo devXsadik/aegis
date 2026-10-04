@@ -33,3 +33,30 @@ def test_cache_refreshes_after_ttl(monkeypatch):
     r._loaded_at -= 61
     r._load_encodings()
     assert len(calls) == 2
+
+
+def test_dlib_calls_are_serialized_across_threads(monkeypatch):
+    """Concurrent camera threads must never be inside dlib at the same time."""
+    import threading
+    import time
+    import types
+
+    from core.recognition import face_recognizer_db as mod
+
+    inside, overlap = [0], [False]
+
+    def locations(rgb, **_):
+        inside[0] += 1
+        overlap[0] |= inside[0] > 1
+        time.sleep(0.02)
+        inside[0] -= 1
+        return []
+
+    fake = types.SimpleNamespace(face_locations=locations)
+    monkeypatch.setattr(mod, "face_recognition", fake, raising=False)
+    rec = FaceRecognizerDB()
+    roi = np.zeros((200, 200, 3), np.uint8)
+    threads = [threading.Thread(target=rec.recognize_detail, args=(roi,)) for _ in range(6)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert overlap[0] is False

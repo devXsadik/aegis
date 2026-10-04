@@ -25,6 +25,7 @@ import { Cameras } from './pages/Cameras'
 import { Analytics } from './pages/Analytics'
 import { EvidencePage } from './pages/EvidencePage'
 import { Watchlist } from './pages/Watchlist'
+import { FaceRegistryPage } from './pages/FaceRegistryPage'
 import { Vehicles } from './pages/Vehicles'
 import { Reports } from './pages/Reports'
 import { Users } from './pages/Users'
@@ -52,6 +53,7 @@ const NAV = [
   {
     group: 'Intelligence',
     pages: [
+      { id: 'faces', label: 'Face Registry', icon: Icons.users },
       { id: 'watchlist', label: 'Watchlist', icon: Icons.watchlist },
       { id: 'vehicles', label: 'Vehicle Intelligence', icon: Icons.vehicle },
       { id: 'analytics', label: 'Analytics', icon: Icons.chart },
@@ -72,9 +74,9 @@ const ALL_PAGES = NAV.flatMap((g) => g.pages)
 
 const ROLE_PAGES = {
   viewer: new Set(['overview', 'live', 'map', 'alerts']),
-  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'analytics', 'reports', 'cameras']),
+  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'faces', 'analytics', 'reports', 'cameras']),
   police: new Set(['overview', 'live', 'map', 'alerts', 'incidents']),
-  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'watchlist', 'vehicles', 'analytics', 'reports']),
+  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports']),
   supervisor: null,
   admin: null,
 }
@@ -105,7 +107,7 @@ function applyTheme(t) {
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
   alerts: Triage, incidents: Incidents, evidence: EvidencePage,
-  watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
+  faces: FaceRegistryPage, watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
 }
 
@@ -288,8 +290,8 @@ function App() {
   /* Refresh page-specific data when navigating */
   useEffect(() => {
     if (!authed) return
-    if (page === 'watchlist') fetchKnownPersons().then(setKnownPersons).catch(() => {})
-    if (page === 'evidence' || page === 'watchlist') fetchEvidence(60).then(setEvidence).catch(() => {})
+    if (page === 'watchlist' || page === 'faces') fetchKnownPersons().then(setKnownPersons).catch(() => {})
+    if (page === 'evidence' || page === 'watchlist' || page === 'faces') fetchEvidence(60).then(setEvidence).catch(() => {})
     if (page === 'map') {
       fetchMapCameras().then(setMapCameras).catch(() => {})
       fetchMapEvents(24).then(setMapEvents).catch(() => {})

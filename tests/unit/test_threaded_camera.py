@@ -43,3 +43,12 @@ def test_stalled_stream_reports_lost_instead_of_stale_frame():
     ok, frame = cam.read()
     assert ok is False and frame is None
     cam.release()
+
+
+def test_local_webcam_index_maps_to_bridge_url_only_when_set(monkeypatch):
+    from utils.media import resolve_source
+    monkeypatch.delenv("LOCAL_CAMERA_URL", raising=False)
+    assert resolve_source(0) == 0
+    monkeypatch.setenv("LOCAL_CAMERA_URL", "http://host.docker.internal:8090/video")
+    assert resolve_source(0) == "http://host.docker.internal:8090/video"
+    assert resolve_source("rtsp://cam/1") == "rtsp://cam/1"

@@ -28,5 +28,7 @@ class TestLoadCamerasConfig:
         project_root = os.path.dirname(base)
         cameras = load_cameras_config(project_root)
         assert len(cameras) >= 1
-        assert cameras[0]["id"] == "gate_1"
+        assert all(c.get("enabled", True) for c in cameras)          # disabled ones are filtered out
+        ids = [c["id"] for c in cameras]
+        assert len(ids) == len(set(ids))
 

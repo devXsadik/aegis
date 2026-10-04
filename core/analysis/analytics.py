@@ -13,7 +13,8 @@ class Analytics:
     def update_heatmap(self, tracks, frame_shape):
         h, w = frame_shape[:2]
         self._frame_w = w
-        if self.heatmap is None:
+        if self.heatmap is None or self.heatmap.shape != (h, w):
+            # First frame, or the stream changed resolution (reconnect, different source).
             self.heatmap = np.zeros((h, w), dtype=np.float32)
         for track in tracks:
             if not track.is_confirmed():

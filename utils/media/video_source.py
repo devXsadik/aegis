@@ -140,9 +140,14 @@ def is_video_file(source) -> bool:
 
 
 def resolve_source(source):
-    """Expand env vars in source strings, e.g. ${RTSP_GATE_1}."""
+    """Expand env vars in source strings, e.g. ${RTSP_GATE_1}.
+
+    Local webcam indexes map to LOCAL_CAMERA_URL when set: containers cannot see the
+    host's camera, so Docker points that at scripts/webcam_bridge.py on the host.
+    """
     if not isinstance(source, str):
-        return source
+        bridge = os.getenv("LOCAL_CAMERA_URL", "")
+        return bridge if bridge and isinstance(source, int) else source
     if source.startswith("${") and source.endswith("}"):
         env_name = source[2:-1]
         return os.getenv(env_name, source)

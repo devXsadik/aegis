@@ -265,31 +265,64 @@ async def verify_face(
     """
     target = _get_person(db, person_id) if person_id else None
     data = await file.read(fs.MAX_IMAGE_BYTES + 1)
+    tol = fs.get_tolerance()
     try:
-        rgb = fs.decode_image(data)
-        boxes, encs = fs.encode_faces(rgb)
+        result = fs.verify_bytes(db, data, target, tol)
     except fs.FaceError as e:
         raise HTTPException(e.status, str(e))
-    tol = fs.get_tolerance()
-    faces = []
-    for (top, right, bottom, left), enc in zip(boxes, encs):
-        cands = fs.rank_candidates(enc, db, tol, top_k=5, only_person=target.id if target else None)
-        faces.append({"box": {"top": top, "right": right, "bottom": bottom, "left": left},
-                      "candidates": [c.__dict__ for c in cands],
-                      "best": cands[0].__dict__ if cands and cands[0].is_match else None})
-    if not faces:
-        status = "no_face"
-    else:
-        status = "match" if any(f["best"] for f in faces) else "no_match"
-    best = min((f["best"] for f in faces if f["best"]), key=lambda c: c["distance"], default=None)
+    best = result["best_match"]
     _audit(db, user, "FACE_VERIFY", (best or {}).get("person_id") or (target.person_id if target else "-"),
-           {"status": status, "mode": "1:1" if target else "1:N", "faces": len(faces),
+           {"status": result["status"], "mode": result["mode"], "faces": result["face_count"],
             "best_distance": (best or {}).get("distance"), "tolerance": tol,
             "filename": file.filename}, request)
     db.commit()
-    return {"status": status, "mode": "1:1" if target else "1:N", "threshold": tol,
-            "image": {"width": int(rgb.shape[1]), "height": int(rgb.shape[0])},
-            "face_count": len(faces), "best_match": best, "faces": faces}
+    return result
+
+
+@router.post("/verify-evidence/{evidence_id}")
+def verify_evidence(evidence_id: int, request: Request, db: Session = Depends(get_db),
+                    user: User = Depends(operator_or_admin)):
+    """Check a captured evidence image against enrolled faces: match or no match.
+
+    Tries the subject crop first, then the full frame. Also reports what the live
+    pipeline recorded for this evidence so a reviewer can see whether the two agree.
+    """
+    ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
+    if not ev:
+        raise HTTPException(404, "Evidence not found")
+    tol = fs.get_tolerance()
+    result, source = None, None
+    for kind, blob in (("subject crop", ev.roi_data), ("full frame", ev.frame_data)):
+        if not blob:
+            continue
+        if ev.encrypted:
+            from backend.utils.encryption import EncryptionManager
+            blob = EncryptionManager().decrypt(blob)
+        try:
+            attempt = fs.verify_bytes(db, blob, None, tol)
+        except fs.FaceError as e:
+            if e.status == 503:
+                raise HTTPException(503, str(e))
+            continue
+        if result is None or attempt["status"] != "no_face":
+            result, source = attempt, kind
+        if attempt["status"] != "no_face":
+            break
+    if result is None:
+        raise HTTPException(404, "No image stored for this evidence")
+    best = result["best_match"]
+    recorded = ev.person_name if ev.person_name and ev.person_name != "Unknown" else None
+    matched_name = best and best["person_id"]
+    result.update({
+        "evidence_id": ev.id, "source": source,
+        "recorded_identity": recorded,
+        "agrees_with_live_id": None if not recorded else (matched_name == recorded or (best or {}).get("name") == recorded),
+    })
+    _audit(db, user, "FACE_VERIFY_EVIDENCE", str(ev.id),
+           {"status": result["status"], "source": source,
+            "best": matched_name, "distance": (best or {}).get("distance")}, request)
+    db.commit()
+    return result
 
 
 @router.post("/encode")

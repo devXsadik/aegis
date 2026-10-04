@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
@@ -21,8 +22,17 @@ import numpy as np
 logger = logging.getLogger("HumanAnalysis")
 
 
+_STOP = object()
+
+
 class ContinuousRecorder:
-    """Non-blocking continuous segment writer for one camera."""
+    """Non-blocking continuous segment writer for one camera.
+
+    `write()` only resizes and enqueues a frame; encoding, segment rotation, hashing and
+    thumbnails happen on a background thread. Rotating a segment on the caller's thread
+    froze the live video for 15+ s every `segment_seconds` on slow (Docker) volumes.
+    If the disk can't keep up the oldest queued frames are dropped, never the caller.
+    """
 
     def __init__(
         self,
@@ -30,6 +40,7 @@ class ContinuousRecorder:
         out_dir: Path,
         *,
         segment_seconds: float = 60.0,
+        min_segment_seconds: float = 10.0,
         target_fps: float = 10.0,
         width: int = 960,
         camera_location: str = "",
@@ -39,7 +50,7 @@ class ContinuousRecorder:
         self.camera_location = camera_location
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        self.segment_seconds = max(10.0, float(segment_seconds))
+        self.segment_seconds = max(float(min_segment_seconds), float(segment_seconds))
         self.target_fps = max(1.0, float(target_fps))
         self.width = int(width)
         self.on_segment = on_segment
@@ -53,16 +64,48 @@ class ContinuousRecorder:
         self._frame_interval = 1.0 / self.target_fps
         self._lock = threading.Lock()
         self._thumb: Optional[np.ndarray] = None
+        self._queue: "queue.Queue" = queue.Queue(maxsize=int(self.target_fps * 8))
+        self.dropped = 0
+        self._thread = threading.Thread(target=self._run, name=f"dvr-{camera_id}", daemon=True)
+        self._thread.start()
 
     def write(self, frame: np.ndarray) -> None:
-        """Accept a BGR frame; may drop frames to honor target_fps."""
+        """Accept a BGR frame (never blocks); drops frames to honor target_fps."""
         now = time.monotonic()
         if now - self._last_write < self._frame_interval:
             return
         self._last_write = now
+        img = self._resize(frame)
+        if img is frame:
+            img = frame.copy()          # caller reuses/draws on its buffer
+        try:
+            self._queue.put_nowait(img)
+        except queue.Full:
+            self.dropped += 1           # disk is behind: lose this frame, not the live feed
 
+    def close(self) -> None:
+        """Flush queued frames, close the open segment and stop the thread."""
+        try:
+            self._queue.put(_STOP, timeout=2)
+        except queue.Full:
+            pass
+        self._thread.join(timeout=15)
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is _STOP:
+                with self._lock:
+                    self._close_locked()
+                return
+            try:
+                self._write_frame(item)
+            except Exception as e:  # noqa: BLE001 - recording must never kill the thread
+                logger.warning("DVR write failed for %s: %s", self.camera_id, e)
+
+    def _write_frame(self, img: np.ndarray) -> None:
+        now = time.monotonic()
         with self._lock:
-            img = self._resize(frame)
             if self._writer is None:
                 self._open(img)
             if self._writer is None:
@@ -73,10 +116,6 @@ class ContinuousRecorder:
                 self._thumb = img.copy()
             if now - self._started_mono >= self.segment_seconds:
                 self._close_locked()
-
-    def close(self) -> None:
-        with self._lock:
-            self._close_locked()
 
     def _resize(self, frame: np.ndarray) -> np.ndarray:
         h, w = frame.shape[:2]

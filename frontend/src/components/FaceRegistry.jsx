@@ -1,9 +1,9 @@
 /* Face registry UI: enroll photos, verify a probe photo against stored records. */
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Icons, Modal, Tag } from './ui'
+import { Card, Icons, Modal, Tag, timeAgo } from './ui'
 import {
   enrollPerson, addPersonImages, fetchPersonDetail, updatePerson, deletePerson,
-  deletePersonImage, verifyFace, personImageUrl,
+  deletePersonImage, verifyFace, verifyEvidence, personImageUrl, evidenceImageUrl,
 } from '../services/api'
 
 const CATEGORIES = ['criminal', 'person_of_interest', 'missing_person', 'civilian']
@@ -292,6 +292,84 @@ export function VerifyPanel({ persons }) {
           Multiple faces in photo; other matches: {res.faces.filter((f) => f.best && f.best !== best).map((f) => f.best.name).join(', ') || 'none'}
         </div>
       )}
+    </Card>
+  )
+}
+
+/* ——— Evidence check: does a captured image match an enrolled face? ——— */
+function EvidenceRow({ ev, result, busy, onCheck }) {
+  const verdict = result && !result.error && VERDICT[result.status]
+  return (
+    <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
+      <img src={evidenceImageUrl(ev.id, ev.has_image ? 'roi' : 'frame')} alt={`evidence ${ev.id}`}
+        style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, background: '#020617' }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <b>#{ev.id} · {ev.category}</b>
+        <div className="meta">{ev.camera_location} · {timeAgo(ev.timestamp)}</div>
+        {result?.error && <div className="meta" style={{ color: 'var(--danger)' }}>{result.error}</div>}
+        {verdict && (
+          <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Tag tone={verdict.tone}>{verdict.text}</Tag>
+            {result.best_match && (
+              <span className="meta">
+                <b>{result.best_match.name}</b> ({result.best_match.person_id}) · distance {result.best_match.distance}
+                · {Math.round(result.best_match.confidence * 100)}%
+              </span>
+            )}
+            {result.status === 'no_match' && result.faces[0]?.candidates?.[0] && (
+              <span className="meta">closest: {result.faces[0].candidates[0].name} ({result.faces[0].candidates[0].distance})</span>
+            )}
+            {result.status === 'no_face' && <span className="meta">no usable face in this capture</span>}
+            {result.agrees_with_live_id === true && <Tag tone="ok">live ID agrees</Tag>}
+            {result.agrees_with_live_id === false && <Tag tone="warn">live ID differs: {result.recorded_identity}</Tag>}
+          </div>
+        )}
+      </div>
+      <button className="btn btn-sm" disabled={busy} onClick={onCheck}>{busy ? 'Checking…' : result ? 'Re-check' : 'Check'}</button>
+    </div>
+  )
+}
+
+export function EvidenceCheck({ evidence }) {
+  const [results, setResults] = useState({})
+  const [busyId, setBusyId] = useState(null)
+  const [bulk, setBulk] = useState(false)
+  const items = useMemo(() => evidence.filter((e) => e.has_image).slice(0, 12), [evidence])
+
+  const check = async (id) => {
+    setBusyId(id)
+    try {
+      const r = await verifyEvidence(id)
+      setResults((m) => ({ ...m, [id]: r }))
+    } catch (e) {
+      setResults((m) => ({ ...m, [id]: { error: e.message } }))
+    } finally {
+      setBusyId(null)
+    }
+  }
+  const checkAll = async () => {
+    setBulk(true)
+    for (const ev of items) await check(ev.id)   // sequential: face encoding is CPU heavy
+    setBulk(false)
+  }
+  const counts = Object.values(results).reduce((c, r) => { if (r.status) c[r.status] = (c[r.status] || 0) + 1; return c }, {})
+
+  return (
+    <Card title="Evidence check" sub="is a captured image a match or not?"
+      actions={<button className="btn btn-sm btn-primary" disabled={bulk || busyId !== null || !items.length} onClick={checkAll}>
+        {bulk ? 'Checking…' : `Check latest ${items.length}`}</button>}>
+      {Object.keys(results).length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <Tag tone="danger">{counts.match || 0} match</Tag>
+          <Tag tone="ok">{counts.no_match || 0} no match</Tag>
+          <Tag tone="warn">{counts.no_face || 0} no face</Tag>
+        </div>
+      )}
+      {items.length === 0
+        ? <div className="meta">No evidence images captured yet.</div>
+        : items.map((ev) => (
+          <EvidenceRow key={ev.id} ev={ev} result={results[ev.id]} busy={busyId === ev.id} onCheck={() => check(ev.id)} />
+        ))}
     </Card>
   )
 }

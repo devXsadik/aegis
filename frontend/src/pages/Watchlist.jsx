@@ -1,31 +1,29 @@
 import { useEffect, useState } from 'react'
 import { Card, Icons, Tag, Empty, timeAgo } from '../components/ui'
 import { fetchReidPersons, personImageUrl } from '../services/api'
-import { EnrollModal, ManagePersonModal, VerifyPanel } from '../components/FaceRegistry'
+
+// The recogniser reports a person's ID (e.g. P-1A2B3C4D); older records may hold the name.
+const isPerson = (p, label) => !!label && (label === p.person_id || label === p.name)
 
 const THREAT_TONE = (lvl) => (lvl >= 4 ? 'danger' : lvl >= 2 ? 'warn' : 'ok')
 
 export function Watchlist({ ctx }) {
-  const { knownPersons, reloadKnownPersons, events, evidence, me } = ctx
+  const { knownPersons, events, evidence, setPage } = ctx
   const [reid, setReid] = useState([])
-  const [enrolling, setEnrolling] = useState(false)
-  const [managing, setManaging] = useState(null)
-  const canEdit = me?.role === 'admin' || me?.role === 'supervisor'
-  const canDelete = me?.role === 'admin'
 
   useEffect(() => {
     fetchReidPersons(72).then((r) => setReid(r.persons || [])).catch(() => {})
   }, [evidence.length])
 
   const lastSeen = (p) => {
-    const hit = events.find((e) => e.personName === p.name)
-      || evidence.find((ev) => ev.person_name === p.name)
+    const hit = events.find((e) => isPerson(p, e.personName))
+      || evidence.find((ev) => isPerson(p, ev.person_name))
     return hit ? (hit.time || hit.timestamp) : null
   }
 
   const detections = (p) =>
-    events.filter((e) => e.personName === p.name).length +
-    evidence.filter((ev) => ev.person_name === p.name).length
+    events.filter((e) => isPerson(p, e.personName)).length +
+    evidence.filter((ev) => isPerson(p, ev.person_name)).length
 
   return (
     <>
@@ -35,19 +33,13 @@ export function Watchlist({ ctx }) {
         <div className="stat accent-primary"><span className="label">Cross-camera tracks</span><span className="value">{reid.filter((t) => t.cross_camera).length}</span></div>
       </div>
 
-      <div className="grid grid-2" style={{ marginBottom: 14, alignItems: 'start' }}>
-        <VerifyPanel persons={knownPersons} />
-        <Card title="Face records" sub="enrolled photos are matched live by every camera"
-          actions={canEdit && <button className="btn btn-primary btn-sm" onClick={() => setEnrolling(true)}>+ Enroll face</button>}>
-          <div className="meta">
-            {knownPersons.length} record(s) · {knownPersons.reduce((n, p) => n + (p.encoding_count || 0), 0)} embeddings.
-            {canEdit ? ' Upload clear, front-facing photos; add several angles per person.' : ' Supervisor or admin access is required to enroll faces.'}
-          </div>
-        </Card>
-      </div>
+      <Card title="Face records" sub="enroll, verify and manage faces in the Face Registry"
+        actions={<button className="btn btn-primary btn-sm" onClick={() => setPage('faces')}>Open Face Registry</button>}>
+        <div className="meta">{knownPersons.length} record(s) · matched live by every camera</div>
+      </Card>
 
       {knownPersons.length === 0 ? (
-        <Card><Empty icon={Icons.watchlist}>No face records yet. {canEdit ? 'Use “Enroll face” to add one.' : 'Ask a supervisor to enroll faces.'}</Empty></Card>
+        <Card><Empty icon={Icons.watchlist}>No face records yet. Add one in the Face Registry.</Empty></Card>
       ) : (
         <div className="grid grid-3" style={{ marginBottom: 14 }}>
           {knownPersons.map((p) => {
@@ -78,19 +70,11 @@ export function Watchlist({ ctx }) {
                   <dt>Detections</dt><dd>{count}</dd>
                   <dt>Photos</dt><dd>{p.image_count} · {p.encoding_count} embeddings</dd>
                 </dl>
-                <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setManaging(p)}>
-                  {canEdit ? 'Manage' : 'View'}
-                </button>
+
               </Card>
             )
           })}
         </div>
-      )}
-
-      {enrolling && <EnrollModal onClose={() => setEnrolling(false)} onDone={reloadKnownPersons} />}
-      {managing && (
-        <ManagePersonModal person={managing} canEdit={canEdit} canDelete={canDelete}
-          onClose={() => setManaging(null)} onChanged={reloadKnownPersons} />
       )}
 
       <Card title="Cross-Camera Re-ID" sub="same identity across cameras · last 72h">

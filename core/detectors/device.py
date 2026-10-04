@@ -33,3 +33,25 @@ def resolve_device(pref: str = "auto") -> str:
         except Exception:
             _cached = "cpu"
     return _cached
+
+
+def configure_inference_threads(device: str) -> int:
+    """Cap torch/OpenCV CPU threads.
+
+    torch defaults to every core. With several camera threads, a browser, Docker's VM and
+    the DB all competing, that oversubscribes the CPU: measured on this project, one
+    YOLOv8s pass took 557 ms with 1 thread and 836 ms with 8. Not applied to GPUs.
+    Override with TORCH_THREADS.
+    """
+    import os
+    if str(device).startswith(("cuda", "mps")):
+        return 0
+    n = int(os.getenv("TORCH_THREADS", "") or max(1, min(2, (os.cpu_count() or 2) // 2)))
+    try:
+        import torch
+        torch.set_num_threads(n)
+        import cv2
+        cv2.setNumThreads(n)
+    except Exception:
+        pass
+    return n

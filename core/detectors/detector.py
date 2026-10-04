@@ -5,15 +5,18 @@ from ultralytics import YOLO
 
 
 class HumanDetector:
-    def __init__(self, model_path: str, conf_threshold: float = 0.5, device: str = "cpu"):
+    def __init__(self, model_path: str, conf_threshold: float = 0.5, device: str = "cpu",
+                 imgsz: int | None = None):
         self.model = YOLO(model_path)
+        self.imgsz = imgsz
         self.conf_threshold = conf_threshold
         self.device = device
         self._lock = lock_for(device)   # one model instance is shared by all cameras
 
     def detect(self, frame: np.ndarray):
         with self._lock:
-            results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device=self.device)
+            results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device=self.device,
+                                 **({"imgsz": self.imgsz} if self.imgsz else {}))
         detections = []
         for result in results:
             for box in result.boxes:

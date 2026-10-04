@@ -38,6 +38,8 @@ def load_watchlisted_plates() -> Set[str]:
 def load_criminal_ids() -> Set[str]:
     db = SessionLocal()
     try:
-        return {p.person_id for p in db.query(KnownPerson).filter(KnownPerson.category == "criminal").all()}
+        # "cleared" people stay enrolled (so they are still recognised) but raise no alert.
+        return {p.person_id for p in db.query(KnownPerson)
+                .filter(KnownPerson.category == "criminal", KnownPerson.criminal_status != "cleared").all()}
     finally:
         db.close()

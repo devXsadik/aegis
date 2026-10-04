@@ -13,11 +13,11 @@
 cameras:
   - id: gate_1
     name: "Main Gate Camera 1"
-    source: 0
+    source: 0                    # same webcam as laptop: only one of the two runs
     location: "Gate_1"
     lat: 23.8103
     lng: 90.4125
-    enabled: true
+    enabled: false
     fps_limit: 8
     priority: high
 
@@ -25,6 +25,8 @@ cameras:
     name: "Laptop Camera"
     source: 0
     location: "Local"
+    lat: 23.8103
+    lng: 90.4125
     enabled: true
     fps_limit: 8
     priority: high

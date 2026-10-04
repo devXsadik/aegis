@@ -1,5 +1,6 @@
 """Per-camera surveillance loop for single- and multi-camera operation."""
 
+import copy
 import os
 import time
 import logging
@@ -16,6 +17,10 @@ from utils.system import FrameSkipper, ResourceMonitor
 from paths import RECORDINGS_DIR
 
 logger = logging.getLogger("HumanAnalysis")
+
+
+def thermal_view(frame):
+    return cv2.applyColorMap(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), cv2.COLORMAP_INFERNO)
 
 
 def _register_dvr_segment(meta: dict) -> None:
@@ -48,6 +53,72 @@ def _register_dvr_segment(meta: dict) -> None:
             logger.warning("DVR segment register failed: %s", e)
 
     threading.Thread(target=_send, daemon=True).start()
+
+
+class InferenceWorker(threading.Thread):
+    """Runs the (slow) AI pipeline off the video path.
+
+    The camera loop keeps reading, recording and streaming at full frame rate and just
+    hands this worker the newest frame whenever it is free (older frames are dropped, so
+    latency never builds up). A frame that makes a stage raise is skipped instead of
+    taking the whole camera down; `max_consecutive_errors` failures in a row mark the
+    worker failed so the caller can rebuild the camera.
+    """
+
+    def __init__(self, pipeline, config_sync, run_kwargs: dict, camera_id: str,
+                 max_consecutive_errors: int = 20):
+        super().__init__(name=f"infer-{camera_id}", daemon=True)
+        self.pipeline = pipeline
+        self.config_sync = config_sync
+        self.run_kwargs = run_kwargs
+        self.camera_id = camera_id
+        self.max_consecutive_errors = max_consecutive_errors
+        self.failed = False
+        self._cond = threading.Condition()
+        self._pending = None
+        self._halt = False
+        self._result = None
+        self.result_seq = 0
+        self.last_infer_seconds = 0.0
+
+    def submit(self, frame) -> None:
+        with self._cond:
+            self._pending = frame
+            self._cond.notify()
+
+    def latest(self):
+        """(ctx, seq) of the most recent finished inference, or (None, 0)."""
+        return self._result, self.result_seq
+
+    def stop(self) -> None:
+        with self._cond:
+            self._halt = True
+            self._cond.notify()
+
+    def run(self) -> None:
+        errors = 0
+        while True:
+            with self._cond:
+                while self._pending is None and not self._halt:
+                    self._cond.wait(timeout=1.0)
+                if self._halt:
+                    return
+                frame, self._pending = self._pending, None
+            started = time.time()
+            try:
+                self.config_sync.maybe_sync()
+                ctx = self.pipeline.run(frame, **self.run_kwargs)
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                logger.exception(f"[{self.camera_id}] inference failed ({errors}/{self.max_consecutive_errors}): {e}")
+                if errors >= self.max_consecutive_errors:
+                    self.failed = True
+                    return
+                continue
+            errors = 0
+            self.last_infer_seconds = time.time() - started
+            self._result = ctx
+            self.result_seq += 1
 
 
 def run_camera_loop(
@@ -102,42 +173,36 @@ def run_camera_loop(
     title = window_title or f"AI-SSS — {camera_location or camera_id}"
     logger.info(f"Camera worker started: {camera_id} @ {camera_location}")
 
-    last_ctx = None
+    worker = InferenceWorker(
+        pipeline, config_sync, camera_id=camera_id,
+        run_kwargs=dict(camera_id=camera_id, camera_location=camera_location,
+                        camera_name=camera_name, camera_lat=camera_lat, camera_lng=camera_lng),
+    )
+    worker.start()
+    ctx = None
+    clip_seq = 0
     try:
         while True:
             if stop_event and stop_event.is_set():
                 break
-            config_sync.maybe_sync()
+            if worker.failed or not worker.is_alive():
+                logger.error(f"Inference worker for {camera_id} failed; restarting camera")
+                break
             cap, frame = read_frame_with_reconnect(cap, source)
             if frame is None:
                 logger.error(f"Stream lost for {camera_id}")
                 break
 
-            if not frame_skipper.should_process():
-                if last_ctx is not None:
-                    ctx = last_ctx
-                    ctx.frame = frame
-                    ctx.timestamp = time.time()
-                else:
-                    if show_window:
-                        key = cv2.waitKey(1) & 0xFF
-                        if key == ord("q"):
-                            break
-                    continue
-            else:
-                if thermal_mode:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    frame = cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
+            if frame_skipper.should_process():
+                worker.submit(thermal_view(frame) if thermal_mode else frame.copy())   # HUD draws in place
 
-                ctx = pipeline.run(
-                    frame,
-                    camera_id=camera_id,
-                    camera_location=camera_location,
-                    camera_name=camera_name,
-                    camera_lat=camera_lat,
-                    camera_lng=camera_lng,
-                )
-                last_ctx = ctx
+            # Overlay the latest AI result on the *current* frame (boxes trail by one
+            # inference, the video itself never does).
+            result, result_seq = worker.latest()
+            if result is not None:
+                ctx = copy.copy(result)
+                ctx.frame = frame
+                ctx.timestamp = time.time()
 
             # Continuous DVR writes raw (pre-HUD) frames for forensic fidelity
             if dvr is not None:
@@ -163,7 +228,7 @@ def run_camera_loop(
                         analytics_snapshot = {
                             "dwell_stats": a.get_dwell_stats(),
                             "traffic_flow": a.get_traffic_flow(),
-                            "track_count": len(ctx.tracks) if hasattr(ctx, "tracks") else 0,
+                            "track_count": len(ctx.tracks) if ctx is not None and hasattr(ctx, "tracks") else 0,
                         }
                 except Exception:
                     pass
@@ -171,8 +236,8 @@ def run_camera_loop(
                     camera_id=camera_id,
                     camera_location=camera_location,
                     fps=round(current_fps, 1),
-                    threat_score=ctx.threat_score,
-                    frame_number=ctx.frame_number,
+                    threat_score=ctx.threat_score if ctx is not None else 0,
+                    frame_number=ctx.frame_number if ctx is not None else 0,
                     analytics=analytics_snapshot,
                 )
                 last_heartbeat = now
@@ -181,8 +246,9 @@ def run_camera_loop(
             display = None
             if show_window or stream_due:
                 perf_stats = resource_monitor.get_stats() if perf_enabled else None
-                display = render_full_hud(
-                    frame, ctx, start_time, criminal_names, perf_stats, thermal_mode,
+                display = (
+                    render_full_hud(frame.copy(), ctx, start_time, criminal_names, perf_stats, thermal_mode)
+                    if ctx is not None else frame
                 )
 
             if stream_due and display is not None:
@@ -198,7 +264,8 @@ def run_camera_loop(
                     if ok:
                         jpeg = buf.tobytes()
                         publish_frame(camera_id, jpeg)
-                        if ctx.threat_score and ctx.threat_score >= 40:
+                        if ctx is not None and ctx.threat_score and ctx.threat_score >= 40 and result_seq != clip_seq:
+                            clip_seq = result_seq
                             alert_type = "THREAT"
                             if getattr(ctx, "confirmed_weapons", None):
                                 alert_type = "WEAPON_DETECTED"
@@ -225,6 +292,8 @@ def run_camera_loop(
     except Exception as e:
         logger.exception(f"Camera worker crashed for {camera_id}: {e}")
     finally:
+        worker.stop()
+        worker.join(timeout=5)
         if dvr is not None:
             dvr.close()
         cap.release()

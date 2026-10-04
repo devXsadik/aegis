@@ -34,10 +34,28 @@ def _fake_engine():
     return lambda: mod
 
 
+def _clean_faces():
+    """The SQLite test DB persists between runs; start every test from an empty registry."""
+    from backend.db.database import SessionLocal
+    from backend.models.evidence import Evidence
+    from backend.models.face_encoding import FaceEncoding
+    from backend.models.known_person import KnownPerson
+    from backend.models.person_image import PersonImage
+    db = SessionLocal()
+    try:
+        db.query(Evidence).update({Evidence.person_id: None})
+        for m in (FaceEncoding, PersonImage, KnownPerson):
+            db.query(m).delete()
+        db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture(autouse=True)
 def _setup(monkeypatch):
     from backend.db.database import init_db
     init_db()
+    _clean_faces()
     monkeypatch.setattr(face_service, "_engine", _fake_engine())
     monkeypatch.setattr(face_service, "get_tolerance", lambda: 0.45)
 
@@ -156,3 +174,42 @@ def test_update_person_validates():
     assert ok.json()["criminal_status"] == "cleared"
     bad = client.patch(f"/api/v1/faces/persons/{pid}", headers=sup, json={"category": "alien"})
     assert bad.status_code == 422
+
+
+def _add_evidence(gray, recorded_name=None, encrypted=False, with_roi=True):
+    from backend.db.database import SessionLocal
+    from backend.models.evidence import Evidence
+    db = SessionLocal()
+    try:
+        ok, buf = cv2.imencode(".jpg", np.full((64, 64, 3), gray, np.uint8))
+        blob = buf.tobytes()
+        ev = Evidence(camera_location="test", track_id=1, person_name=recorded_name, is_criminal=False,
+                      weapon_present=False, is_suspicious=True, category="suspicious",
+                      frame_data=blob, roi_data=blob if with_roi else None, encrypted=encrypted)
+        db.add(ev)
+        db.commit()
+        return ev.id
+    finally:
+        db.close()
+
+
+def test_verify_evidence_match_and_no_match_and_agreement():
+    sup = _login("face_sup", "supervisor")
+    pid = _enroll(sup, "Evidence Target", 150).json()["person"]["person_id"]
+
+    hit = client.post(f"/api/v1/faces/verify-evidence/{_add_evidence(150, recorded_name=pid)}", headers=sup).json()
+    assert hit["status"] == "match" and hit["best_match"]["person_id"] == pid
+    assert hit["source"] == "subject crop" and hit["agrees_with_live_id"] is True
+
+    disagree = client.post(f"/api/v1/faces/verify-evidence/{_add_evidence(150, recorded_name='SOMEONE_ELSE')}",
+                           headers=sup).json()
+    assert disagree["status"] == "match" and disagree["agrees_with_live_id"] is False
+
+    miss = client.post(f"/api/v1/faces/verify-evidence/{_add_evidence(220)}", headers=sup).json()
+    assert miss["status"] == "no_match" and miss["agrees_with_live_id"] is None
+
+    # no usable face in the crop -> falls back to the full frame, then reports no_face
+    none = client.post(f"/api/v1/faces/verify-evidence/{_add_evidence(0)}", headers=sup).json()
+    assert none["status"] == "no_face"
+
+    assert client.post("/api/v1/faces/verify-evidence/999999", headers=sup).status_code == 404

@@ -14,6 +14,7 @@ from core.pipeline.stages import (
     BehaviorStage, AnalyticsStage, OutputStage,
 )
 from utils.system import logger
+from utils.live_names import live_criminal_names
 from core.analysis.behavior import configure_behavior
 from utils.config import model_path, model_setting
 
@@ -43,8 +44,11 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     This is the composition root: the only place `core` is wired to backend storage.
     """
     from backend.services import watchlist_store
-    from core.detectors.device import resolve_device
+    from core.detectors.device import configure_inference_threads, resolve_device
     device = resolve_device(cfg.get("device", "auto"))
+    threads = configure_inference_threads(device)
+    # Smaller YOLO input on CPU: ~2x faster, still reliable for people at webcam distances.
+    imgsz = int(cfg.get("inference_size", 480 if device == "cpu" else 640))
     model_dir = os.path.join(base_dir, cfg.get("model_dir", "models"))
     conf_threshold = cfg.get("confidence_threshold", 0.5)
     weapon_conf = cfg.get("weapon_conf_threshold", 0.4)
@@ -54,12 +58,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     )
     loc = camera_location or cfg.get("camera_location", "Camera_1")
     configure_behavior(cfg.get("behavior"))
-    criminal_names = set(cfg.get("criminal_names", []))
-
-    try:
-        criminal_names |= watchlist_store.load_criminal_ids()
-    except Exception as e:
-        logger.warning(f"Failed to fetch criminal names from DB: {e}")
+    criminal_names = live_criminal_names(set(cfg.get("criminal_names", [])), watchlist_store.load_criminal_ids)
 
     human_model_path = model_path(
         base_dir, model_dir, "human_detector",
@@ -78,9 +77,9 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
 
     human_detector = _shared(
         ("human", human_model_path),
-        lambda: HumanDetector(human_model_path, conf_threshold, device),
+        lambda: HumanDetector(human_model_path, conf_threshold, device, imgsz=imgsz),
     )
-    logger.info(f"Inference device: {device}")
+    logger.info(f"Inference device: {device} (cpu threads: {threads or 'n/a'}, imgsz: {imgsz})")
 
     weapon_detector = None
     if os.path.exists(weapon_model_path):
@@ -122,7 +121,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         pose_path = model_path(base_dir, model_dir, "pose_analyzer", "yolov8n-pose.pt")
         pose_analyzer = _shared(
             ("pose", pose_path),
-            lambda: PoseAnalyzer(pose_path, device=device, auto_download=True),
+            lambda: PoseAnalyzer(pose_path, device=device, auto_download=True, imgsz=imgsz),
         )
         if not pose_analyzer.enabled:
             logger.warning("Pose analysis DISABLED (model unavailable): no raised-arms / fall checks")
