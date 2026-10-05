@@ -46,9 +46,7 @@ alarm_interval_seconds: 5.0
 auto_alerts_enabled: true          # Auto-dispatch on criminal (all cameras → all channels)
 
 # --- Criminal Watchlist ---
-criminal_names:
-  - "CRIMINAL_001_Sadik"
-  - "CRIMINAL_002_Tarik"
+# Identities come only from the Face Registry (category=criminal, status wanted/convicted/suspect).
 
 # --- Behavior Analysis ---
 behavior:

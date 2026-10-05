@@ -55,6 +55,7 @@ class NotificationHub:
         camera_name: str = "",
         camera_lat: Optional[float] = None,
         camera_lng: Optional[float] = None,
+        confidence: Optional[float] = None,
     ) -> None:
         key = f"criminal_{camera_id}_{track_id}"
         if not self._should_fire(key, now):
@@ -78,6 +79,7 @@ class NotificationHub:
             camera_lat=camera_lat,
             camera_lng=camera_lng,
             message=message,
+            confidence=confidence,
         )
 
     def weapon_detected(

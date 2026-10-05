@@ -21,7 +21,9 @@ from backend.models.person_image import PersonImage
 _DLIB_LOCK = threading.Lock()   # dlib models are not thread-safe
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_DIM = 1600
-DEFAULT_TOLERANCE = 0.45
+DEFAULT_TOLERANCE = 0.40
+MIN_FACE_PX = 40            # same gates as live recognition (FaceRecognizerDB)
+MIN_SHARPNESS = 25.0
 
 
 class FaceError(Exception):
@@ -102,6 +104,17 @@ def encode_faces(rgb: np.ndarray, num_jitters: int = 1):
         return boxes, fr.face_encodings(rgb, boxes, num_jitters=num_jitters)
 
 
+def _check_quality(rgb: np.ndarray, box) -> None:
+    """Reject photos the live recognizer would itself discard (tiny or blurry faces)."""
+    import cv2
+    top, right, bottom, left = box
+    if min(bottom - top, right - left) < MIN_FACE_PX:
+        raise FaceError(f"Face too small (< {MIN_FACE_PX}px); use a closer photo")
+    crop = cv2.cvtColor(rgb[top:bottom, left:right], cv2.COLOR_RGB2GRAY)
+    if cv2.Laplacian(crop, cv2.CV_64F).var() < MIN_SHARPNESS:
+        raise FaceError("Face is too blurry; use a sharper photo")
+
+
 def encode_single_face(rgb: np.ndarray) -> np.ndarray:
     """Enrollment needs exactly one unambiguous face."""
     boxes, encs = encode_faces(rgb, num_jitters=3)
@@ -109,6 +122,7 @@ def encode_single_face(rgb: np.ndarray) -> np.ndarray:
         raise FaceError("No face detected in image")
     if len(boxes) > 1:
         raise FaceError(f"{len(boxes)} faces detected; upload a photo with one face")
+    _check_quality(rgb, boxes[0])
     return encs[0]
 
 

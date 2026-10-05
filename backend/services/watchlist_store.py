@@ -12,6 +12,8 @@ from backend.models.vehicle import LicensePlate
 
 logger = logging.getLogger("HumanAnalysis")
 
+ALERT_STATUSES = ("wanted", "convicted", "suspect")
+
 
 def load_face_encodings() -> Tuple[List[np.ndarray], List[str]]:
     db = SessionLocal()
@@ -38,8 +40,9 @@ def load_watchlisted_plates() -> Set[str]:
 def load_criminal_ids() -> Set[str]:
     db = SessionLocal()
     try:
-        # "cleared" people stay enrolled (so they are still recognised) but raise no alert.
+        # Everyone else stays enrolled (still recognised, so lookalikes are suppressed) but raises no alert.
         return {p.person_id for p in db.query(KnownPerson)
-                .filter(KnownPerson.category == "criminal", KnownPerson.criminal_status != "cleared").all()}
+                .filter(KnownPerson.category == "criminal",
+                        KnownPerson.criminal_status.in_(ALERT_STATUSES)).all()}
     finally:
         db.close()

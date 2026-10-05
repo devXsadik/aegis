@@ -149,6 +149,7 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "geometry", "TEXT"),
     ("cameras", "geometry_updated_at", "TIMESTAMP"),
     ("face_encodings", "image_id", "INTEGER"),
+    ("users", "phone", "VARCHAR(30)"),
 ]
 
 

@@ -25,10 +25,11 @@ class RecognitionStage(PipelineStage):
         self.criminal_names = criminal_names
         self.rerecognize_every = rerecognize_every
         self.retry_every = retry_every          # faster retries until a name is confirmed
-        self.voter = voter or IdentityVoter(window=4, min_votes=2)
+        self.voter = voter or IdentityVoter(window=5, min_votes=2)
 
         # Per-track state (persists across frames)
         self._id_name_map: dict = {}           # track_id → name
+        self._id_conf: dict = {}               # track_id → latest real match confidence
         self._id_frame_count = defaultdict(int) # track_id → frames seen
         
         # Async state
@@ -37,15 +38,19 @@ class RecognitionStage(PipelineStage):
 
     def _run_recognition(self, track_id, proc_roi):
         try:
-            name = self.face_recognizer.recognize_person(proc_roi)
+            detail = self.face_recognizer.recognize_detail(proc_roi)
+            name = detail["name"] if detail else None
+            if detail:
+                self._id_conf[track_id] = self.face_recognizer.confidence(
+                    detail["distance"], self.face_recognizer.tolerance)
             self.voter.add(track_id, name)
             confirmed = self.voter.confirmed(track_id)
             if confirmed:
                 if self._id_name_map.get(track_id) != confirmed and confirmed in self.criminal_names:
                     logger.info(f"WATCHLIST MATCH confirmed: {confirmed} | ID:{track_id}")
                 self._id_name_map[track_id] = confirmed
-            elif track_id not in self._id_name_map:
-                self._id_name_map[track_id] = "Unknown"
+            else:
+                self._id_name_map[track_id] = "Unknown"      # votes decayed: never keep a stale name
         except Exception as e:
             logger.warning(f"Face recog failed ID {track_id}: {e}")
         finally:
@@ -59,6 +64,7 @@ class RecognitionStage(PipelineStage):
         for tid in [k for k in self._id_name_map if k not in live]:
             self._id_name_map.pop(tid, None)
             self._id_frame_count.pop(tid, None)
+            self._id_conf.pop(tid, None)
 
         for track in ctx.tracks:
             if not track.is_confirmed():
@@ -99,6 +105,8 @@ class RecognitionStage(PipelineStage):
 
             name = self._id_name_map.get(track_id, "Unknown")
             ctx.identities[track_id] = name
+            if name in self._id_conf or track_id in self._id_conf:
+                ctx.identity_conf[track_id] = self._id_conf.get(track_id, 0.0)
 
             if name in self.criminal_names:
                 ctx.criminal_ids.add(track_id)

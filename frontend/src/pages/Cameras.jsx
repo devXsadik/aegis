@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Icons, Tag, Empty, Seg, Modal } from '../components/ui'
 import { Sparkline } from '../components/charts'
-import { resolveIp, addCamera, updateCamera, liveStreamUrl, deleteCamera } from '../services/api'
+import { resolveIp, addCamera, updateCamera, liveStreamUrl, deleteCamera, fetchUsers, fetchCameraOfficerMap, setCameraOfficers } from '../services/api'
 import { useToast } from '../components/Toast'
 
 function healthOf(cam, live) {
@@ -33,16 +33,42 @@ export function Cameras({ ctx }) {
     }
   }
 
+  // Police officer assignment (camera -> officers). The first selected officer is primary.
+  const [officerMap, setOfficerMap] = useState({})
+  const [policeUsers, setPoliceUsers] = useState([])
+  const [assignCam, setAssignCam] = useState(null)
+  const [assignIds, setAssignIds] = useState([])
+  const loadOfficers = () => fetchCameraOfficerMap().then(setOfficerMap).catch(() => {})
+  useEffect(() => {
+    loadOfficers()
+    if (me?.role === 'admin') fetchUsers().then((u) => setPoliceUsers(u.filter((x) => x.role === 'police' && x.is_active))).catch(() => {})
+  }, [me?.role, cameras.length])
+  const openAssign = (cam) => { setAssignCam(cam); setAssignIds((officerMap[cam.camera_id] || []).map((o) => o.id)) }
+  const saveAssign = async () => {
+    try {
+      await setCameraOfficers(assignCam.camera_id, assignIds)
+      toast('Officers assigned', 'ok')
+      setAssignCam(null)
+      loadOfficers()
+    } catch (e) {
+      toast(e.message || 'Assign failed', 'danger')
+    }
+  }
+  const officerNames = (cam) => (officerMap[cam.camera_id] || []).map((o) => o.name).join(', ') || 'none'
+
   const handleToggle = async (cam) => {
+    if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
+    if (cam.active && !window.confirm(`Turn off "${cam.name || cam.camera_id}"? Detection and recording stop until it is turned back on.`)) return
     try {
       await updateCamera(cam.camera_id, {
         camera_id: cam.camera_id,
         name: cam.name,
         active: !cam.active,
       })
+      toast(cam.active ? 'Camera turned off' : 'Camera turned on', 'ok')
       if (reloadCameras) reloadCameras()
     } catch (e) {
-      alert(`Failed to toggle: ${e.message}`)
+      toast(`Failed to toggle: ${e.message}`, 'danger')
     }
   }
 
@@ -111,12 +137,18 @@ export function Cameras({ ctx }) {
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <Tag tone={cam.health.tone}>{cam.health.label}</Tag>
                       <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
-                  <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
-                        {cam.active ? 'Stop' : 'Start'}
-                      </button>
+                  {me?.role === 'admin' && (
+                        <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                          {cam.active ? 'Turn off' : 'Turn on'}
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div className="meta muted" style={{ fontSize: '0.74rem' }}>{cam.location || 'No location set'}</div>
+                  <div className="meta muted" style={{ fontSize: '0.74rem' }}>
+                    Officer: {officerNames(cam)}
+                    {me?.role === 'admin' && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 6 }} onClick={() => openAssign(cam)}>Assign</button>}
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                     <span className="muted" style={{ fontSize: '0.72rem' }}>Network 24h</span>
                     <Sparkline data={cam.spark} color={cam.active ? 'var(--ok)' : 'var(--danger)'} />
@@ -143,9 +175,11 @@ export function Cameras({ ctx }) {
                   <td className="mono">{cam.lat != null ? `${cam.lat.toFixed(4)}, ${cam.lng.toFixed(4)}` : '—'}</td>
                   <td>
                     <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
-                  <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
-                      {cam.active ? 'Stop' : 'Start'}
-                    </button>
+                  {me?.role === 'admin' && (
+                      <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
+                        {cam.active ? 'Turn off' : 'Turn on'}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -153,6 +187,30 @@ export function Cameras({ ctx }) {
           </table>
         )}
       </Card>
+
+      {assignCam && (
+        <Modal
+          title={`Assign police officers: ${assignCam.name || assignCam.camera_id}`}
+          onClose={() => setAssignCam(null)}
+          footer={<div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="btn" onClick={() => setAssignCam(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveAssign}>Save</button>
+          </div>}
+        >
+          {policeUsers.length === 0 && <div className="muted">No police users yet. Create one in Users (role: Police) with a phone number.</div>}
+          {policeUsers.map((u) => (
+            <label key={u.id} className="row" style={{ cursor: 'pointer' }}>
+              <span>
+                <input type="checkbox" checked={assignIds.includes(u.id)}
+                  onChange={(e) => setAssignIds((ids) => (e.target.checked ? [...ids, u.id] : ids.filter((i) => i !== u.id)))} />
+                {' '}<b>{u.username}</b> <span className="muted">{u.phone || 'no phone: SMS skipped'}</span>
+                {assignIds[0] === u.id && <Tag tone="ok">primary</Tag>}
+              </span>
+            </label>
+          ))}
+          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>The first selected officer is primary and gets the incident ticket. All selected officers are alerted.</div>
+        </Modal>
+      )}
 
       {showAdd && (
         <Modal 

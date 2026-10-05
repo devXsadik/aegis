@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/faces", tags=["faces"])
 
 CATEGORIES = {"criminal", "person_of_interest", "missing_person", "civilian"}
 STATUSES = {"wanted", "convicted", "suspect", "cleared", "unknown"}
-MAX_FILES = 10
+MAX_FILES = 30
 
 
 class FaceEncodingResponse(BaseModel):
@@ -72,6 +73,8 @@ def _validate_meta(category: Optional[str], status: Optional[str]):
         raise HTTPException(422, f"category must be one of {sorted(CATEGORIES)}")
     if status is not None and status not in STATUSES:
         raise HTTPException(422, f"criminal_status must be one of {sorted(STATUSES)}")
+    if category in ("civilian", "missing_person") and status in ("wanted", "convicted", "suspect"):
+        raise HTTPException(422, f"criminal_status '{status}' is not valid for category '{category}'")
 
 
 def _get_person(db: Session, person_id: str) -> KnownPerson:
@@ -146,7 +149,7 @@ def list_known_persons(skip: int = 0, limit: int = 100, category: Optional[str] 
 async def enroll_person(
     request: Request,
     name: str = Form(..., min_length=1, max_length=100),
-    category: str = Form("criminal"),
+    category: str = Form(...),
     criminal_status: str = Form("unknown"),
     threat_level: int = Form(0, ge=0, le=10),
     notes: Optional[str] = Form(None),
@@ -162,7 +165,7 @@ async def enroll_person(
                          threat_level=threat_level, notes=notes, created_by=user.id)
     db.add(person)
     db.flush()
-    results = _enroll_all(db, person, uploads)
+    results = await run_in_threadpool(_enroll_all, db, person, uploads)
     if not any(r["status"] == "enrolled" for r in results):
         db.rollback()
         raise HTTPException(422, detail={"message": "No usable face found in any image", "results": results})
@@ -188,7 +191,10 @@ def update_person(person_id: str, body: PersonPatch, request: Request,
                   db: Session = Depends(get_db), user: User = Depends(supervisor_or_admin)):
     p = _get_person(db, person_id)
     changes = body.model_dump(exclude_unset=True)
-    _validate_meta(changes.get("category"), changes.get("criminal_status"))
+    for required in ("name", "category", "criminal_status"):
+        if required in changes and changes[required] is None:
+            raise HTTPException(422, f"{required} cannot be null")
+    _validate_meta(changes.get("category", p.category), changes.get("criminal_status", p.criminal_status))
     for k, v in changes.items():
         setattr(p, k, v)
     _audit(db, user, "FACE_UPDATE", p.person_id, changes, request)
@@ -214,7 +220,7 @@ def delete_person(person_id: str, request: Request, db: Session = Depends(get_db
 async def add_images(person_id: str, request: Request, files: List[UploadFile] = File(...),
                      db: Session = Depends(get_db), user: User = Depends(supervisor_or_admin)):
     p = _get_person(db, person_id)
-    results = _enroll_all(db, p, await _read_uploads(files))
+    results = await run_in_threadpool(_enroll_all, db, p, await _read_uploads(files))
     n = sum(r["status"] == "enrolled" for r in results)
     if n:
         _audit(db, user, "FACE_ENROLL", p.person_id, {"added": n}, request)
@@ -243,6 +249,13 @@ def delete_image(image_id: int, request: Request, db: Session = Depends(get_db),
     if remaining <= 1:
         raise HTTPException(409, "Cannot delete the last photo; delete the person instead")
     db.query(FaceEncoding).filter(FaceEncoding.image_id == img.id).delete()
+    # Legacy ingest rows have image_id NULL: if the person has more encodings than photos, drop the surplus
+    # so a deleted photo can never keep matching.
+    left = db.query(FaceEncoding).filter(FaceEncoding.person_id == img.person_id).order_by(FaceEncoding.id).all()
+    unlinked = [e for e in left if e.image_id is None]
+    surplus = len(left) - (remaining - 1)
+    for e in unlinked[:max(0, min(surplus, len(unlinked)))]:
+        db.delete(e)
     _audit(db, user, "FACE_IMAGE_DELETE", str(img.id), {"person": img.person.person_id}, request)
     db.delete(img)
     db.commit()

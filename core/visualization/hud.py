@@ -7,7 +7,6 @@ Provides individual drawing functions and a high-level `render_hud()`.
 
 import cv2
 import math
-import random
 import numpy as np
 from core.pipeline.base import FrameContext
 
@@ -310,7 +309,8 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
         if is_criminal or is_suspicious:
             roi = frame[y1:y2, x1:x2]
             if roi.size > 0:
-                conf = 98.7 if is_criminal else 75.0 + random.random() * 20.0
+                real = ctx.identity_conf.get(track_id)
+                conf = real * 100.0 if real is not None else 0.0   # never fabricate a score
                 frame = draw_hud_panel(frame, name, status, is_criminal, conf, roi, current_panel_index, poi_count)
                 current_panel_index += 1
 

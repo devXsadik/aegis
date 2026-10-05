@@ -145,6 +145,10 @@ def resolve_source(source):
     Local webcam indexes map to LOCAL_CAMERA_URL when set: containers cannot see the
     host's camera, so Docker points that at scripts/webcam_bridge.py on the host.
     """
+    if isinstance(source, str) and source.strip().isdigit():
+        # The dashboard stores sources as text, so a webcam index comes back as "0": OpenCV would
+        # treat that as a file called "0" instead of camera 0.
+        source = int(source.strip())
     if not isinstance(source, str):
         bridge = os.getenv("LOCAL_CAMERA_URL", "")
         return bridge if bridge and isinstance(source, int) else source

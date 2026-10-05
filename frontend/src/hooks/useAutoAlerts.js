@@ -35,6 +35,7 @@ export function useAutoAlerts(onCriticalAlert) {
         lat: data.camera_lat ?? data.data?.camera_lat,
         lng: data.camera_lng ?? data.data?.camera_lng,
         mapsUrl: data.maps_url ?? data.data?.maps_url,
+        assignedOfficers: data.assigned_officers ?? data.data?.assigned_officers ?? [],
       })
     } else if (severity === 'high') {
       playAlertSound('high')

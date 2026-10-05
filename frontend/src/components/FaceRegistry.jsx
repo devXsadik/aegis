@@ -60,13 +60,24 @@ function Results({ results }) {
   )
 }
 
+const MAX_PHOTOS = 30   // keep in sync with MAX_FILES in backend/api/face_routes.py
+const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/bmp,.jpg,.jpeg,.png,.webp,.bmp'
+
 export function EnrollModal({ onClose, onDone }) {
-  const [form, setForm] = useState({ name: '', category: 'criminal', criminalStatus: 'wanted', threatLevel: 5, notes: '' })
+  const [form, setForm] = useState({ name: '', category: 'civilian', criminalStatus: 'unknown', threatLevel: 0, notes: '' })
   const [files, setFiles] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [results, setResults] = useState(null)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const setCategory = (e) => {
+    const category = e.target.value
+    // Reset risk fields so a civilian can never carry a leftover "wanted" status.
+    setForm((f) => (category === 'criminal'
+      ? { ...f, category, criminalStatus: 'wanted', threatLevel: f.threatLevel || 5 }
+      : { ...f, category, criminalStatus: 'unknown', threatLevel: 0 }))
+  }
+  const alerts = form.category === 'criminal' && ['wanted', 'convicted', 'suspect'].includes(form.criminalStatus)
 
   const submit = async () => {
     setBusy(true); setError(''); setResults(null)
@@ -74,7 +85,7 @@ export function EnrollModal({ onClose, onDone }) {
       const res = await enrollPerson({ ...form, threatLevel: Number(form.threatLevel), files })
       setResults(res.results)
       onDone()
-      if (!res.results.some((r) => r.possible_duplicate_of?.length)) onClose()
+      if (!res.results.some((r) => r.possible_duplicate_of?.length || r.status !== 'enrolled')) onClose()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -99,7 +110,7 @@ export function EnrollModal({ onClose, onDone }) {
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
           <label className="field">Category
-            <select className="input" value={form.category} onChange={set('category')}>
+            <select className="input" value={form.category} onChange={setCategory}>
               {CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}
             </select>
           </label>
@@ -112,12 +123,27 @@ export function EnrollModal({ onClose, onDone }) {
             <input className="input" type="number" min={0} max={10} value={form.threatLevel} onChange={set('threatLevel')} />
           </label>
         </div>
+        <div className="muted" style={{ fontSize: 12 }}>
+          {alerts
+            ? 'This person WILL raise a live criminal alert when seen on camera.'
+            : 'Recognised on camera but will NOT raise a criminal alert. Only category Criminal with status wanted, convicted or suspect alerts.'}
+        </div>
         <label className="field">Notes
           <textarea className="input" rows={2} value={form.notes} onChange={set('notes')} />
         </label>
-        <label className="field">Face photos (JPG/PNG, one clear face each; several angles improve matching)
-          <input className="input" type="file" accept="image/jpeg,image/png" multiple
-            onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files)].slice(0, 10))} />
+        <label className="field">Face photos (JPG/PNG/WEBP, select many at once, up to 30; one clear face each)
+          <input className="input" type="file" accept={IMAGE_ACCEPT} multiple
+            onChange={(e) => {
+              const picked = Array.from(e.target.files)      // read before clearing: the FileList is live
+              e.target.value = ''                            // lets the same files be picked again
+              setFiles((prev) => {
+                const key = (f) => `${f.name}|${f.size}|${f.lastModified}`
+                const seen = new Set(prev.map(key))
+                const merged = [...prev, ...picked.filter((f) => !seen.has(key(f)))]
+                if (merged.length > MAX_PHOTOS) setError(`Only the first ${MAX_PHOTOS} photos are kept.`)
+                return merged.slice(0, MAX_PHOTOS)
+              })
+            }} />
         </label>
         <Thumbs files={files} onRemove={(i) => setFiles((f) => f.filter((_, j) => j !== i))} />
         {error && <div className="login-error" role="alert">{error}</div>}
@@ -169,9 +195,9 @@ export function ManagePersonModal({ person, canEdit, canDelete, onClose, onChang
           {canEdit && (
             <>
               <label className="field">Add more photos
-                <input className="input" type="file" accept="image/jpeg,image/png" multiple disabled={busy}
+                <input className="input" type="file" accept={IMAGE_ACCEPT} multiple disabled={busy}
                   onChange={(e) => {
-                    const files = Array.from(e.target.files).slice(0, 10)
+                    const files = Array.from(e.target.files).slice(0, MAX_PHOTOS)
                     e.target.value = ''
                     run(async () => setResults((await addPersonImages(person.person_id, files)).results))
                   }} />

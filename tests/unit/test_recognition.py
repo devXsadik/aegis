@@ -5,20 +5,28 @@ from core.recognition.voting import IdentityVoter
 
 
 def test_voter_needs_agreement():
-    v = IdentityVoter(window=4, min_votes=2)
+    v = IdentityVoter(window=5, min_votes=2)
     v.add(1, "A")
-    assert v.confirmed(1) is None
     v.add(1, "B")
     assert v.confirmed(1) is None
     v.add(1, "A")
     assert v.confirmed(1) == "A"
-    v.add(1, None)                       # failed reads never count
+    for _ in range(3):                   # misses push the old votes out of the window
+        v.add(1, None)
+    assert v.confirmed(1) is None
     v.prune(set())
     assert v.confirmed(1) is None
 
 
+def test_single_identity_needs_tighter_match():
+    r = FaceRecognizerDB(tolerance=0.45, solo_slack=0.05)
+    assert r.match(np.array([0.43]), ["A"]) is None                      # inside tol, but no rival to prove it
+    assert r.match(np.array([0.30]), ["A"])[0] == "A"
+    assert FaceRecognizerDB(tolerance=0.45).match(np.array([0.43]), ["A"])[0] == "A"   # default: tolerance only
+
+
 def test_match_rejects_far_and_ambiguous():
-    r = FaceRecognizerDB(tolerance=0.45, min_margin=0.04)
+    r = FaceRecognizerDB(tolerance=0.45, min_margin=0.04)  # explicit: independent of default
     assert r.match(np.array([0.6]), ["A"]) is None                       # beyond tolerance
     assert r.match(np.array([0.30, 0.32]), ["A", "B"]) is None           # too close to call
     name, dist, margin = r.match(np.array([0.30, 0.50, 0.31]), ["A", "B", "A"])
@@ -60,3 +68,10 @@ def test_dlib_calls_are_serialized_across_threads(monkeypatch):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert overlap[0] is False
+
+
+def test_webcam_index_string_becomes_int(monkeypatch):
+    from utils.media.video_source import resolve_source
+    monkeypatch.delenv("LOCAL_CAMERA_URL", raising=False)
+    assert resolve_source("0") == 0 and resolve_source(1) == 1
+    assert resolve_source("http://1.2.3.4/video") == "http://1.2.3.4/video"

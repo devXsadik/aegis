@@ -13,7 +13,11 @@ from backend.db.database import SessionLocal
 from backend.models.alert import Alert
 from backend.models.audit_log import AuditLog
 from backend.models.camera import Camera
+from backend.models.camera_officer import CameraOfficer  # noqa: F401  (registers the table)
+from backend.models.known_person import KnownPerson
+from backend.services import officer_dispatch
 from backend.services.event_store import record_event
+from backend.services.watchlist_store import ALERT_STATUSES
 from backend.utils.events import broadcast_live_event
 from backend.utils.websocket import manager
 
@@ -116,15 +120,27 @@ async def dispatch_alert(
         db = SessionLocal()
 
     try:
+        display_name = None
+        if alert_type == "CRIMINAL_DETECTED":
+            # Defense in depth: only a currently enrolled, alert-eligible criminal may raise this.
+            known = db.query(KnownPerson).filter(KnownPerson.person_id == person_name).first()
+            if not (known and known.category == "criminal" and known.criminal_status in ALERT_STATUSES):
+                logger.warning(f"Rejected CRIMINAL_DETECTED for non-criminal identity: {person_name}")
+                return {"status": "rejected", "reason": "identity is not an alert-eligible criminal"}
+            display_name = known.name
+
         camera_lat, camera_lng, camera_name = _resolve_camera_geo(
             db, camera_id, camera_lat, camera_lng, camera_name,
         )
 
         if not message:
             if alert_type == "CRIMINAL_DETECTED":
-                message = f"WATCHLIST MATCH (unverified): {person_name} at {camera_location}"
+                message = f"WATCHLIST MATCH (unverified): {display_name} at {camera_location}"
             else:
                 message = alert_type.replace("_", " ").title()
+
+        if display_name and person_name in message:
+            message = message.replace(person_name, f"{display_name} ({person_name})", 1)
 
         if camera_lat is not None and camera_lng is not None:
             message += f" | GPS: {camera_lat:.5f}, {camera_lng:.5f}"
@@ -189,13 +205,38 @@ async def dispatch_alert(
         db.refresh(alert)
 
         # Auto-open a server-side incident ticket for critical/high threats
+        incident = None
         if severity in ("critical", "high"):
             try:
                 from backend.services.incident_service import create_incident_from_alert
-                create_incident_from_alert(db, alert, created_by_name="SYSTEM")
+                incident = create_incident_from_alert(db, alert, created_by_name="SYSTEM")
                 db.commit()
             except Exception as ie:
                 logger.warning(f"Auto-incident create failed: {ie}")
+                db.rollback()
+
+        # Camera -> assigned police officer(s): assign the ticket, then page them (SMS webhook).
+        officers, sms_sent = [], []
+        if alert_type in officer_dispatch.OFFICER_ALERT_TYPES:
+            try:
+                officers = officer_dispatch.officers_for_camera(db, camera_id)
+                if officers and incident is not None:
+                    from backend.services.incident_service import add_event
+                    incident.assigned_to = officers[0].id
+                    incident.assigned_name = officers[0].username
+                    add_event(db, incident, "ASSIGNED",
+                              f"Auto-assigned to {', '.join(u.username for u in officers)} (camera {camera_id})", "SYSTEM")
+                    db.commit()
+                if officers:
+                    text = officer_dispatch.sms_text(alert_type, display_name or person_name, camera_name,
+                                                     camera_location, camera_lat, camera_lng,
+                                                     incident.ticket_id if incident else None)
+                    sms_sent = await officer_dispatch.sms_officers(
+                        officers, text, {"alert_id": alert.id, "camera_id": camera_id, "lat": camera_lat, "lng": camera_lng})
+                else:
+                    logger.warning(f"No police officer assigned to camera {camera_id}; alert not routed")
+            except Exception as oe:  # noqa: BLE001
+                logger.warning(f"Officer dispatch failed: {oe}")
                 db.rollback()
 
         payload = await broadcast_live_event(
@@ -209,8 +250,10 @@ async def dispatch_alert(
             camera_name=camera_name,
             camera_lat=camera_lat,
             camera_lng=camera_lng,
+            extra={"alert_id": alert.id,
+                   "assigned_officers": officer_dispatch.officer_summary(officers),
+                   "officers_sms_sent": sms_sent},
         )
-        payload["alert_id"] = alert.id
         payload["auto_dispatched"] = True
 
         await manager.broadcast(payload, "status")

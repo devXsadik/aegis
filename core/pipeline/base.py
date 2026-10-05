@@ -46,6 +46,7 @@ class FrameContext:
 
     # --- Recognition results ---
     identities: dict = field(default_factory=dict)          # track_id → name
+    identity_conf: dict = field(default_factory=dict)        # track_id → real match confidence (0-1)
     criminal_ids: set = field(default_factory=set)           # track_ids of criminals
     active_criminals: list = field(default_factory=list)     # criminal names in frame
 

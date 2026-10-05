@@ -63,6 +63,7 @@ async def broadcast_live_event(
     camera_name: Optional[str] = None,
     camera_lat: Optional[float] = None,
     camera_lng: Optional[float] = None,
+    extra: Optional[dict] = None,
 ) -> dict:
     payload = build_event_payload(
         event_type=event_type,
@@ -76,5 +77,7 @@ async def broadcast_live_event(
         camera_lat=camera_lat,
         camera_lng=camera_lng,
     )
+    if extra:
+        payload.update(extra)
     await manager.broadcast(payload, "alerts")
     return payload

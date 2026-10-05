@@ -97,6 +97,7 @@ class OutputStage(PipelineStage):
                     camera_name=ctx.camera_name,
                     camera_lat=ctx.camera_lat,
                     camera_lng=ctx.camera_lng,
+                    confidence=ctx.identity_conf.get(track_id),
                 )
 
             if has_weapon:

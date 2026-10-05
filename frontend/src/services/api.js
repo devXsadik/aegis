@@ -220,10 +220,21 @@ export async function fetchUsers() {
   return apiFetch('/auth/users');
 }
 
-export async function createUser({ username, email, password, role }) {
+export async function fetchCameraOfficerMap() {
+  return apiFetch('/cameras/officers/all');
+}
+
+export async function setCameraOfficers(cameraId, userIds) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}/officers`, {
+    method: 'PUT',
+    body: JSON.stringify({ user_ids: userIds }),
+  });
+}
+
+export async function createUser({ username, email, password, role, phone }) {
   return apiFetch('/auth/users', {
     method: 'POST',
-    body: JSON.stringify({ username, email, password, role }),
+    body: JSON.stringify({ username, email, password, role, phone: phone || null }),
   });
 }
 

@@ -24,3 +24,6 @@ data/recordings/
 .DS_Store
 frontend/dist/
 *.out
+
+# Local credentials (never commit)
+docs/CREDENTIALS.local.md

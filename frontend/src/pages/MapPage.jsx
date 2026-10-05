@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react'
+import { fetchCameraOfficerMap } from '../services/api'
 import { Card, Icons, Tag, Empty, timeAgo, SEVERITY_TONE } from '../components/ui'
 import { CameraMapOverview } from '../components/CameraMapOverview'
 
 export function MapPage({ ctx }) {
   const { mapCameras, mapEvents } = ctx
   const withGps = mapCameras.filter((c) => c.lat != null && c.lng != null)
+  const [officers, setOfficers] = useState({})
+  useEffect(() => { fetchCameraOfficerMap().then(setOfficers).catch(() => {}) }, [mapCameras.length])
 
   return (
     <div className="grid grid-23">
@@ -24,6 +28,7 @@ export function MapPage({ ctx }) {
                 <b>{cam.name || cam.camera_id}</b>
                 <div className="meta">{cam.location}</div>
                 <div className="meta mono">{cam.lat?.toFixed(5)}, {cam.lng?.toFixed(5)}</div>
+                <div className="meta">Officer: {(officers[cam.camera_id] || []).map((o) => o.name).join(', ') || 'none assigned'}</div>
               </div>
               <Tag tone={cam.active ? 'ok' : 'warn'}>{cam.active ? 'Online' : 'Offline'}</Tag>
             </div>
@@ -36,6 +41,7 @@ export function MapPage({ ctx }) {
               <div>
                 <b>{ev.description || ev.event_type}</b>
                 <div className="meta">{ev.camera_name} · {timeAgo(ev.timestamp)}</div>
+                {ev.lat != null && ev.lng != null && <div className="meta mono">{Number(ev.lat).toFixed(5)}, {Number(ev.lng).toFixed(5)}</div>}
               </div>
               <Tag tone={SEVERITY_TONE[ev.severity] || 'info'}>{ev.severity || 'info'}</Tag>
             </div>

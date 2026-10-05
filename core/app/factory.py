@@ -112,7 +112,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     vehicle_tracker = VehicleTracker(appearance)
     face_recognizer = _shared(
         ("face", face_tolerance),
-        lambda: FaceRecognizerDB(tolerance=face_tolerance,
+        lambda: FaceRecognizerDB(tolerance=face_tolerance, cache_ttl=30.0,
                                  loader=watchlist_store.load_face_encodings),
     )
     pose_cfg = cfg.get("pose", {})

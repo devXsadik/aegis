@@ -16,6 +16,8 @@ os.environ.setdefault("ENVIRONMENT", "development")
 from backend.main import app  # noqa: E402
 from backend.services import face_service  # noqa: E402
 
+_real_check = face_service._check_quality   # the autouse fixture stubs the module attribute
+
 client = TestClient(app)
 
 
@@ -58,6 +60,7 @@ def _setup(monkeypatch):
     _clean_faces()
     monkeypatch.setattr(face_service, "_engine", _fake_engine())
     monkeypatch.setattr(face_service, "get_tolerance", lambda: 0.45)
+    monkeypatch.setattr(face_service, "_check_quality", lambda *_: None)   # fake images are flat gray
 
 
 def _login(username: str, role: str) -> dict:
@@ -168,6 +171,7 @@ def test_image_lifecycle_and_delete():
 
 def test_update_person_validates():
     sup = _login("face_sup", "supervisor")
+    _check_explicit_category(sup)
     pid = _enroll(sup, "Editable", 30).json()["person"]["person_id"]
     ok = client.patch(f"/api/v1/faces/persons/{pid}", headers=sup,
                       json={"criminal_status": "cleared", "threat_level": 1})
@@ -213,3 +217,21 @@ def test_verify_evidence_match_and_no_match_and_agreement():
     assert none["status"] == "no_face"
 
     assert client.post("/api/v1/faces/verify-evidence/999999", headers=sup).status_code == 404
+
+
+def test_quality_gate_rejects_small_and_blurry_faces():
+    flat = np.full((200, 200, 3), 128, np.uint8)
+    with pytest.raises(face_service.FaceError, match="too small"):
+        _real_check(flat, (0, 20, 20, 0))
+    with pytest.raises(face_service.FaceError, match="blurry"):
+        _real_check(flat, (0, 150, 150, 0))
+
+
+def _check_explicit_category(sup):
+    r = client.post("/api/v1/faces/persons", headers=sup, data={"name": "N"},
+                    files=[("files", ("a.png", _img(100), "image/png"))])
+    assert r.status_code == 422                       # category is required, no silent 'criminal'
+    r = client.post("/api/v1/faces/persons", headers=sup,
+                    data={"name": "N", "category": "civilian", "criminal_status": "wanted"},
+                    files=[("files", ("a.png", _img(100), "image/png"))])
+    assert r.status_code == 422                       # civilian can't be 'wanted'

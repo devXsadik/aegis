@@ -157,7 +157,11 @@ def main():
                     cid = c.get("id")
                     if cid and cid not in threads_and_events:
                         logger.info(f"User enabled camera: {cid}. Starting stream.")
-                        threads_and_events[cid] = _start_camera_thread(c, cfg, base_dir, show_window)
+                        try:
+                            threads_and_events[cid] = _start_camera_thread(c, cfg, base_dir, show_window)
+                        except Exception as e:  # noqa: BLE001  one bad camera must not kill hot-reload
+                            logger.error(f"Could not start camera {cid}: {e}")
+                            time.sleep(5.0)
         except KeyboardInterrupt:
             pass
         cv2.destroyAllWindows()

@@ -83,7 +83,7 @@ class CameraResponse(BaseModel):
 @router.get("/", response_model=List[CameraResponse])
 def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
     # Auto-sync cameras from cameras.yaml into DB
-    yaml_path = Path("config/cameras.yaml")
+    yaml_path = Path(__file__).resolve().parents[2] / "config" / "cameras.yaml"   # not cwd-dependent
     if yaml_path.exists():
         try:
             with open(yaml_path, "r") as f:
@@ -130,10 +130,14 @@ def sync_camera_to_yaml(cam: Camera):
         for c in cameras:
             if c.get("id") == cam.camera_id:
                 c["name"] = cam.name
-                c["source"] = cam.rtsp_url
-                c["location"] = cam.location
-                c["lat"] = cam.lat
-                c["lng"] = cam.lng
+                if cam.rtsp_url:                      # never blank a working source on a plain on/off toggle
+                    c["source"] = cam.rtsp_url
+                if cam.location is not None:
+                    c["location"] = cam.location
+                if cam.lat is not None:
+                    c["lat"] = cam.lat
+                if cam.lng is not None:
+                    c["lng"] = cam.lng
                 c["enabled"] = cam.active
                 found = True
                 break
@@ -242,3 +246,43 @@ def put_geometry(camera_id: str, body: GeometryBody, db: Session = Depends(get_d
     ))
     db.commit()
     return {**clean, "configured": True, "updated_at": cam.geometry_updated_at.isoformat()}
+
+
+class OfficerAssign(BaseModel):
+    user_ids: List[int]          # first = primary officer, rest = backups
+
+
+@router.get("/{camera_id}/officers")
+def get_camera_officers(camera_id: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    from backend.services.officer_dispatch import officers_for_camera, officer_summary
+    return {"camera_id": camera_id, "officers": officer_summary(officers_for_camera(db, camera_id))}
+
+
+@router.put("/{camera_id}/officers")
+def set_camera_officers(camera_id: str, body: OfficerAssign, db: Session = Depends(get_db),
+                        admin: User = Depends(admin_only)):
+    from backend.models.camera_officer import CameraOfficer
+    if not db.query(Camera).filter(Camera.camera_id == camera_id).first():
+        raise HTTPException(status_code=404, detail="Camera not found")
+    ids = list(dict.fromkeys(body.user_ids))
+    good = {u.id for u in db.query(User).filter(User.id.in_(ids), User.role == "police", User.is_active == True).all()}  # noqa: E712
+    bad = [i for i in ids if i not in good]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"Not active police users: {bad}")
+    db.query(CameraOfficer).filter(CameraOfficer.camera_id == camera_id).delete()
+    for prio, uid in enumerate(ids):
+        db.add(CameraOfficer(camera_id=camera_id, user_id=uid, priority=prio))
+    db.commit()
+    return {"camera_id": camera_id, "user_ids": ids}
+
+
+@router.get("/officers/all")
+def camera_officer_map(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    """{camera_id: [officer names]} for the Cameras and Map pages."""
+    from backend.models.camera_officer import CameraOfficer
+    out = {}
+    rows = (db.query(CameraOfficer, User).join(User, User.id == CameraOfficer.user_id)
+            .order_by(CameraOfficer.priority).all())
+    for co, u in rows:
+        out.setdefault(co.camera_id, []).append({"id": u.id, "name": u.username})
+    return out

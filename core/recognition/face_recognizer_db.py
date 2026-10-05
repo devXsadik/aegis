@@ -26,13 +26,14 @@ class FaceRecognizerDB:
     def __init__(self, tolerance: float = 0.45, loader: Optional[Loader] = None,
                  cache_ttl: float = 60.0, min_face_px: int = 40,
                  min_sharpness: float = 25.0, min_margin: float = 0.04,
-                 cnn_cooldown: float = 3.0):
+                 solo_slack: float = 0.0, cnn_cooldown: float = 3.0):
         self.tolerance = tolerance
         self.loader = loader or (lambda: ([], []))
         self.cache_ttl = cache_ttl
         self.min_face_px = min_face_px
         self.min_sharpness = min_sharpness
         self.min_margin = min_margin
+        self.solo_slack = solo_slack            # extra strictness when no rival identity exists to compare
         self.cnn_cooldown = cnn_cooldown        # seconds between slow CNN fallbacks (all cameras)
         self._last_cnn = 0.0
         self._cache = None
@@ -60,9 +61,16 @@ class FaceRecognizerDB:
         ranked = sorted(best.items(), key=lambda kv: kv[1])
         if not ranked or ranked[0][1] > self.tolerance:
             return None
-        margin = (ranked[1][1] - ranked[0][1]) if len(ranked) > 1 else 1.0
-        if margin < self.min_margin:
-            return None
+        if len(ranked) > 1:
+            margin = ranked[1][1] - ranked[0][1]
+            if margin < self.min_margin:
+                return None
+        else:
+            # Single enrolled identity: no rival to rank against. `solo_slack` (default 0) can demand a
+            # tighter match, but real webcam distances for the true person are ~0.40-0.45, so keep it small.
+            if ranked[0][1] > self.tolerance - self.solo_slack:
+                return None
+            margin = self.tolerance - ranked[0][1]
         return ranked[0][0], ranked[0][1], margin
 
     def recognize_detail(self, face_roi) -> Optional[dict]:
@@ -79,6 +87,7 @@ class FaceRecognizerDB:
             boxes = [b for b in boxes if self._quality_ok(rgb, b)]
             if not boxes:
                 return None
+            boxes = [max(boxes, key=lambda b: (b[2] - b[0]) * (b[1] - b[3]))]   # largest face only
             encodings = face_recognition.face_encodings(rgb, boxes)
         if not encodings:
             return None
@@ -94,6 +103,11 @@ class FaceRecognizerDB:
     def recognize_person(self, face_roi) -> Optional[str]:
         res = self.recognize_detail(face_roi)
         return res["name"] if res else None
+
+    @staticmethod
+    def confidence(distance: float, tolerance: float) -> float:
+        """0-1 heuristic: 1.0 at distance 0, 0.5 at the tolerance (same as the registry's verify)."""
+        return round(max(0.0, min(1.0, 1.0 - distance / (2 * tolerance))), 3)
 
     def invalidate_cache(self):
         self._cache = None

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import Optional
 from pydantic import BaseModel
 from backend.db.database import get_db
 from backend.models.user import User
@@ -28,6 +29,7 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: str = "viewer"
+    phone: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -36,6 +38,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+    phone: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -67,6 +70,7 @@ def create_user(req: UserCreate, db: Session = Depends(get_db), admin: User = De
         email=req.email,
         hashed_password=hash_password(req.password),
         role=req.role,
+        phone=(req.phone or "").strip() or None,
     )
     db.add(user)
     db.commit()

@@ -7,6 +7,9 @@ SUSPICIOUS_LOITER_SECONDS = 15
 SUSPICIOUS_ERRATIC_ANGLE = 60
 
 
+MIN_STEP_PX = 3.0
+
+
 def configure_behavior(cfg=None) -> None:
     """Apply behavior thresholds from config.yaml."""
     global SUSPICIOUS_SPEED_THRESHOLD, SUSPICIOUS_LOITER_SECONDS, SUSPICIOUS_ERRATIC_ANGLE
@@ -32,7 +35,8 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
             speed = math.hypot(cx2 - cx1, cy2 - cy1) / dt
             speeds.append(speed)
 
-    if speeds and max(speeds) > SUSPICIOUS_SPEED_THRESHOLD:
+    # Median, not max: one tracker jitter / box-resize spike must not flag a person.
+    if len(speeds) >= 3 and sorted(speeds)[len(speeds) // 2] > SUSPICIOUS_SPEED_THRESHOLD:
         reasons.append("rapid_movement")
 
     if len(track_history) >= 5:
@@ -57,7 +61,7 @@ def is_suspicious_behavior(track_history, pose_landmarks=None):
             dot = v1[0] * v2[0] + v1[1] * v2[1]
             mag1 = math.hypot(*v1)
             mag2 = math.hypot(*v2)
-            if mag1 > 0 and mag2 > 0:
+            if mag1 >= MIN_STEP_PX and mag2 >= MIN_STEP_PX:     # ignore detector jitter on standing people
                 angle = math.degrees(math.acos(max(-1, min(1, dot / (mag1 * mag2)))))
                 if angle > SUSPICIOUS_ERRATIC_ANGLE:
                     direction_changes += 1

@@ -15,7 +15,7 @@ const ROLES = [
 export function Users({ ctx }) {
   const { auditLogs, me } = ctx
   const [users, setUsers] = useState(null)
-  const [form, setForm] = useState({ username: '', email: '', password: '', role: 'operator' })
+  const [form, setForm] = useState({ username: '', email: '', password: '', role: 'operator', phone: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -30,7 +30,7 @@ export function Users({ ctx }) {
     try {
       await createUser(form)
       setMsg({ ok: true, text: `User "${form.username}" created` })
-      setForm({ username: '', email: '', password: '', role: 'operator' })
+      setForm({ username: '', email: '', password: '', role: 'operator', phone: '' })
       load()
     } catch (err) {
       setMsg({ ok: false, text: err.message })
@@ -77,6 +77,9 @@ export function Users({ ctx }) {
             </label>
             <label className="field">Password
               <input className="input" type="password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            </label>
+            <label className="field">Phone (for police SMS alerts, e.g. +8801XXXXXXXXX)
+              <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </label>
             <label className="field">Role
               <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>

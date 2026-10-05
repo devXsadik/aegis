@@ -128,6 +128,7 @@ function formatEvent(evt) {
     lat: evt.camera_lat ?? evt.data?.camera_lat,
     lng: evt.camera_lng ?? evt.data?.camera_lng,
     mapsUrl: evt.maps_url ?? evt.data?.maps_url,
+    assignedOfficers: evt.assigned_officers ?? evt.data?.assigned_officers ?? [],
   }
 }
 
@@ -246,8 +247,11 @@ function App() {
     if (data.alert_type === 'PIPELINE_HEARTBEAT') return
     const formatted = formatEvent(data)
     setEvents((prev) => [formatted, ...prev].slice(0, 200))
+    // A police officer is only paged for cameras assigned to them (unassigned alerts reach everyone).
+    const assigned = data.assigned_officers || data.data?.assigned_officers || []
+    if (me?.role === 'police' && assigned.length && !assigned.some((o) => o.id === me.id)) return
     handleAutoAlert(data)
-  }, [handleAutoAlert])
+  }, [handleAutoAlert, me])
 
   const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage, authed)
   const { connected: statusWsConnected } = useWebSocket('status', () => {}, authed)
@@ -394,7 +398,7 @@ function App() {
 
   return (
     <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
-      <CriticalAlertBanner alert={criticalBanner} onDismiss={() => setCriticalBanner(null)} />
+      <CriticalAlertBanner alert={criticalBanner} onDismiss={() => setCriticalBanner(null)} onViewMap={() => { setPage('map'); setCriticalBanner(null) }} onOpenAlerts={() => { setPage('alerts'); setCriticalBanner(null) }} />
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
           <span className="brand-logo">AG</span>
