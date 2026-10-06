@@ -3,6 +3,7 @@
 import os
 import logging
 import threading
+import time
 from typing import Optional
 
 logger = logging.getLogger("HumanAnalysis")
@@ -105,39 +106,77 @@ def publish_live_event(
 
 
 _STREAM_ENABLED = os.getenv("PIPELINE_STREAM_ENABLED", "true").lower() == "true"
-_stream_busy: dict = {}   # camera_id -> Event; one in-flight upload per camera
+
+
+class _FrameSender(threading.Thread):
+    """Uploads one camera's newest JPEG over a single keep-alive connection.
+
+    The camera loop only drops its latest frame into a slot (never blocks, never spawns a thread,
+    never skips a frame just because the previous upload was still in flight); this thread sends
+    whatever is newest as fast as the backend accepts it. Plain http.client keeps the work per
+    frame to a couple of syscalls, which matters here: the pipeline process is GIL-bound and a
+    thread that needs the GIL many times per upload (httpx did) is starved by YOLO's Python code.
+    """
+
+    def __init__(self, camera_id: str):
+        super().__init__(name=f"frame-sender-{camera_id}", daemon=True)
+        self.camera_id = camera_id
+        self._slot = None
+        self._cv = threading.Condition()
+        self._last_error_log = 0.0
+        self.start()
+
+    def submit(self, jpeg: bytes) -> None:
+        with self._cv:
+            self._slot = jpeg                       # replaces an unsent older frame: newest wins
+            self._cv.notify()
+
+    def _connect(self):
+        import http.client
+        from urllib.parse import urlsplit
+
+        u = urlsplit(BACKEND_URL)
+        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+        return cls(u.hostname, u.port or (443 if u.scheme == "https" else 80), timeout=3.0)
+
+    def run(self) -> None:
+        conn = None
+        path = f"/api/v1/stream/frame/{self.camera_id}"
+        headers = {"X-Internal-Key": INTERNAL_API_KEY, "Content-Type": "image/jpeg"}
+        while True:
+            with self._cv:
+                while self._slot is None:
+                    self._cv.wait()
+                jpeg, self._slot = self._slot, None
+            try:
+                if conn is None:
+                    conn = self._connect()
+                conn.request("POST", path, body=jpeg, headers=headers)
+                conn.getresponse().read()           # drain so the connection can be reused
+            except Exception as e:  # noqa: BLE001
+                if conn is not None:
+                    conn.close()
+                conn = None
+                now = time.monotonic()
+                if now - self._last_error_log > 10:
+                    self._last_error_log = now
+                    logger.error(f"publish_frame failed for {self.camera_id}: {e}")
+                time.sleep(0.5)                     # backend down: don't spin
+
+
+_senders: dict = {}
+_senders_lock = threading.Lock()
 
 
 def publish_frame(camera_id: str, jpeg_bytes: bytes) -> None:
-    """Push the latest annotated JPEG frame to the backend live-stream buffer.
-
-    Drops frames if a previous upload is still in flight so the CV loop
-    never blocks on network I/O.
-    """
-    busy = _stream_busy.setdefault(camera_id, threading.Event())
-    if not _STREAM_ENABLED or busy.is_set():
+    """Hand the latest annotated JPEG frame for `camera_id` to its sender; returns immediately."""
+    if not _STREAM_ENABLED:
         return
-
-    def _send():
-        try:
-            import httpx
-
-            httpx.post(
-                f"{BACKEND_URL}/api/v1/stream/frame/{camera_id}",
-                content=jpeg_bytes,
-                headers={
-                    "X-Internal-Key": INTERNAL_API_KEY,
-                    "Content-Type": "image/jpeg",
-                },
-                timeout=3.0,
-            )
-        except Exception as e:
-            logger.error(f"publish_frame failed for {camera_id}: {e}")
-        finally:
-            busy.clear()
-
-    busy.set()
-    threading.Thread(target=_send, daemon=True).start()
+    sender = _senders.get(camera_id)
+    if sender is None:
+        with _senders_lock:
+            sender = _senders.setdefault(camera_id, _FrameSender(camera_id))
+    sender.submit(jpeg_bytes)
 
 
 _last_clip: dict = {}

@@ -239,6 +239,10 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
     now = ctx.timestamp
     elapsed = now - start_time
     fh, fw = frame.shape[:2]
+    # Only people the detector sees right now. DeepSORT keeps lost tracks alive (max_age) on a
+    # predicted box that drifts onto chairs, screens and walls; unconfirmed tracks are one-frame
+    # blips. Both looked like "detecting every object".
+    tracks = [t for t in ctx.tracks if t.is_confirmed() and getattr(t, "time_since_update", 0) == 0]
 
     # Background elements
     frame = draw_rec_indicator(frame, elapsed)
@@ -268,19 +272,15 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
     # Count total panels needed for POIs
-    poi_count = sum(1 for t in ctx.tracks if t.is_confirmed() and (t.track_id in ctx.criminal_ids or t.track_id in ctx.suspicious_tracks))
+    poi_count = sum(1 for t in tracks if (t.track_id in ctx.criminal_ids or t.track_id in ctx.suspicious_tracks))
     current_panel_index = 0
 
     # Person boxes + HUD panels
-    for track in ctx.tracks:
+    for track in tracks:
         track_id = track.track_id
         x1, y1, x2, y2 = map(int, track.to_ltrb())
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(fw, x2), min(fh, y2)
-
-        if not track.is_confirmed():
-            frame = draw_sci_fi_box(frame, x1, y1, x2, y2, (100, 100, 100), thickness=1)
-            continue
 
         name = ctx.identities.get(track_id, "Unknown")
         is_criminal = track_id in ctx.criminal_ids
@@ -316,7 +316,7 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
 
     # Global HUD elements
     frame = draw_threat_level(frame, ctx.threat_score)
-    frame = draw_radar(frame, ctx.tracks, fw, fh, elapsed, ctx.criminal_ids)
+    frame = draw_radar(frame, tracks, fw, fh, elapsed, ctx.criminal_ids)
 
     if ctx.active_criminals:
         flash = int(elapsed * 4) % 2 == 0
@@ -343,7 +343,7 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
 
     cv2.rectangle(frame, (0, 0), (350, hud_h), (0, 0, 0), -1)
 
-    cv2.putText(frame, f"FPS: {fps:.1f}  |  People: {len(ctx.tracks)}",
+    cv2.putText(frame, f"AI: {fps:.1f}/s  |  People: {len(tracks)}",
                 (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
     cv2.putText(frame, f"Weapon: {'CONFIRMED' if ctx.confirmed_weapons else 'candidate' if ctx.weapon_present else 'NO'}  |  "
                        f"Anomalies: {len(ctx.anomalies)}",

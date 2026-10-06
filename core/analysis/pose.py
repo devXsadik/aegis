@@ -78,12 +78,12 @@ class PoseAnalyzer:
         with self._lock:
             results = self.model(frame, conf=self.conf, verbose=False, device=self.device,
                                  **({"imgsz": self.imgsz} if self.imgsz else {}))
+            # Copy to numpy inside the lock: tensor reads are Metal work and must not overlap another
+            # thread's inference (see core.detectors.device.read_boxes).
+            raw = [(r.keypoints.data.cpu().numpy(), r.boxes.xyxy.cpu().numpy())      # kp: (n, 17, 3)
+                   for r in results if r.keypoints is not None and r.boxes is not None]
         poses = []
-        for r in results:
-            if r.keypoints is None or r.boxes is None:
-                continue
-            kp = r.keypoints.data.cpu().numpy()          # (n, 17, 3)
-            boxes = r.boxes.xyxy.cpu().numpy()
+        for kp, boxes in raw:
             for box, pts in zip(boxes, kp):
                 pose: Pose = {
                     name: (float(x), float(y), float(c))

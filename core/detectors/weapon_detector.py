@@ -1,4 +1,4 @@
-from core.detectors.device import lock_for
+from core.detectors.device import lock_for, read_boxes
 
 import numpy as np
 from ultralytics import YOLO
@@ -14,15 +14,6 @@ class WeaponDetector:
     def detect(self, frame: np.ndarray):
         with self._lock:
             results = self.model(frame, conf=self.conf_threshold, verbose=False, device=self.device)
-        weapons = []
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                cls_id = int(box.cls[0])
-                weapons.append({
-                    "bbox": (x1, y1, x2, y2),
-                    "score": conf,
-                    "class_id": cls_id,
-                })
-        return weapons
+            boxes = read_boxes(results)
+        return [{"bbox": (x1, y1, x2, y2), "score": conf, "class_id": cls_id}
+                for x1, y1, x2, y2, conf, cls_id in boxes]

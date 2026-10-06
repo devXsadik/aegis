@@ -11,6 +11,37 @@ _cached = None
 _MPS_LOCK = threading.RLock()
 
 
+def shared_inference_lock():
+    """The process-wide lock for native inference that must not overlap MPS work.
+
+    dlib's CNN face detector running while PyTorch runs a model segfaults the process
+    (reproduced: YOLO on MPS + dlib CNN in parallel threads). Taking turns on one lock is
+    crash-free but serialises face work with YOLO, so the live pipeline runs dlib in worker
+    processes instead and this lock only guards the in-process fallback.
+    """
+    return _MPS_LOCK
+
+
+def read_boxes(results):
+    """[(x1, y1, x2, y2, conf, cls)] copied to plain Python numbers.
+
+    Call this INSIDE the model's lock. Result tensors live on the MPS device and indexing or
+    converting them (`box.xyxy[0]`, `int(...)`) is itself Metal work: done after the lock was
+    released it ran next to another thread's inference and crashed the process (Metal aborts when two
+    threads encode at once; seen as a segfault in NMS of one camera while the other read its boxes).
+    """
+    out = []
+    for r in results:
+        if r.boxes is None or len(r.boxes) == 0:
+            continue
+        xyxy = r.boxes.xyxy.cpu().numpy()
+        conf = r.boxes.conf.cpu().numpy()
+        cls = r.boxes.cls.cpu().numpy()
+        out.extend((int(b[0]), int(b[1]), int(b[2]), int(b[3]), float(c), int(k))
+                   for b, c, k in zip(xyxy, conf, cls))
+    return out
+
+
 def lock_for(device: str):
     """Lock a model must hold while running inference on `device`."""
     return _MPS_LOCK if str(device).startswith("mps") else threading.Lock()

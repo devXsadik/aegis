@@ -27,7 +27,7 @@ cd frontend && npm run dev
 - **Auto alerts**: `utils/alerts/notification_hub.py` → `POST /api/v1/alerts/dispatch` → DB + audit + WebSocket + GPS
 - **Config**: `config/config.yaml`, `config/cameras.yaml`, `config/models.yaml` (via `utils/config/`)
 - **Paths**: `paths.py` — single source for `data/watchlist`, `data/demo/clips`, etc.
-- **Face recognition**: `core/recognition/face_recognizer_db.py` + PostgreSQL pgvector
+- **Face recognition**: `core/recognition/face_recognizer_db.py` + encodings stored in the DB (PostgreSQL or SQLite)
 - **Dashboard**: `frontend/src/` — components, hooks, services
 - **Reports API**: `GET /api/v1/reports/incident`
 - **Tests**: `pytest tests/unit/`
@@ -46,3 +46,7 @@ cd frontend && npm run dev
 - `INTERNAL_API_KEY` in `.env` must match between backend and pipeline
 - Camera GPS in `config/cameras.yaml` or `config/config.yaml`
 - Press `S` for pipeline stats, `T` for thermal, `Q` to quit
+- Face work runs in worker subprocesses (`core/recognition/face_worker.py`, `FACE_WORKERS`, default 1): dlib next to PyTorch/MPS in one process segfaults. Detector is YuNet (`models/face_detection_yunet_2023mar.onnx`, fetched by `ensure_local_env.py`; dlib is the fallback)
+- Read model results (`read_boxes`) inside the model lock: MPS tensor reads outside it crash the process
+- Dashboard stream: `STREAM_HUD=clean|full`, `STREAM_FPS`, `STREAM_WIDTH`, `STREAM_QUALITY` (clean = people boxes only; full = local-window HUD)
+- Dev machine is an 8 GB MacBook: on battery / Low Power Mode or with Chrome+Cursor open it swaps and video stutters. Measure smoothness on AC power

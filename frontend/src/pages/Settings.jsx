@@ -1,3 +1,4 @@
+import { isAlertSoundMuted, setAlertSoundMuted } from '../hooks/alertNotifications'
 import { useEffect, useState } from 'react'
 import { Card, Tag } from '../components/ui'
 import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs } from '../services/api'
@@ -41,6 +42,7 @@ function ThresholdSlider({ id, spec, value, canEdit, onCommit }) {
 export function Settings({ ctx }) {
   const { push: toast } = useToast()
   const { theme, setTheme, systemStatus, me } = ctx
+  const [muted, setMuted] = useState(isAlertSoundMuted)
   const canEdit = me?.role === 'admin'
   const [specs, setSpecs] = useState(null)
   const [thresholds, setThresholds] = useState({})
@@ -163,8 +165,15 @@ export function Settings({ ctx }) {
               <button type="button" className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>Light</button>
             </div>
           </div>
+          <div className="row">
+            <span>Alert sound</span>
+            <div className="seg" role="group" aria-label="Alert sound">
+              <button type="button" className={!muted ? 'on' : ''} onClick={() => { setAlertSoundMuted(false); setMuted(false) }}>On</button>
+              <button type="button" className={muted ? 'on' : ''} onClick={() => { setAlertSoundMuted(true); setMuted(true) }}>Muted</button>
+            </div>
+          </div>
           <p className="muted" style={{ fontSize: '0.74rem', marginTop: 8 }}>
-            Current: <b>{theme}</b> · preference saved on this device
+            Theme: <b>{theme}</b> · preferences are saved on this device. Critical alerts repeat the tone until acknowledged.
           </p>
         </Card>
 

@@ -1,4 +1,4 @@
-from core.detectors.device import lock_for
+from core.detectors.device import lock_for, read_boxes
 
 import numpy as np
 from ultralytics import YOLO
@@ -17,10 +17,5 @@ class HumanDetector:
         with self._lock:
             results = self.model(frame, conf=self.conf_threshold, classes=[0], verbose=False, device=self.device,
                                  **({"imgsz": self.imgsz} if self.imgsz else {}))
-        detections = []
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                detections.append(([x1, y1, x2, y2], conf, 0))
-        return detections
+            boxes = read_boxes(results)                  # tensor reads are GPU work: keep them in the lock
+        return [([x1, y1, x2, y2], conf, 0) for x1, y1, x2, y2, conf, _ in boxes]

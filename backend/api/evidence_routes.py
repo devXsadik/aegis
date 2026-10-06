@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -11,6 +11,7 @@ from backend.models.evidence import Evidence
 from backend.models.user import User
 from backend.auth.auth import operator_or_admin, admin_only
 from backend.auth.guards import viewer_user
+from backend.services.audit import log_audit
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 
@@ -89,11 +90,13 @@ def get_evidence(evidence_id: int, db: Session = Depends(get_db),
 
 
 @router.delete("/{evidence_id}")
-def delete_evidence(evidence_id: int, db: Session = Depends(get_db),
+def delete_evidence(evidence_id: int, request: Request, db: Session = Depends(get_db),
                     admin: User = Depends(admin_only)):
     ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
     if not ev:
         raise HTTPException(status_code=404, detail="Evidence not found")
+    log_audit(db, admin, "EVIDENCE_DELETE", "evidence", evidence_id,
+              f"category={ev.category} camera={ev.camera_location} person={ev.person_name}", request)
     db.delete(ev)
     db.commit()
     return {"status": "deleted"}

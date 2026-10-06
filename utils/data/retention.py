@@ -86,7 +86,7 @@ class RetentionPolicy:
 
 def run_retention(dry_run: bool = False) -> dict:
     import yaml
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root
     config_path = os.path.join(base_dir, "config", "config.yaml")
     try:
         with open(config_path) as f:

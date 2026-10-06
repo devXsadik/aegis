@@ -1,3 +1,4 @@
+import { can } from '../lib/permissions'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Icons, Seg, Pill, Stat, Tag, Empty, timeAgo } from '../components/ui'
 import {
@@ -189,7 +190,7 @@ function PtzPad({ cameraId }) {
 }
 
 export function LiveMonitoring({ ctx }) {
-  const { systemStatus, cameras, threatLevel, streamingCams = [] } = ctx
+  const { systemStatus, cameras, threatLevel, streamingCams = [], me } = ctx
   const [layout, setLayout] = useState('auto')
   const [selectedId, setSelectedId] = useState(null)
   const [fullscreenId, setFullscreenId] = useState(null)
@@ -223,7 +224,7 @@ export function LiveMonitoring({ ctx }) {
         status: streaming.has(c.camera_id) ? 'live' : beat ? 'online' : 'offline',
         fps: beat?.fps ?? null,
         threat_score: beat?.threat_score ?? 0,
-        dvr: true,
+        dvr: Boolean(beat?.recording),   // only claim REC when the pipeline reports it
       }
     }).sort((x, y) => (y.status === 'live') - (x.status === 'live') || x.name.localeCompare(y.name))
   }, [cameras, systemStatus, streamingCams])
@@ -375,9 +376,11 @@ export function LiveMonitoring({ ctx }) {
               {camList.length === 0 && <div className="live-hint" style={{ padding: 14 }}>None</div>}
             </div>
           </Card>
-          <Card title="PTZ control" sub={activeInfo?.name || '—'}>
-            <PtzPad cameraId={activeCam} />
-          </Card>
+          {can(me?.role, 'ptz') && (
+            <Card title="PTZ control" sub={activeInfo?.name || '—'}>
+              <PtzPad cameraId={activeCam} />
+            </Card>
+          )}
         </div>
       </div>
 

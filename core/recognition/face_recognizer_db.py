@@ -1,16 +1,34 @@
-import threading
+import logging
 import time
 from typing import Callable, List, Optional, Tuple
 
 import cv2
-import face_recognition
 import numpy as np
 
-from utils.face_detect import locate_faces
+from core.detectors.device import shared_inference_lock
+from core.recognition.face_worker import shared_pool
+from utils.face_detect import detect_and_encode, quality_ok
 
-# dlib's HOG detector / shape predictor / encoder are shared module-level objects and
-# are not thread-safe: concurrent calls from several camera threads segfault the process.
-_DLIB_LOCK = threading.Lock()
+# In-process fallback only (out_of_process=False, e.g. tests). dlib's detector/encoder are shared
+# module-level objects, not thread-safe, and running them next to PyTorch/MPS segfaulted the process,
+# so here they take turns with the MPS detectors on one lock. The live pipeline uses worker processes
+# instead (core/recognition/face_worker.py): no lock, face work runs in parallel with YOLO.
+_DLIB_LOCK = shared_inference_lock()
+
+# dlib (face_recognition) loads ~130 MB of models on import. The live pipeline does all face work in
+# worker processes, so it must not pay that here: on an 8 GB machine it is the difference between
+# fitting in RAM and swapping. Loaded lazily, only by the in-process fallback.
+face_recognition = None
+
+
+def _dlib():
+    global face_recognition
+    if face_recognition is None:
+        import face_recognition as fr
+        face_recognition = fr
+    return face_recognition
+
+logger = logging.getLogger("HumanAnalysis")
 
 Loader = Callable[[], Tuple[List[np.ndarray], List[str]]]
 
@@ -26,7 +44,7 @@ class FaceRecognizerDB:
     def __init__(self, tolerance: float = 0.45, loader: Optional[Loader] = None,
                  cache_ttl: float = 60.0, min_face_px: int = 40,
                  min_sharpness: float = 25.0, min_margin: float = 0.04,
-                 solo_slack: float = 0.0, cnn_cooldown: float = 3.0):
+                 solo_slack: float = 0.0, cnn_cooldown: float = 3.0, out_of_process: bool = False):
         self.tolerance = tolerance
         self.loader = loader or (lambda: ([], []))
         self.cache_ttl = cache_ttl
@@ -34,8 +52,14 @@ class FaceRecognizerDB:
         self.min_sharpness = min_sharpness
         self.min_margin = min_margin
         self.solo_slack = solo_slack            # extra strictness when no rival identity exists to compare
-        self.cnn_cooldown = cnn_cooldown        # seconds between slow CNN fallbacks (all cameras)
-        self._last_cnn = 0.0
+        # Seconds between slow CNN fallbacks, per caller (camera). One shared timer let a camera whose
+        # CNN keeps missing (faceless tracks) lock every other camera out of the CNN, and some webcams
+        # only ever find faces via CNN: a second camera then never confirmed a watchlist match.
+        self.cnn_cooldown = cnn_cooldown
+        self._last_cnn: dict = {}
+        # Run dlib in worker processes (the live pipeline does): no lock against YOLO, and a dlib
+        # crash or hang costs a worker, not the pipeline.
+        self.out_of_process = out_of_process
         self._cache = None
         self._loaded_at = 0.0
 
@@ -46,11 +70,7 @@ class FaceRecognizerDB:
         return self._cache
 
     def _quality_ok(self, rgb, box) -> bool:
-        top, right, bottom, left = box
-        if min(bottom - top, right - left) < self.min_face_px:
-            return False
-        crop = cv2.cvtColor(rgb[top:bottom, left:right], cv2.COLOR_RGB2GRAY)
-        return cv2.Laplacian(crop, cv2.CV_64F).var() >= self.min_sharpness
+        return quality_ok(rgb, box, self.min_face_px, self.min_sharpness)
 
     def match(self, distances: np.ndarray, names: List[str]) -> Optional[Tuple[str, float, float]]:
         """Pure matching logic: (person, distance, margin) or None."""
@@ -73,35 +93,39 @@ class FaceRecognizerDB:
             margin = self.tolerance - ranked[0][1]
         return ranked[0][0], ranked[0][1], margin
 
-    def recognize_detail(self, face_roi) -> Optional[dict]:
+    def recognize_detail(self, face_roi, source=None) -> Optional[dict]:
+        """`source` keys the slow-detector (CNN) cooldown. Pass one per person (camera + track), so a
+        faceless track can neither starve the real target nor another camera of the CNN."""
         rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
         h, w = rgb.shape[:2]
         upsample = 3 if (h < 120 or w < 120) else 2 if (h < 300 or w < 300) else 1
 
-        with _DLIB_LOCK:
-            now = time.time()
-            use_cnn = now - self._last_cnn >= self.cnn_cooldown
-            boxes = locate_faces(rgb, face_recognition, upsample=upsample, cnn_fallback=use_cnn)
-            if use_cnn and not boxes:
-                self._last_cnn = now            # HOG missed and CNN ran: wait before the next one
-            boxes = [b for b in boxes if self._quality_ok(rgb, b)]
-            if not boxes:
-                return None
-            boxes = [max(boxes, key=lambda b: (b[2] - b[0]) * (b[1] - b[3]))]   # largest face only
-            encodings = face_recognition.face_encodings(rgb, boxes)
-        if not encodings:
+        now = time.time()
+        use_cnn = now - self._last_cnn.get(source, 0.0) >= self.cnn_cooldown
+        if self.out_of_process:
+            encoding, cnn_missed = shared_pool().detect_and_encode(
+                rgb, upsample, use_cnn, self.min_face_px, self.min_sharpness)
+        else:
+            with _DLIB_LOCK:
+                encoding, cnn_missed = detect_and_encode(rgb, upsample, use_cnn, self.min_face_px,
+                                                         self.min_sharpness, _dlib())
+        if cnn_missed:
+            self._last_cnn[source] = now        # CNN ran and missed: wait before the next one
+            if len(self._last_cnn) > 512:       # per-person keys: drop the stale ones
+                self._last_cnn = {k: t for k, t in self._last_cnn.items() if now - t < 60}
+        if encoding is None:
             return None
         known_encodings, known_names = self._load_encodings()
         if not known_encodings:
             return None
-        distances = face_recognition.face_distance(known_encodings, encodings[0])
+        distances = np.linalg.norm(np.asarray(known_encodings) - encoding, axis=1)   # = face_distance
         res = self.match(distances, known_names)
         if res is None:
             return None
         return {"name": res[0], "distance": res[1], "margin": res[2]}
 
-    def recognize_person(self, face_roi) -> Optional[str]:
-        res = self.recognize_detail(face_roi)
+    def recognize_person(self, face_roi, source=None) -> Optional[str]:
+        res = self.recognize_detail(face_roi, source=source)
         return res["name"] if res else None
 
     @staticmethod

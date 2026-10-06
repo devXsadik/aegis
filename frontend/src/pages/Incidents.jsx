@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react'
+import { can } from '../lib/permissions'
 import { Card, Icons, Tag, Empty, timeAgo, SEVERITY_TONE, Modal } from '../components/ui'
 import {
-  fetchIncidents, fetchIncidentStats, updateIncident, addIncidentNote, createIncident,
+  fetchIncidents, fetchIncidentStats, updateIncident, addIncidentNote, createIncident, fetchAssignees,
 } from '../services/api'
-
-const OFFICERS = ['Unassigned', 'Officer Rahman', 'Officer Akter', 'Sgt. Hossain', 'Insp. Chowdhury']
+import { useToast } from '../components/Toast'
 const STATUSES = ['open', 'investigating', 'resolved', 'closed']
 const STATUS_TONE = { open: 'danger', investigating: 'warn', resolved: 'ok', closed: 'muted' }
 
-export function Incidents() {
+export function Incidents({ ctx }) {
+  const { push: toast } = useToast()
+  const canEdit = can(ctx?.me?.role, 'incident.edit')
+  const [assignees, setAssignees] = useState([])
+  const [showNew, setShowNew] = useState(false)
+  const [newForm, setNewForm] = useState({ title: '', description: '', priority: 'medium' })
+  useEffect(() => { fetchAssignees().then(setAssignees).catch(() => {}) }, [])
   const [incidents, setIncidents] = useState([])
   const [stats, setStats] = useState(null)
   const [selected, setSelected] = useState(null)
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -28,8 +35,8 @@ export function Incidents() {
           setIncidents(list)
           setStats(st)
         }
-      } catch {
-        if (!cancelled) setIncidents([])
+      } catch (e) {
+        if (!cancelled) { setIncidents([]); setLoadError(e.message || 'Could not load incidents') }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -47,37 +54,53 @@ export function Incidents() {
   }
 
   const patch = async (id, body) => {
-    const updated = await updateIncident(id, body)
-    setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)))
-    if (selected?.id === id) setSelected(updated)
-    reload().catch(() => {})
+    try {
+      const updated = await updateIncident(id, body)
+      setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)))
+      if (selected?.id === id) setSelected(updated)
+      reload().catch(() => {})
+    } catch (e) {
+      toast(e.message || 'Update failed', 'danger')
+    }
   }
 
   const submitNote = async () => {
     if (!selected || !note.trim()) return
-    await addIncidentNote(selected.id, note.trim())
-    setNote('')
-    const refreshed = await fetchIncidents({})
-    const found = refreshed.find((i) => i.id === selected.id)
-    setIncidents(refreshed)
-    if (found) setSelected(found)
+    try {
+      await addIncidentNote(selected.id, note.trim())
+      setNote('')
+      const refreshed = await fetchIncidents({})
+      const found = refreshed.find((i) => i.id === selected.id)
+      setIncidents(refreshed)
+      if (found) setSelected(found)
+    } catch (e) {
+      toast(e.message || 'Could not add note', 'danger')
+    }
   }
 
   const createManual = async () => {
-    const inc = await createIncident({
-      title: 'Manual incident',
-      description: 'Opened by operator',
-      priority: 'medium',
-      incident_type: 'MANUAL',
-    })
-    setIncidents((prev) => [inc, ...prev])
-    setSelected(inc)
+    try {
+      const inc = await createIncident({
+        title: newForm.title.trim(),
+        description: newForm.description.trim() || null,
+        priority: newForm.priority,
+        incident_type: 'MANUAL',
+      })
+      setIncidents((prev) => [inc, ...prev])
+      setSelected(inc)
+      setShowNew(false)
+      setNewForm({ title: '', description: '', priority: 'medium' })
+      toast('Incident created', 'ok')
+    } catch (e) {
+      toast(e.message || 'Could not create incident', 'danger')
+    }
   }
 
   const by = stats?.by_status || {}
 
   return (
     <>
+      {loadError && <div className="login-error" role="alert" style={{ marginBottom: 12 }}>{loadError}</div>}
       <div className="grid grid-3" style={{ marginBottom: 14 }}>
         <div className="stat accent-danger"><span className="label">Open</span><span className="value">{by.open || 0}</span></div>
         <div className="stat accent-warn"><span className="label">Investigating</span><span className="value">{by.investigating || 0}</span></div>
@@ -93,7 +116,7 @@ export function Incidents() {
               <option value="all">All</option>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button className="btn btn-sm btn-primary" onClick={createManual}><Icons.incident /> New</button>
+            {canEdit && <button className="btn btn-sm btn-primary" onClick={() => setShowNew(true)}><Icons.incident /> New</button>}
           </div>
         }
         flush
@@ -124,15 +147,20 @@ export function Incidents() {
                   <td>
                     <select
                       className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
-                      value={inc.assigned_name || 'Unassigned'}
-                      onChange={(e) => patch(inc.id, { assigned_name: e.target.value })}
+                      aria-label={`Assignee for ${inc.ticket_id}`}
+                      disabled={!canEdit}
+                      value={inc.assigned_to || 0}
+                      onChange={(e) => patch(inc.id, { assigned_to: Number(e.target.value) })}
                     >
-                      {OFFICERS.map((o) => <option key={o}>{o}</option>)}
+                      <option value={0}>Unassigned</option>
+                      {assignees.map((u) => <option key={u.id} value={u.id}>{u.username} ({u.role})</option>)}
                     </select>
                   </td>
                   <td>
                     <select
                       className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+                      aria-label={`Status for ${inc.ticket_id}`}
+                      disabled={!canEdit}
                       value={inc.status}
                       onChange={(e) => patch(inc.id, { status: e.target.value })}
                     >
@@ -201,6 +229,32 @@ export function Incidents() {
           <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }} onClick={submitNote} disabled={!note.trim()}>
             Save note
           </button>
+        </Modal>
+      )}
+      {showNew && (
+        <Modal
+          title="New incident"
+          onClose={() => setShowNew(false)}
+          footer={(
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowNew(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={!newForm.title.trim()} onClick={createManual}>Create</button>
+            </div>
+          )}
+        >
+          <div style={{ display: 'grid', gap: 10 }}>
+            <label className="field">Title
+              <input className="input" value={newForm.title} maxLength={200} onChange={(e) => setNewForm({ ...newForm, title: e.target.value })} />
+            </label>
+            <label className="field">Description
+              <textarea className="input" rows={3} value={newForm.description} onChange={(e) => setNewForm({ ...newForm, description: e.target.value })} />
+            </label>
+            <label className="field">Priority
+              <select className="input" value={newForm.priority} onChange={(e) => setNewForm({ ...newForm, priority: e.target.value })}>
+                {['low', 'medium', 'high', 'critical'].map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
+          </div>
         </Modal>
       )}
     </>

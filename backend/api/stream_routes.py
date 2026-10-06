@@ -20,6 +20,7 @@ router = APIRouter(prefix="/stream", tags=["stream"])
 FRAME_STALE_SECONDS = 15.0
 _frames: dict = {}  # camera_id -> (jpeg_bytes, monotonic_ts)
 _lock = threading.Lock()
+_waiters: dict = {}  # camera_id -> [asyncio.Event]: viewers woken the moment a new frame arrives
 
 
 @router.post("/frame/{camera_id}")
@@ -35,6 +36,8 @@ async def push_frame(
         raise HTTPException(status_code=400, detail="Empty frame")
     with _lock:
         _frames[camera_id] = (body, time.monotonic())
+    for ev in _waiters.get(camera_id, ()):
+        ev.set()
     return {"status": "ok", "camera_id": camera_id, "bytes": len(body)}
 
 
@@ -90,25 +93,35 @@ async def live_mjpeg(camera_id: str, token: Optional[str] = Query(default=None))
     verify_viewer_token(token)
 
     async def generate():
+        # Woken by push_frame instead of polling: a new frame goes out at once (no 0-100 ms wait
+        # for the next poll), and a slow viewer simply skips to the newest frame.
+        ev = asyncio.Event()
+        _waiters.setdefault(camera_id, []).append(ev)
         last_ts = 0.0
-        misses = 0
-        while True:
-            with _lock:
-                entry = _frames.get(camera_id)
-            if entry and entry[1] != last_ts:
-                raw, last_ts = entry
-                frame = _frame_with_digital_ptz(camera_id, raw)
-                misses = 0
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\n"
-                    + f"Content-Length: {len(frame)}\r\n\r\n".encode()
-                    + frame + b"\r\n"
-                )
-            else:
-                misses += 1
-                if misses > 300:  # ~30s without a new frame → end stream
-                    break
-            await asyncio.sleep(0.1)
+        idle = 0
+        try:
+            while True:
+                ev.clear()          # before the check: a frame landing after it sets the event again
+                with _lock:
+                    entry = _frames.get(camera_id)
+                if entry and entry[1] != last_ts:
+                    raw, last_ts = entry
+                    frame = _frame_with_digital_ptz(camera_id, raw)
+                    idle = 0
+                    yield (
+                        b"--frame\r\nContent-Type: image/jpeg\r\n"
+                        + f"Content-Length: {len(frame)}\r\n\r\n".encode()
+                        + frame + b"\r\n"
+                    )
+                    continue
+                try:
+                    await asyncio.wait_for(ev.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    idle += 1
+                    if idle > 15:  # ~30s without a new frame → end stream
+                        break
+        finally:
+            _waiters.get(camera_id, []).remove(ev)
 
     return StreamingResponse(
         generate(),

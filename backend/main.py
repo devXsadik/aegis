@@ -136,6 +136,9 @@ app.include_router(metrics_router, prefix=API_V1)
 async def startup_event():
     _validate_secrets()
     init_db()
+    import asyncio
+    from backend.services.escalation import escalation_loop
+    app.state.escalation_task = asyncio.create_task(escalation_loop())
     from scripts.seed_cameras import seed_cameras
     seed_cameras()
     try:

@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Card, Icons, Tag, Empty, timeAgo } from '../components/ui'
+import { Card, Icons, Tag, Empty, timeAgo, useConfirm } from '../components/ui'
+import { can } from '../lib/permissions'
 import { addVehiclePlate, deleteVehiclePlate } from '../services/api'
 import { useToast } from '../components/Toast'
 
 export function Vehicles({ ctx }) {
   const { plates, vehicleDetections, reloadVehicles, me } = ctx
   const { push: toast } = useToast()
+  const [ask, confirmDialog] = useConfirm()
   const [newPlate, setNewPlate] = useState('')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -13,7 +15,7 @@ export function Vehicles({ ctx }) {
 
   const removePlate = async (plate) => {
     if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
-    if (!confirm(`Remove plate ${plate}?`)) return
+    if (!(await ask({ title: 'Remove plate', message: `Remove plate ${plate} from the watchlist?`, confirmLabel: 'Remove', danger: true }))) return
     try {
       await deleteVehiclePlate(plate)
       toast('Plate removed', 'ok')
@@ -62,6 +64,7 @@ export function Vehicles({ ctx }) {
       </Card>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {can(me?.role, 'vehicle.edit') && (
         <Card title="Add Watchlisted Plate">
           {err && <div className="login-error" style={{ marginBottom: 10 }}>{err}</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -76,6 +79,7 @@ export function Vehicles({ ctx }) {
             </button>
           </div>
         </Card>
+        )}
 
         <Card title="Plate Watchlist" sub={`${plates?.length || 0} plates`}>
           {(!plates || plates.length === 0) && <Empty icon={Icons.vehicle}>No watchlisted plates</Empty>}
@@ -95,6 +99,7 @@ export function Vehicles({ ctx }) {
           ))}
         </Card>
       </div>
+      {confirmDialog}
     </div>
   )
 }

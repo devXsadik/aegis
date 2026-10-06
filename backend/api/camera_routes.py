@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import urllib.parse
 import requests
@@ -10,6 +10,7 @@ from backend.models.camera import Camera
 from backend.models.user import User
 from backend.auth.auth import operator_or_admin, admin_only, supervisor_or_admin
 from backend.models.audit_log import AuditLog
+from backend.services.audit import log_audit
 from core.analysis.zones import validate_geometry
 import json
 from datetime import datetime
@@ -61,10 +62,13 @@ class CameraCreate(BaseModel):
     camera_id: str
     name: str
     location: Optional[str] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
     rtsp_url: Optional[str] = None
     active: Optional[bool] = True
+    heading: Optional[float] = None
+    fov: Optional[float] = None
+    range_m: Optional[float] = None
 
 
 class CameraResponse(BaseModel):
@@ -75,6 +79,9 @@ class CameraResponse(BaseModel):
     lat: Optional[float]
     lng: Optional[float]
     active: bool
+    heading: Optional[float] = None
+    fov: Optional[float] = None
+    range_m: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -162,12 +169,13 @@ def sync_camera_to_yaml(cam: Camera):
         logger.error(f"Failed to sync camera to yaml: {e}")
 
 @router.post("/", response_model=CameraResponse)
-def create_camera(cam: CameraCreate, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+def create_camera(cam: CameraCreate, request: Request, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     existing = db.query(Camera).filter(Camera.camera_id == cam.camera_id).first()
     if existing:
         raise HTTPException(status_code=400, detail="Camera ID already exists")
     camera = Camera(**cam.model_dump())
     db.add(camera)
+    log_audit(db, admin, "CAMERA_CREATE", "camera", cam.camera_id, f"name={cam.name}", request)
     db.commit()
     db.refresh(camera)
     sync_camera_to_yaml(camera)
@@ -175,13 +183,16 @@ def create_camera(cam: CameraCreate, db: Session = Depends(get_db), admin: User 
 
 
 @router.put("/{camera_id}", response_model=CameraResponse)
-def update_camera(camera_id: str, cam: CameraCreate, db: Session = Depends(get_db),
+def update_camera(camera_id: str, cam: CameraCreate, request: Request, db: Session = Depends(get_db),
                   admin: User = Depends(admin_only)):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
-    for key, val in cam.model_dump(exclude_unset=True).items():
+    changes = cam.model_dump(exclude_unset=True)
+    for key, val in changes.items():
         setattr(camera, key, val)
+    shown = {k: v for k, v in changes.items() if k != "rtsp_url"}    # URLs may embed credentials
+    log_audit(db, admin, "CAMERA_UPDATE", "camera", camera_id, str(shown), request)
     db.commit()
     db.refresh(camera)
     sync_camera_to_yaml(camera)
@@ -189,12 +200,13 @@ def update_camera(camera_id: str, cam: CameraCreate, db: Session = Depends(get_d
 
 
 @router.delete("/{camera_id}")
-def delete_camera(camera_id: str, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+def delete_camera(camera_id: str, request: Request, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     camera.active = False
     sync_camera_to_yaml(camera)
+    log_audit(db, admin, "CAMERA_DELETE", "camera", camera_id, f"name={camera.name}", request)
     db.delete(camera)
     db.commit()
     return {"status": "deleted"}
@@ -259,7 +271,7 @@ def get_camera_officers(camera_id: str, db: Session = Depends(get_db), user: Use
 
 
 @router.put("/{camera_id}/officers")
-def set_camera_officers(camera_id: str, body: OfficerAssign, db: Session = Depends(get_db),
+def set_camera_officers(camera_id: str, body: OfficerAssign, request: Request, db: Session = Depends(get_db),
                         admin: User = Depends(admin_only)):
     from backend.models.camera_officer import CameraOfficer
     if not db.query(Camera).filter(Camera.camera_id == camera_id).first():
@@ -272,6 +284,7 @@ def set_camera_officers(camera_id: str, body: OfficerAssign, db: Session = Depen
     db.query(CameraOfficer).filter(CameraOfficer.camera_id == camera_id).delete()
     for prio, uid in enumerate(ids):
         db.add(CameraOfficer(camera_id=camera_id, user_id=uid, priority=prio))
+    log_audit(db, admin, "OFFICER_ASSIGN", "camera", camera_id, f"user_ids={ids}", request)
     db.commit()
     return {"camera_id": camera_id, "user_ids": ids}
 

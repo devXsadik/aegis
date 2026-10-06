@@ -13,7 +13,7 @@ When a watchlisted person is detected on **any camera**, the system **automatica
 | **WebSocket** | Instant push to dashboard |
 | **Dashboard** | Sound + red banner + browser notification + auto-switch to Events |
 | **Evidence** | Throttled snapshot saved to DB + `evidence/` |
-| **Webhooks** | Slack/Discord/etc. if configured in `.env` |
+| **Webhooks** | Generic webhooks (law enforcement, security, CAD, SMS gateway) if configured in `.env` |
 | **GPS Map** | Pinpoint camera lat/lng on dashboard + OpenCV HUD + Google Maps link |
 
 Set GPS per camera in `config/cameras.yaml` or `config/config.yaml`:
@@ -64,7 +64,7 @@ Open http://localhost:5173 → login as **admin** with the password printed by `
 | 2 | Run pipeline on demo video | Modular CV pipeline processes each frame |
 | 3 | Trigger watchlist match | Face recognition against PostgreSQL encodings |
 | 4 | Show dashboard events | Real-time WebSocket alerts from pipeline |
-| 5 | Show evidence folder + API | Encrypted evidence with audit trail |
+| 5 | Show evidence folder + API | Evidence with SHA-256 chain-of-custody and audit trail |
 | 6 | Press `S` in pipeline window | Per-stage performance metrics |
 | 7 | Run evaluation script | Quantitative results for thesis |
 
@@ -90,9 +90,9 @@ python scripts/evaluate_pipeline.py --video data/demo/clips/sample.mp4 --frames 
 ## Architecture talking points
 
 1. **Pipeline stages** — independent, timed, configurable modules
-2. **Security** — JWT auth, encryption, audit logs, rate limiting
+2. **Security** — JWT auth, login lockout, role-based access, audit logs, rate limiting
 3. **Integration** — pipeline pushes events via internal API → WebSocket → dashboard
-4. **Database** — PostgreSQL + pgvector for face encodings
+4. **Database** — PostgreSQL (SQLite for local runs); 128-d dlib face encodings, matched in Python
 5. **Limitations (be honest)** — browser video needs media server; multi-cam is threaded prototype
 
 ---
@@ -109,6 +109,6 @@ If DB fails: evidence still saves to `evidence/` folder
 
 - **Why pipeline architecture?** → modularity, per-stage timing, easy to extend
 - **False positives?** → thresholds, throttling, operator review via API
-- **Privacy?** → watchlist-only, encryption, retention config, audit logs
+- **Privacy?** → watchlist-only matching, human review before external alerts, audit logs, retention config (off by default)
 - **Scalability?** → document Redis/queue as future work; current design is single-node
 

@@ -33,7 +33,7 @@ function answer(q, ctx) {
 
   if (t.includes('threat')) {
     const map = {
-      critical: 'CRITICAL — an active criminal or weapon detection is in progress. Dispatch has been triggered automatically.',
+      critical: 'CRITICAL — an active criminal or weapon detection is in progress. Open Alerts to acknowledge it.',
       high: 'HIGH — elevated threat scores detected on at least one camera. Monitor closely.',
       low: 'LOW — all cameras nominal, no active threats.',
     }
@@ -64,8 +64,8 @@ function answer(q, ctx) {
     if (!a) return 'There are no alerts in the current session feed.'
     return `Latest alert: ${a.type?.replace(/_/g, ' ')} (severity: ${a.severity}) — “${a.msg}” from ${a.camera || 'an unknown camera'}. ` +
       (a.severity === 'critical'
-        ? 'This was auto-dispatched: evidence was stored, an audit entry created, and GPS pushed to responders.'
-        : 'This alert is informational and did not trigger auto-dispatch.')
+        ? 'Critical alerts are recorded with evidence and an audit entry. Open Alerts to review it and see who was notified.'
+        : 'This alert is informational.')
   }
 
   if (t.includes('offline') || t.includes('health')) {
@@ -84,7 +84,7 @@ function answer(q, ctx) {
 
 export function Copilot({ ctx, onClose }) {
   const [messages, setMessages] = useState([
-    { role: 'bot', text: 'Copilot online. I have live access to alerts, cameras, and analytics for this session. How can I assist?' },
+    { role: 'bot', text: 'Quick answers from the alerts, cameras and analytics loaded in this session. This is a rule-based helper, not an AI model. Try “threat level” or “latest alert”.' },
   ])
   const [input, setInput] = useState('')
   const bodyRef = useRef(null)
@@ -116,7 +116,7 @@ export function Copilot({ ctx, onClose }) {
           </div>
           {messages.map((m, i) => (
             <div key={i} className={`assistant-msg ${m.role === 'user' ? 'user' : ''}`}>
-              {m.role === 'bot' && <span className="m-icon">AI</span>}
+              {m.role === 'bot' && <span className="m-icon">?</span>}
               <div className="m-body">{m.text}</div>
             </div>
           ))}

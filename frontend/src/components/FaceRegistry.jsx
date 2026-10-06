@@ -1,6 +1,6 @@
 /* Face registry UI: enroll photos, verify a probe photo against stored records. */
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Icons, Modal, Tag, timeAgo } from './ui'
+import { Card, Icons, Modal, Tag, timeAgo, useConfirm } from './ui'
 import {
   enrollPerson, addPersonImages, fetchPersonDetail, updatePerson, deletePerson,
   deletePersonImage, verifyFace, verifyEvidence, personImageUrl, evidenceImageUrl,
@@ -154,6 +154,7 @@ export function EnrollModal({ onClose, onDone }) {
 }
 
 export function ManagePersonModal({ person, canEdit, canDelete, onClose, onChanged }) {
+  const [ask, confirmDialog] = useConfirm()
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -173,6 +174,7 @@ export function ManagePersonModal({ person, canEdit, canDelete, onClose, onChang
   }
 
   return (
+    <>
     <Modal title={`${person.name} · ${person.person_id}`} onClose={onClose}>
       {error && <div className="login-error" role="alert">{error}</div>}
       {!detail || !meta ? <div className="meta">Loading…</div> : (
@@ -226,8 +228,8 @@ export function ManagePersonModal({ person, canEdit, canDelete, onClose, onChang
                 <button className="btn btn-primary" disabled={busy} onClick={() => run(() => updatePerson(person.person_id, meta))}>Save changes</button>
                 <span className="spacer" />
                 {canDelete && (
-                  <button className="btn btn-danger" disabled={busy} onClick={() => {
-                    if (window.confirm(`Delete ${person.name} and all stored photos? This cannot be undone.`)) {
+                  <button className="btn btn-danger" disabled={busy} onClick={async () => {
+                    if (await ask({ title: 'Delete record', message: `Delete ${person.name} and all stored photos? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) {
                       run(async () => { await deletePerson(person.person_id); onClose() })
                     }
                   }}>Delete record</button>
@@ -238,6 +240,8 @@ export function ManagePersonModal({ person, canEdit, canDelete, onClose, onChang
         </div>
       )}
     </Modal>
+    {confirmDialog}
+    </>
   )
 }
 

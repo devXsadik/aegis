@@ -11,6 +11,7 @@ import cv2
 
 from core.runtime.runtime_config import RuntimeConfigSync
 from core.visualization.hud import render_full_hud
+from core.visualization.stream_overlay import StreamOverlay
 from utils.media import open_capture, read_frame_with_reconnect, ContinuousRecorder
 from utils.alerts import publish_event_clip, publish_frame, publish_heartbeat
 from utils.system import FrameSkipper, ResourceMonitor
@@ -148,7 +149,10 @@ def run_camera_loop(
     heartbeat_interval = float(os.getenv("HEARTBEAT_INTERVAL", "5"))
     last_stream = 0.0
     stream_interval = 1.0 / float(os.getenv("STREAM_FPS", "5"))
-    stream_width = int(os.getenv("STREAM_WIDTH", "960"))
+    stream_width = int(os.getenv("STREAM_WIDTH", "1280"))
+    stream_quality = int(os.getenv("STREAM_QUALITY", "80"))
+    # "clean": people marked, nothing else (dashboard default). "full": the whole HUD in the stream.
+    overlay = StreamOverlay() if os.getenv("STREAM_HUD", "clean").lower() != "full" else None
     fps_counter = 0
     fps_window_start = time.time()
     current_fps = 0.0
@@ -244,23 +248,30 @@ def run_camera_loop(
 
             stream_due = now - last_stream >= stream_interval
             display = None
-            if show_window or stream_due:
+            if show_window or (stream_due and overlay is None):
                 perf_stats = resource_monitor.get_stats() if perf_enabled else None
                 display = (
                     render_full_hud(frame.copy(), ctx, start_time, criminal_names, perf_stats, thermal_mode)
                     if ctx is not None else frame
                 )
 
-            if stream_due and display is not None:
+            if stream_due:
                 last_stream = now
                 try:
-                    stream_img = display
-                    if stream_img.shape[1] > stream_width:
-                        scale = stream_width / stream_img.shape[1]
-                        stream_img = cv2.resize(
-                            stream_img, (stream_width, int(stream_img.shape[0] * scale)),
-                        )
-                    ok, buf = cv2.imencode(".jpg", stream_img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    if overlay is not None:
+                        # Resize first, then draw: cheaper, and text/lines are crisp at stream size.
+                        scale = min(1.0, stream_width / frame.shape[1])
+                        stream_img = cv2.resize(frame, None, fx=scale, fy=scale,
+                                                interpolation=cv2.INTER_AREA) if scale < 1 else frame.copy()
+                        overlay.render(stream_img, ctx, scale, now)
+                    else:
+                        stream_img = display
+                        if stream_img.shape[1] > stream_width:
+                            scale = stream_width / stream_img.shape[1]
+                            stream_img = cv2.resize(
+                                stream_img, (stream_width, int(stream_img.shape[0] * scale)),
+                            )
+                    ok, buf = cv2.imencode(".jpg", stream_img, [cv2.IMWRITE_JPEG_QUALITY, stream_quality])
                     if ok:
                         jpeg = buf.tobytes()
                         publish_frame(camera_id, jpeg)

@@ -160,6 +160,31 @@ def resolve_source(source):
     return os.path.expandvars(source)
 
 
+def fresh_process_sees_webcam(index: int, timeout: float = 15.0) -> bool:
+    """True if a new process can open local webcam `index`.
+
+    macOS (AVFoundation) only lists the cameras present when a process first touches the
+    camera API: a webcam plugged in later stays "out of bound" for the running pipeline
+    but opens fine in a new process. Callers use this to tell "unplugged" from "stale list".
+    """
+    import subprocess
+    import sys
+
+    code = ("import cv2,sys,time\n"
+            f"c=cv2.VideoCapture({int(index)})\n"
+            "ok=False\n"
+            "for _ in range(15):\n"
+            "    ok=c.isOpened() and c.read()[0]\n"
+            "    if ok: break\n"
+            "    time.sleep(0.1)\n"
+            "c.release(); sys.exit(0 if ok else 1)")
+    try:
+        return subprocess.run([sys.executable, "-c", code], capture_output=True,
+                              timeout=timeout).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def configure_rtsp_options():
     """Prefer TCP transport for RTSP streams (more reliable on most networks)."""
     options = []

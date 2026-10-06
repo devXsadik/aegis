@@ -1,5 +1,6 @@
 """External integrations — police CAD / SMS / radio / security webhooks."""
 
+import logging
 import os
 from typing import Optional
 
@@ -15,6 +16,7 @@ from backend.models.audit_log import AuditLog
 from backend.auth.auth import admin_only, operator_or_admin
 from backend.services.alert_dispatcher import _send_webhooks
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 
@@ -84,7 +86,7 @@ def test_webhook(body: TestWebhookRequest, user: User = Depends(admin_only)):
 
 
 @router.post("/dispatch")
-def manual_channel_dispatch(
+async def manual_channel_dispatch(
     body: DispatchRequest,
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
@@ -110,19 +112,21 @@ def manual_channel_dispatch(
     # Force send even if ALERTS_ENABLED is false when operator explicitly dispatches
     urls = _channel_urls()
     channels = body.channels or ["cad", "security", "sms"]
-    sent = []
-    for ch in channels:
-        url = urls.get(ch)
-        if not url:
-            continue
-        try:
-            httpx.post(url, json=payload, timeout=8.0)
-            sent.append(ch)
-        except Exception:
-            pass
+    sent, failed = [], []
+    async with httpx.AsyncClient() as client:
+        for ch in channels:
+            url = urls.get(ch)
+            if not url:
+                continue
+            try:
+                resp = await client.post(url, json=payload, timeout=8.0)
+                (sent if resp.status_code < 400 else failed).append(ch)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Manual dispatch to {ch} failed: {e}")
+                failed.append(ch)
 
     # Also run the standard severity-based webhook set
-    auto = _send_webhooks(alert.alert_type, payload)
+    auto = await _send_webhooks(alert.alert_type, payload)
 
     db.add(AuditLog(
         user_id=user.id,
@@ -130,7 +134,7 @@ def manual_channel_dispatch(
         action="EXTERNAL_DISPATCH",
         resource="alert",
         resource_id=str(alert.id),
-        details=f"channels={','.join(sent) or auto or 'none'} note={body.note or ''}",
+        details=f"channels={','.join(sent) or auto or 'none'} failed={','.join(failed) or 'none'} note={body.note or ''}",
     ))
     db.commit()
-    return {"status": "dispatched", "channels": sent, "auto_channels": auto}
+    return {"status": "dispatched" if sent or auto else "failed", "channels": sent, "failed": failed, "auto_channels": auto}

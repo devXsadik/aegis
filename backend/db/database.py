@@ -150,6 +150,12 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "geometry_updated_at", "TIMESTAMP"),
     ("face_encodings", "image_id", "INTEGER"),
     ("users", "phone", "VARCHAR(30)"),
+    ("users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ("users", "locked_until", "TIMESTAMP"),
+    ("alerts", "escalated_at", "TIMESTAMP"),
+    ("cameras", "heading", "FLOAT"),
+    ("cameras", "fov", "FLOAT"),
+    ("cameras", "range_m", "FLOAT"),
 ]
 
 

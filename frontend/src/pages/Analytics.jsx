@@ -1,7 +1,15 @@
+import { parseTs } from '../lib/time'
 import { useEffect, useState } from 'react'
 import { Card, Icons, Empty, Tag } from '../components/ui'
 import { AreaChart, BarList, Donut } from '../components/charts'
 import { fetchCalibrationMetrics } from '../services/api'
+
+function fmtDuration(sec) {
+  if (sec == null) return '—'
+  if (sec < 90) return `${Math.round(sec)}s`
+  if (sec < 5400) return `${(sec / 60).toFixed(1)} min`
+  return `${(sec / 3600).toFixed(1)} h`
+}
 
 export function Analytics({ ctx }) {
   const { summary, trends, locations, events } = ctx
@@ -24,8 +32,8 @@ export function Analytics({ ctx }) {
 
   const hourBuckets = Array.from({ length: 24 }, () => 0)
   events.forEach((e) => {
-    const d = new Date(e.time)
-    if (!Number.isNaN(d.getTime())) hourBuckets[d.getHours()]++
+    const d = parseTs(e.time)      // zone-less UTC from the backend, shown in local time
+    if (d) hourBuckets[d.getHours()]++
   })
 
   return (
@@ -42,7 +50,11 @@ export function Analytics({ ctx }) {
           <span className="value">{far}</span>
           <span className="delta">{cal?.false_alarm_rate != null ? 'from ground truth' : 'proxy from dismissals'}</span>
         </div>
-        <div className="stat accent-cyan"><span className="label">Avg Response</span><span className="value">&lt;1s</span><span className="delta">alert → dashboard</span></div>
+        <div className="stat accent-cyan">
+          <span className="label">Time to Acknowledge</span>
+          <span className="value">{fmtDuration(summary?.mtta_seconds)}</span>
+          <span className="delta">{summary?.acknowledged_alerts ? `mean of ${summary.acknowledged_alerts} acknowledged` : 'no acknowledged alerts yet'}</span>
+        </div>
       </div>
 
       <div className="grid grid-2" style={{ marginBottom: 14 }}>
@@ -63,7 +75,6 @@ export function Analytics({ ctx }) {
               { label: 'Criminal', value: crit, color: 'var(--danger)' },
               { label: 'Weapon', value: weap, color: 'var(--orange)' },
               { label: 'Suspicious', value: susp, color: 'var(--warn)' },
-              { label: 'Normal', value: Math.max(0, total - crit - weap - susp), color: 'var(--ok)' },
             ]}
           />
         </Card>

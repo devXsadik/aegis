@@ -17,7 +17,30 @@ def _gen(n: int = 48) -> str:
     return secrets.token_urlsafe(n)
 
 
+def ensure_face_model() -> None:
+    """Fetch the YuNet face detector (232 KB) if missing. Best effort: without it face recognition
+    still works through dlib, only slower (~10x on the detection step)."""
+    sys.path.insert(0, str(ROOT))
+    from utils.face_detect import YUNET_MODEL, YUNET_URL
+
+    if YUNET_MODEL.is_file():
+        return
+    try:
+        import urllib.request
+
+        YUNET_MODEL.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(YUNET_URL, timeout=20) as r:
+            data = r.read()
+        if len(data) < 100_000:                      # an error page, not the model
+            raise ValueError(f"unexpected download size {len(data)}")
+        YUNET_MODEL.write_bytes(data)
+        print(f"Downloaded face detector → {YUNET_MODEL.relative_to(ROOT)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  face detector not downloaded ({e}); using slower dlib detection")
+
+
 def main() -> int:
+    ensure_face_model()
     if not ENV_PATH.exists():
         if EXAMPLE.exists():
             ENV_PATH.write_text(EXAMPLE.read_text())

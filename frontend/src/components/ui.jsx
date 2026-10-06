@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 /* Shared UI primitives: icons, tags, cards, stats, modal, empty states. */
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { parseTs } from '../lib/time'
 
 const stroke = {
@@ -143,19 +144,73 @@ export function Empty({ icon: Icon = Icons.search, children }) {
   )
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+const modalStack = []   // only the top-most dialog reacts to Esc/Tab
+
+/** Accessible dialog: role/aria, Esc to close, Tab stays inside, focus returns to the opener. */
 export function Modal({ title, onClose, children, footer }) {
+  const ref = useRef(null)
+  const titleId = useId()
+  useEffect(() => {
+    const opener = document.activeElement
+    const node = ref.current
+    modalStack.push(node)
+    const first = node?.querySelector('input, select, textarea') || node?.querySelector(FOCUSABLE)
+    first?.focus()
+    const onKey = (e) => {
+      if (modalStack[modalStack.length - 1] !== node) return
+      if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); return }
+      if (e.key !== 'Tab' || !node) return
+      const items = [...node.querySelectorAll(FOCUSABLE)]
+      if (!items.length) return
+      const firstEl = items[0]; const lastEl = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus() }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      modalStack.splice(modalStack.indexOf(node), 1)
+      opener?.focus?.()
+    }
+  }, [onClose])
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span>{title}</span>
-          <button className="icon-btn" onClick={onClose}><Icons.close /></button>
+          <span id={titleId}>{title}</span>
+          <button className="icon-btn" onClick={onClose} aria-label="Close dialog"><Icons.close /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
     </div>
   )
+}
+
+/** Styled replacement for window.confirm. `const [ask, dialog] = useConfirm()`; `if (!(await ask({...}))) return`. */
+export function useConfirm() {
+  const [state, setState] = useState(null)
+  const ask = useCallback((opts) => new Promise((resolve) => setState({ ...opts, resolve })), [])
+  const close = (answer) => { state?.resolve(answer); setState(null) }
+  const dialog = state && (
+    <Modal
+      title={state.title || 'Please confirm'}
+      onClose={() => close(false)}
+      footer={(
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn" onClick={() => close(false)}>{state.cancelLabel || 'Cancel'}</button>
+          <button className={`btn ${state.danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => close(true)}>
+            {state.confirmLabel || 'Confirm'}
+          </button>
+        </div>
+      )}
+    >
+      <p style={{ margin: 0 }}>{state.message}</p>
+    </Modal>
+  )
+  return [ask, dialog]
 }
 
 export function Seg({ options, value, onChange }) {

@@ -113,7 +113,8 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     face_recognizer = _shared(
         ("face", face_tolerance),
         lambda: FaceRecognizerDB(tolerance=face_tolerance, cache_ttl=30.0,
-                                 loader=watchlist_store.load_face_encodings),
+                                 loader=watchlist_store.load_face_encodings,
+                                 out_of_process=os.getenv("FACE_OUT_OF_PROCESS", "true").lower() == "true"),
     )
     pose_cfg = cfg.get("pose", {})
     pose_analyzer = None

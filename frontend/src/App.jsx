@@ -5,12 +5,15 @@ import {
   fetchIncidentReport, fetchCameras, fetchAnalyticsSummary,
   fetchAnalyticsTrends, fetchAnalyticsLocations, fetchVehiclePlates,
   fetchVehicleDetections, fetchAuditLogs, fetchMe, fetchStreamingCameras,
-  fetchReviewCount,
+  fetchReviewCount, acknowledgeAlert, refreshSession,
 } from './services/api'
+import { useToast } from './components/Toast'
+import { ProfileModal } from './components/ProfileModal'
 import { parseTs } from './lib/time'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAutoAlerts } from './hooks/useAutoAlerts'
-import { Icons, Pill } from './components/ui'
+import { canViewPage } from './lib/permissions'
+import { Card, Empty, Icons, Pill } from './components/ui'
 import { CommandPalette } from './components/CommandPalette'
 import { NotificationDrawer } from './components/NotificationDrawer'
 import { Copilot } from './components/Copilot'
@@ -72,19 +75,9 @@ const NAV = [
 ]
 const ALL_PAGES = NAV.flatMap((g) => g.pages)
 
-const ROLE_PAGES = {
-  viewer: new Set(['overview', 'live', 'map', 'alerts']),
-  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'faces', 'analytics', 'reports', 'cameras']),
-  police: new Set(['overview', 'live', 'map', 'alerts', 'incidents']),
-  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports']),
-  supervisor: null,
-  admin: null,
-}
-
 function filterNavByRole(role) {
-  const allowed = ROLE_PAGES[role]
-  if (!allowed) return NAV
-  return NAV.map((g) => ({ ...g, pages: g.pages.filter((p) => allowed.has(p.id)) })).filter((g) => g.pages.length)
+  // While the profile loads (role unknown) show no navigation instead of flashing the admin menu.
+  return NAV.map((g) => ({ ...g, pages: g.pages.filter((p) => canViewPage(role, p.id)) })).filter((g) => g.pages.length)
 }
 
 function pageFromHash() {
@@ -132,10 +125,10 @@ function formatEvent(evt) {
   }
 }
 
-function LoginForm({ onLogin, theme, setTheme }) {
+function LoginForm({ onLogin, theme, setTheme, notice }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(notice || '')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e) => {
@@ -174,7 +167,9 @@ function LoginForm({ onLogin, theme, setTheme }) {
 }
 
 function App() {
+  const { push: toast } = useToast()
   const [authed, setAuthed] = useState(!!getToken())
+  const [sessionNotice, setSessionNotice] = useState('')
   const [page, setPageState] = useState(pageFromHash())
   const setPage = (id) => {
     setPageState(id)
@@ -213,9 +208,14 @@ function App() {
   const [streamingCams, setStreamingCams] = useState([])
 
   const [showPalette, setShowPalette] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+  const [mapFocus, setMapFocus] = useState(null)      // {cameraId, lat, lng, t}: which camera the map should show
   const [showNotifs, setShowNotifs] = useState(false)
   const [showCopilot, setShowCopilot] = useState(false)
-  const [criticalBanner, setCriticalBanner] = useState(null)
+  // One card per (type, camera, person): two cameras alerting at once must both stay on screen.
+  const [criticalAlerts, setCriticalAlerts] = useState([])
+  const alertKey = (a) => `${a.type}|${a.cameraId ?? a.camera}|${a.personName ?? ''}`
+  const dropCritical = (key) => setCriticalAlerts((list) => list.filter((a) => alertKey(a) !== key))
 
   const setTheme = (t) => {
     setThemeState(applyTheme(t))
@@ -233,6 +233,7 @@ function App() {
   useEffect(() => {
     const onAuthExpired = () => {
       clearToken()
+      setSessionNotice('Your session expired. Please sign in again.')
       setAuthed(false)
     }
     window.addEventListener('auth_expired', onAuthExpired)
@@ -240,7 +241,11 @@ function App() {
   }, [])
 
   const { handleAlert: handleAutoAlert } = useAutoAlerts((alert) => {
-    setCriticalBanner(alert)
+    setCriticalAlerts((list) => [alert, ...list.filter((a) => alertKey(a) !== alertKey(alert))].slice(0, 4))
+    // If the operator is already looking at the map, take them to the camera that raised the alert.
+    if (page === 'map' && alert.lat != null && alert.lng != null) {
+      setMapFocus({ cameraId: alert.cameraId, lat: alert.lat, lng: alert.lng, t: Date.now() })
+    }
   })
 
   const handleWsMessage = useCallback((data) => {
@@ -261,35 +266,54 @@ function App() {
     fetchVehicleDetections().then(setVehicleDetections).catch(() => {})
   }, [])
 
-  /* Initial data load + status polling */
+  /* Keep the session alive while the dashboard is open (a wall display must not log itself out) */
   useEffect(() => {
-    if (!authed) return
-    fetchAlerts(50).then((alerts) => {
-      setEvents(alerts.map((a) => formatEvent(a)))
-    }).catch(() => {})
+    if (!authed) return undefined
+    refreshSession()
+    const t = setInterval(refreshSession, 15 * 60 * 1000)
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshSession() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible) }
+  }, [authed])
 
-    fetchMe().then(setMe).catch(() => {})
+  /* Initial data load + status polling */
+  const [loadFailed, setLoadFailed] = useState([])       // labels of preload requests that failed
+  const [apiDown, setApiDown] = useState(false)          // status polling failed repeatedly
+  const [reloadTick, setReloadTick] = useState(0)
 
-    fetchCameras().then(setCameras).catch(() => {})
-    fetchMapCameras().then(setMapCameras).catch(() => {})
-    fetchMapEvents(24).then(setMapEvents).catch(() => {})
-    fetchKnownPersons().then(setKnownPersons).catch(() => {})
-    fetchEvidence(60).then(setEvidence).catch(() => {})
-    fetchAnalyticsSummary(24).then(setSummary).catch(() => {})
-    fetchAnalyticsTrends(7).then(setTrends).catch(() => {})
-    fetchAnalyticsLocations(24).then(setLocations).catch(() => {})
-    fetchIncidentReport(24).then(setReport).catch(() => {})
-    fetchAuditLogs(50).then(setAuditLogs).catch(() => {})
+  useEffect(() => {
+    if (!authed) return undefined
+    const failed = new Set()
+    const load = (label, promise, apply) => promise.then(apply).catch(() => {
+      failed.add(label)
+      setLoadFailed([...failed])
+    })
+    load('alerts', fetchAlerts(50), (alerts) => setEvents(alerts.map((a) => formatEvent(a))))
+    load('profile', fetchMe(), setMe)
+    load('cameras', fetchCameras(), setCameras)
+    load('map cameras', fetchMapCameras(), setMapCameras)
+    load('map events', fetchMapEvents(24), setMapEvents)
+    load('persons', fetchKnownPersons(), setKnownPersons)
+    load('evidence', fetchEvidence(60), setEvidence)
+    load('summary', fetchAnalyticsSummary(24), setSummary)
+    load('trends', fetchAnalyticsTrends(7), setTrends)
+    load('locations', fetchAnalyticsLocations(24), setLocations)
+    load('report', fetchIncidentReport(24), setReport)
+    load('audit log', fetchAuditLogs(50), setAuditLogs)
     reloadVehicles()
 
-    fetchSystemStatus().then(setSystemStatus).catch(() => {})
-    fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
-    const interval = setInterval(() => {
-      fetchSystemStatus().then(setSystemStatus).catch(() => {})
+    let misses = 0
+    const poll = () => {
+      fetchSystemStatus().then((s) => { misses = 0; setApiDown(false); setSystemStatus(s) }).catch(() => {
+        misses += 1
+        if (misses >= 2) setApiDown(true)
+      })
       fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
-    }, 3000)
+    }
+    poll()
+    const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
-  }, [authed, reloadVehicles])
+  }, [authed, reloadVehicles, reloadTick])
 
   /* Refresh page-specific data when navigating */
   useEffect(() => {
@@ -372,9 +396,19 @@ function App() {
       <LoginForm
         theme={theme}
         setTheme={setTheme}
-        onLogin={async (u, p) => { await login(u, p); setAuthed(true) }}
+        notice={sessionNotice}
+        onLogin={async (u, p) => { await login(u, p); setSessionNotice(''); setAuthed(true) }}
       />
     )
+  }
+
+  const ackCritical = async (alert) => {
+    try {
+      await acknowledgeAlert(alert.alertId)
+      dropCritical(alertKey(alert))
+    } catch (e) {
+      toast(e.message || 'Could not acknowledge', 'danger')
+    }
   }
 
   const criticalEvents = events.filter((e) => e.severity === 'critical' && !e.acknowledged && !e.dismissed)
@@ -389,7 +423,7 @@ function App() {
     knownPersons, reloadKnownPersons, evidence, mapCameras, mapEvents, cameras,
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
-    me, streamingCams, reloadCameras, setPage,
+    me, streamingCams, reloadCameras, setPage, mapFocus,
     reviewPending, refreshReviewCount,
     theme, setTheme,
   }
@@ -398,14 +432,25 @@ function App() {
 
   return (
     <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
-      <CriticalAlertBanner alert={criticalBanner} onDismiss={() => setCriticalBanner(null)} onViewMap={() => { setPage('map'); setCriticalBanner(null) }} onOpenAlerts={() => { setPage('alerts'); setCriticalBanner(null) }} />
+      {criticalAlerts.length > 0 && (
+        <div className="critical-stack">
+          {criticalAlerts.map((a, i) => (
+            <CriticalAlertBanner key={alertKey(a)} alert={a} repeatSound={i === 0}
+              onDismiss={() => dropCritical(alertKey(a))} onViewMap={() => {
+                setMapFocus({ cameraId: a.cameraId, lat: a.lat, lng: a.lng, t: Date.now() })
+                setPage('map'); dropCritical(alertKey(a))
+              }} onOpenAlerts={() => { setPage('alerts'); dropCritical(alertKey(a)) }}
+              onAcknowledge={() => ackCritical(a)} />
+          ))}
+        </div>
+      )}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
           <span className="brand-logo">AG</span>
           <div>Aegis<small>COMMAND CENTER</small></div>
         </div>
         <div className="nav-scroll">
-          {filterNavByRole(me?.role || 'admin').map((group) => (
+          {filterNavByRole(me?.role).map((group) => (
             <div className="nav-group" key={group.group}>
               <div className="nav-group-label">{group.group}</div>
               {group.pages.map((p) => {
@@ -435,7 +480,10 @@ function App() {
         <div className="sidebar-footer">
           <div className="session-chip">
             <span className="avatar">{(me?.username || 'AD').slice(0, 2).toUpperCase()}</span>
-            <div className="who"><b>{me?.username || 'admin'}</b><span>{me?.role || 'operator'}</span></div>
+            <div className="who"><b>{me?.username || '…'}</b><span>{me?.role || ''}</span></div>
+            <button className="icon-btn" title="My account" aria-label="My account" onClick={() => setShowProfile(true)}>
+              <Icons.users />
+            </button>
             <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={() => { clearToken(); setAuthed(false) }}>
               <Icons.logout />
             </button>
@@ -461,7 +509,7 @@ function App() {
             aria-label="Open command palette"
           >
             <Icons.search />
-            <span>Search pages, actions, cameras…</span>
+            <span>Search pages and actions…</span>
             <kbd>⌘K</kbd>
           </button>
           <div className="topbar-right">
@@ -493,24 +541,43 @@ function App() {
           </div>
         </header>
 
+        {(apiDown || loadFailed.length > 0) && (
+          <div className="conn-banner" role="status">
+            <span>
+              {apiDown
+                ? 'Cannot reach the backend. Showing the last data received; retrying automatically.'
+                : `Some data could not be loaded (${loadFailed.join(', ')}).`}
+            </span>
+            <button className="btn btn-sm" onClick={() => { setLoadFailed([]); setReloadTick((t) => t + 1) }}>Retry now</button>
+          </div>
+        )}
+
         <div className="page">
-          <PageComponent ctx={ctx} />
+          {me && !canViewPage(me.role, page) ? (
+            <Card title="Access restricted" sub={`The ${me.role} role cannot open this page`}>
+              <Empty icon={Icons.shield}>Ask an administrator if you need access.</Empty>
+            </Card>
+          ) : (
+            <PageComponent ctx={ctx} />
+          )}
         </div>
       </main>
 
       {showPalette && (
         <CommandPalette
-          pages={ALL_PAGES}
+          pages={ALL_PAGES.filter((p) => canViewPage(me?.role, p.id))}
           actions={[
             { id: 'act-theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`, icon: theme === 'dark' ? Icons.sun : Icons.moon, hint: 'Action', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
             { id: 'act-copilot', label: 'Open Command Assistant', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
             { id: 'act-notifs', label: 'Open Notification Center', icon: Icons.bell, hint: 'Action', run: () => setShowNotifs(true) },
+            { id: 'act-profile', label: 'Change my password', icon: Icons.users, hint: 'Action', run: () => setShowProfile(true) },
             { id: 'act-logout', label: 'Sign out', icon: Icons.logout, hint: 'Action', run: () => { clearToken(); setAuthed(false) } },
           ]}
           onNavigate={setPage}
           onClose={() => setShowPalette(false)}
         />
       )}
+      {showProfile && <ProfileModal me={me} onClose={() => setShowProfile(false)} />}
       {showNotifs && (
         <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => { setEvents([]); setClearedAt(Date.now()) }} />
       )}

@@ -13,6 +13,9 @@ class Camera(Base):
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
     rtsp_url = Column(String(255), nullable=True)
+    heading = Column(Float, nullable=True)     # degrees clockwise from north the camera faces (map field-of-view cone)
+    fov = Column(Float, nullable=True)         # horizontal field of view, degrees
+    range_m = Column(Float, nullable=True)     # how far it sees, metres
     active = Column(Boolean, default=True)
     # JSON {zones: [...], lines: [...]} in normalized 0-1 coordinates (see core/analysis/zones.py)
     geometry = Column(Text, nullable=True)

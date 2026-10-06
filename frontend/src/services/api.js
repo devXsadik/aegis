@@ -42,6 +42,14 @@ export async function login(username, password) {
   return data;
 }
 
+/** Swap the current token for a fresh one. Ignored if it fails: the next real request reports expiry. */
+export async function refreshSession() {
+  try {
+    const data = await apiFetch('/auth/refresh', { method: 'POST' });
+    setToken(data.access_token);
+  } catch { /* handled by the 401 flow */ }
+}
+
 export async function fetchAlerts(limit = 20) {
   return apiFetch(`/alerts/?limit=${limit}`);
 }
@@ -166,8 +174,10 @@ export async function fetchMapCameras() {
   return apiFetch('/map/cameras');
 }
 
-export async function fetchMapEvents(hours = 24) {
-  return apiFetch(`/map/events?hours=${hours}`);
+export async function fetchMapEvents(hours = 24, types = '') {
+  const q = new URLSearchParams({ hours: String(hours) });
+  if (types) q.set('types', types);
+  return apiFetch(`/map/events?${q}`);
 }
 
 export async function fetchIncidentReport(hours = 24) {
@@ -236,6 +246,21 @@ export async function createUser({ username, email, password, role, phone }) {
     method: 'POST',
     body: JSON.stringify({ username, email, password, role, phone: phone || null }),
   });
+}
+
+export async function updateUser(userId, patch) {
+  return apiFetch(`/auth/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  return apiFetch('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function fetchAssignees() {
+  return apiFetch('/auth/assignees');
 }
 
 export async function fetchMe() {

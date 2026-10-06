@@ -1169,8 +1169,11 @@ button, input, select, textarea { font: inherit; }
 .toast-danger { border-color: var(--danger); color: var(--danger); }
 .toast-ok { border-color: var(--ok); }
 /* Critical alert: floating card; never part of the page layout, so it can't push or hide the dashboard. */
-.critical-alert-banner {
+.critical-stack {
   position: fixed; top: 16px; right: 16px; z-index: 1000; width: min(380px, calc(100vw - 32px));
+  display: grid; gap: 10px; max-height: calc(100vh - 32px); overflow-y: auto;
+}
+.critical-alert-banner {
   background: var(--surface); color: var(--text); border: 1px solid var(--danger); border-left-width: 5px;
   border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .35); overflow: hidden;
   animation: critical-in .25s ease-out;
@@ -1307,3 +1310,38 @@ kbd {
 .ze-swatch { width: 12px; height: 12px; border-radius: 3px; background: #38bdf8; }
 .ze-swatch.restricted { background: #f87171; }
 .ze-swatch.line { background: #fbbf24; height: 4px; }
+
+/* Connectivity / partial-load notice: shown on every screen size, above the page content */
+.conn-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 0 var(--page-pad, 20px); padding: 10px 14px; border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 16%, var(--surface)); border: 1px solid var(--warn); color: var(--text);
+  font-size: .85rem;
+}
+
+/* ——— Operations map ——— */
+.ops-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .ops-layout { grid-template-columns: 1fr; } }
+.ops-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ops-map-wrap { position: relative; }
+.ops-map { height: clamp(380px, 62vh, 720px); border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); z-index: 0; }
+.ops-map--offline { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 40px 40px; }
+.ops-map-note { position: absolute; left: 10px; bottom: 10px; z-index: 500; padding: 6px 10px; border-radius: 6px; font-size: .78rem; background: var(--surface); border: 1px solid var(--warn); }
+.ops-hint { margin-bottom: 8px; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 14%, var(--surface)); font-size: .84rem; }
+.ops-replay { display: grid; gap: 4px; margin-bottom: 8px; font-size: .8rem; }
+.ops-cam { width: 18px; height: 18px; margin: 2px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.5); background: var(--text-3); }
+.ops-cam--live { background: var(--ok); }
+.ops-cam--idle { background: var(--warn); }
+.ops-cam--off { background: var(--text-3); }
+.ops-cam--sel { outline: 3px solid var(--primary); outline-offset: 2px; }
+.ops-alert { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .8rem; background: var(--c); border: 2px solid #fff; box-shadow: 0 1px 8px rgba(0,0,0,.55); }
+.ops-alert--pulse { animation: ops-pulse 1.4s ease-out infinite; }
+@keyframes ops-pulse { 0% { box-shadow: 0 0 0 0 var(--c); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.ops-camlist { max-height: 300px; overflow-y: auto; display: grid; }
+.ops-camrow { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.ops-camrow:hover, .ops-camrow.on { background: var(--surface-2); }
+.ops-cov { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 8px; align-items: end; border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: .78rem; }
+.ops-cov label { display: grid; gap: 2px; }
+.ops-cov legend { padding: 0 4px; color: var(--text-2); }
+@media (prefers-reduced-motion: reduce) { .ops-alert--pulse { animation: none; } }

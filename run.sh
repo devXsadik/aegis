@@ -153,8 +153,9 @@ supervise_pipeline() {
   local fast=0 delay=3 t0 code
   while true; do
     t0=$(date +%s)
-    $PYTHON main.py "$@" 2>&1 | tee -a logs/pipeline.out
-    code=${PIPESTATUS[0]}
+    # `|| code=` keeps set -e from killing this supervisor when the pipeline exits non-zero.
+    code=0
+    $PYTHON main.py "$@" 2>&1 | tee -a logs/pipeline.out || code=${PIPESTATUS[0]}
     [ "$code" -eq 0 ] && return 0                       # clean exit (e.g. finished a file)
     if [ $(( $(date +%s) - t0 )) -lt 20 ]; then fast=$((fast + 1)); else fast=0; delay=3; fi
     if [ "$fast" -ge 5 ]; then

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.camera_officer import CameraOfficer
 from backend.models.user import User
+from backend.utils.http_retry import post_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,8 @@ async def sms_officers(officers: List[User], text: str, payload: dict) -> List[s
             if not u.phone:
                 logger.warning(f"Officer {u.username} has no phone number; SMS skipped")
                 continue
-            try:
-                await client.post(url, json={"to": u.phone, "officer": u.username, "message": text, **payload}, timeout=5.0)
+            if await post_with_retry(client, url, {"to": u.phone, "officer": u.username, "message": text, **payload}):
                 sent.append(u.username)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"SMS to officer {u.username} failed: {e}")
+            else:
+                logger.error(f"SMS to officer {u.username} failed after retries")
     return sent

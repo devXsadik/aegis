@@ -11,7 +11,9 @@ Usage:
 """
 
 import argparse
+import logging
 import os
+import sys
 import threading
 import time
 
@@ -21,10 +23,31 @@ from core.app.factory import build_pipeline
 from core.runtime import run_camera_loop
 from paths import CONFIG_YAML, EVIDENCE_DIR, ROOT
 from utils.config import load_cameras_config, load_yaml, expand_env, get_camera_geo
-from utils.media import resolve_source
+from utils.media import fresh_process_sees_webcam, resolve_source
 from utils.system import logger
 
 cv2.setNumThreads(0)
+
+# Exit code asking run.sh's supervisor to restart the pipeline (it restarts on any non-zero exit).
+RESTART_EXIT_CODE = 75
+_restart_requested = threading.Event()
+_HOTPLUG_MARK = ROOT / "logs" / ".webcam_hotplug_restart"
+
+
+def _hotplug_restart_allowed(min_gap: float = 600.0) -> bool:
+    """At most one hotplug restart per `min_gap` seconds, so a webcam that opens in a fresh
+    process but still fails here cannot put the whole pipeline into a restart loop."""
+    try:
+        if time.time() - _HOTPLUG_MARK.stat().st_mtime < min_gap:
+            return False
+    except OSError:
+        pass
+    try:
+        _HOTPLUG_MARK.parent.mkdir(parents=True, exist_ok=True)
+        _HOTPLUG_MARK.touch()
+    except OSError:
+        return False
+    return True
 
 
 def _resolve_camera_index(cfg):
@@ -91,6 +114,13 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
                 )
             except Exception as e:
                 logger.error(f"[{cam_id}] camera unavailable: {e}")
+                if (sys.platform == "darwin" and isinstance(source, int)
+                        and fresh_process_sees_webcam(source) and _hotplug_restart_allowed()):
+                    # macOS never refreshes this process's camera list: a webcam plugged in after
+                    # start stays invisible here until the pipeline restarts.
+                    logger.warning(f"[{cam_id}] webcam {source} was plugged in after start — restarting pipeline")
+                    _restart_requested.set()
+                    break
             if stop_event.is_set():
                 break
             if time.time() - started > 60:      # it was healthy for a while: retry soon
@@ -124,8 +154,9 @@ def main():
     if args.multi:
         cameras = load_cameras_config(base_dir)
         if not cameras:
-            logger.error("No enabled cameras in config/cameras.yaml")
-            return
+            # Keep running: the hot-reload loop below starts cameras as soon as one is enabled
+            # (e.g. from the dashboard). Exiting here left nothing running to pick that up.
+            logger.warning("No enabled cameras in config/cameras.yaml — waiting for one to be enabled")
         local = {}
         for c in cameras:
             if isinstance(c.get("source", 0), int):
@@ -141,6 +172,9 @@ def main():
         try:
             while True:
                 time.sleep(2.0)
+                if _restart_requested.is_set():
+                    logging.shutdown()
+                    os._exit(RESTART_EXIT_CODE)     # skip joining camera threads stuck in OpenCV
                 current_cameras = load_cameras_config(base_dir)
                 active_cids = {c.get("id") for c in current_cameras if c.get("id")}
                 

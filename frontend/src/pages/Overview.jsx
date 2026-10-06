@@ -101,11 +101,6 @@ export function Overview({ ctx }) {
               { label: 'Watchlist', value: summary?.criminal_detections ?? 0, color: 'var(--danger)' },
               { label: 'Weapon', value: summary?.weapon_detections ?? 0, color: 'var(--orange)' },
               { label: 'Suspicious', value: summary?.suspicious_activities ?? 0, color: 'var(--warn)' },
-              {
-                label: 'Normal',
-                value: Math.max(0, (summary?.total_events ?? 0) - (summary?.criminal_detections ?? 0) - (summary?.weapon_detections ?? 0) - (summary?.suspicious_activities ?? 0)),
-                color: 'var(--ok)',
-              },
             ]}
           />
         </Card>

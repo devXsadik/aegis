@@ -25,6 +25,7 @@ class Alert(Base):
     acknowledged_by = Column(Integer, nullable=True)
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     dismissed = Column(Boolean, default=False)
+    escalated_at = Column(DateTime(timezone=True), nullable=True)   # backup officers paged after no acknowledgement
 
     channels_sent = Column(String(100), nullable=True)
 

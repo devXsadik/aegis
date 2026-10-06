@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Card, Icons, Tag, Empty, Seg, Modal } from '../components/ui'
-import { Sparkline } from '../components/charts'
+import { Card, Icons, Tag, Empty, Seg, Modal, useConfirm } from '../components/ui'
 import { resolveIp, addCamera, updateCamera, liveStreamUrl, deleteCamera, fetchUsers, fetchCameraOfficerMap, setCameraOfficers } from '../services/api'
 import { useToast } from '../components/Toast'
+import { can } from '../lib/permissions'
 
+// Status comes only from what the system really knows: the pipeline heartbeat and the enabled flag.
 function healthOf(cam, live) {
-  if (live) return { label: 'Streaming', tone: 'ok', pct: 98 }
-  if (cam.active) return { label: 'Online', tone: 'ok', pct: 92 }
-  return { label: 'Offline', tone: 'danger', pct: 0 }
+  if (live) return { label: 'Streaming', tone: 'ok' }
+  if (cam.active) return { label: 'Enabled, no signal', tone: 'warn' }
+  return { label: 'Off', tone: 'danger' }
 }
+
+const slug = (s) => (s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
 
 export function Cameras({ ctx }) {
   const { cameras, systemStatus, reloadCameras, me } = ctx
   const { push: toast } = useToast()
+  const [ask, confirmDialog] = useConfirm()
   const [view, setView] = useState('grid')
   
   // Add Camera State
@@ -23,7 +27,7 @@ export function Cameras({ ctx }) {
 
   const handleDelete = async (cam) => {
     if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
-    if (!confirm(`Delete camera ${cam.camera_id}?`)) return
+    if (!(await ask({ title: 'Delete camera', message: `Delete camera ${cam.camera_id}? Its history stays, but it stops being monitored.`, confirmLabel: 'Delete', danger: true }))) return
     try {
       await deleteCamera(cam.camera_id)
       toast('Camera deleted', 'ok')
@@ -58,7 +62,7 @@ export function Cameras({ ctx }) {
 
   const handleToggle = async (cam) => {
     if (me?.role !== 'admin') { toast('Admin only', 'danger'); return }
-    if (cam.active && !window.confirm(`Turn off "${cam.name || cam.camera_id}"? Detection and recording stop until it is turned back on.`)) return
+    if (cam.active && !(await ask({ title: 'Turn off camera', message: `Turn off "${cam.name || cam.camera_id}"? Detection and recording stop until it is turned back on.`, confirmLabel: 'Turn off', danger: true }))) return
     try {
       await updateCamera(cam.camera_id, {
         camera_id: cam.camera_id,
@@ -81,8 +85,8 @@ export function Cameras({ ctx }) {
       ...c,
       live,
       health: h,
-      fps: live ? systemStatus.cameras[c.camera_id]?.fps ?? 25 : c.active ? 25 : 0,
-      spark: Array.from({ length: 12 }, (_, i) => (c.active ? 20 + ((i * 7 + (c.id || 0) * 3) % 12) : 0)),
+      fps: live ? systemStatus.cameras[c.camera_id]?.fps ?? null : null,
+      threat: live ? systemStatus.cameras[c.camera_id]?.threat_score ?? null : null,
     }
   }).sort((a, b) => (b.live - a.live) || (b.active - a.active))
 
@@ -128,7 +132,7 @@ export function Cameras({ ctx }) {
                   <div className="scanline" />
                   <div className="cam-label" style={{ position: 'relative', zIndex: 2 }}>{cam.live && <span className="rec-dot" />}{cam.name || cam.camera_id}</div>
                   {cam.active
-                    ? <div className="cam-stats" style={{ position: 'relative', zIndex: 2 }}><span>{cam.fps} FPS · 1080p</span><span>H.264 · 4 Mbps</span></div>
+                    ? <div className="cam-stats" style={{ position: 'relative', zIndex: 2 }}><span>{cam.fps != null ? `${Number(cam.fps).toFixed(1)} FPS` : 'Waiting for signal'}</span>{cam.threat != null && <span>Threat {cam.threat}</span>}</div>
                     : <div className="cam-offline" style={{ position: 'relative', zIndex: 2 }}><div>Signal lost</div></div>}
                 </div>
                 <div style={{ padding: '12px 14px' }}>
@@ -136,7 +140,7 @@ export function Cameras({ ctx }) {
                     <b style={{ fontSize: '0.86rem' }}>{cam.name || cam.camera_id}</b>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <Tag tone={cam.health.tone}>{cam.health.label}</Tag>
-                      <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
+                      {can(me?.role, 'camera.manage') && <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>}
                   {me?.role === 'admin' && (
                         <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
                           {cam.active ? 'Turn off' : 'Turn on'}
@@ -149,10 +153,6 @@ export function Cameras({ ctx }) {
                     Officer: {officerNames(cam)}
                     {me?.role === 'admin' && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 6 }} onClick={() => openAssign(cam)}>Assign</button>}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                    <span className="muted" style={{ fontSize: '0.72rem' }}>Network 24h</span>
-                    <Sparkline data={cam.spark} color={cam.active ? 'var(--ok)' : 'var(--danger)'} />
-                  </div>
                 </div>
               </div>
             ))}
@@ -160,7 +160,7 @@ export function Cameras({ ctx }) {
         ) : (
           <table className="table">
             <thead>
-              <tr><th>Camera</th><th>Location</th><th>Health</th><th>FPS</th><th>Resolution</th><th>Bitrate</th><th>Firmware</th><th>GPS</th><th>Action</th></tr>
+              <tr><th>Camera</th><th>Location</th><th>Health</th><th>FPS</th><th>Threat</th><th>Officer</th><th>GPS</th><th>Action</th></tr>
             </thead>
             <tbody>
               {rows.map((cam) => (
@@ -168,13 +168,12 @@ export function Cameras({ ctx }) {
                   <td><b>{cam.name || cam.camera_id}</b><div className="meta mono">{cam.camera_id}</div></td>
                   <td>{cam.location || '—'}</td>
                   <td><Tag tone={cam.health.tone}>{cam.health.label}</Tag></td>
-                  <td>{cam.fps}</td>
-                  <td>{cam.active ? '1920×1080' : '—'}</td>
-                  <td>{cam.active ? '4.0 Mbps' : '—'}</td>
-                  <td className="mono">v2.4.1</td>
+                  <td>{cam.fps != null ? Number(cam.fps).toFixed(1) : '—'}</td>
+                  <td>{cam.threat != null ? cam.threat : '—'}</td>
+                  <td>{officerNames(cam)}</td>
                   <td className="mono">{cam.lat != null ? `${cam.lat.toFixed(4)}, ${cam.lng.toFixed(4)}` : '—'}</td>
                   <td>
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>
+                    {can(me?.role, 'camera.manage') && <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>}
                   {me?.role === 'admin' && (
                       <button className="btn btn-sm" onClick={() => handleToggle(cam)}>
                         {cam.active ? 'Turn off' : 'Turn on'}
@@ -278,7 +277,7 @@ export function Cameras({ ctx }) {
                       const res = await resolveIp(addForm.ipLink)
                       setAddForm({
                         ...addForm,
-                        camera_id: addForm.camera_id || `cam_${Math.random().toString(36).substr(2, 5)}`,
+                        camera_id: addForm.camera_id || slug(addForm.name),
                         name: addForm.name || 'New Camera',
                         location: res.location || '',
                         lat: res.lat || '',
@@ -336,6 +335,7 @@ export function Cameras({ ctx }) {
           </div>
         </Modal>
       )}
+      {confirmDialog}
     </>
   )
 }

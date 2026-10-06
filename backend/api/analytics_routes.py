@@ -20,7 +20,19 @@ def analytics_summary(hours: int = 24, db: Session = Depends(get_db),
     weapons = db.query(Evidence).filter(Evidence.timestamp >= cutoff, Evidence.weapon_present == True).count()
     suspicious = db.query(Evidence).filter(Evidence.timestamp >= cutoff, Evidence.is_suspicious == True).count()
     alerts = db.query(Alert).filter(Alert.timestamp >= cutoff).count()
+    # Mean time to acknowledge, from real timestamps (None until something has been acknowledged).
+    acked = db.query(Alert.timestamp, Alert.acknowledged_at).filter(
+        Alert.timestamp >= cutoff, Alert.acknowledged == True, Alert.acknowledged_at.isnot(None)).all()  # noqa: E712
+    deltas = []
+    for ts, at in acked:
+        try:
+            deltas.append((at.replace(tzinfo=None) - ts.replace(tzinfo=None)).total_seconds())
+        except Exception:  # noqa: BLE001
+            continue
+    mtta = round(sum(deltas) / len(deltas), 1) if deltas else None
     return {
+        "mtta_seconds": mtta,
+        "acknowledged_alerts": len(deltas),
         "period_hours": hours,
         "total_events": total_events,
         "criminal_detections": criminals,

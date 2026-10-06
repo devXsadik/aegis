@@ -3,7 +3,7 @@
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -19,6 +19,7 @@ from backend.services import officer_dispatch
 from backend.services.event_store import record_event
 from backend.services.watchlist_store import ALERT_STATUSES
 from backend.utils.events import broadcast_live_event
+from backend.utils.http_retry import post_with_retry
 from backend.utils.websocket import manager
 
 logger = logging.getLogger(__name__)
@@ -74,28 +75,22 @@ async def _send_webhooks(alert_type: str, payload: dict) -> str:
     urls = _webhook_urls()
     sent = []
     if alert_type == "CRIMINAL_DETECTED":
-        for key in ("law_enforcement", "security"):
-            if urls[key]:
-                await _post_webhook(urls[key], payload)
-                sent.append(key)
+        keys = ("law_enforcement", "security")
     elif alert_type in ("WEAPON_DETECTED", "FIRE_SMOKE_DETECTED"):
-        for key in ("emergency", "security"):
-            if urls[key]:
-                await _post_webhook(urls[key], payload)
-                sent.append(key)
+        keys = ("emergency", "security")
     elif alert_type == "SUSPICIOUS_VEHICLE":
-        if urls["law_enforcement"]:
-            await _post_webhook(urls["law_enforcement"], payload)
-            sent.append("law_enforcement")
+        keys = ("law_enforcement",)
+    else:
+        keys = ()
+    for key in keys:
+        if urls[key] and await _post_webhook(urls[key], payload):
+            sent.append(key)             # only channels that really accepted the message
     return ",".join(sent)
 
 
-async def _post_webhook(url: str, payload: dict) -> None:
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(url, json=payload, timeout=5.0)
-    except Exception as e:
-        logger.warning(f"Webhook failed ({url}): {e}")
+async def _post_webhook(url: str, payload: dict) -> bool:
+    async with httpx.AsyncClient() as client:
+        return await post_with_retry(client, url, payload)
 
 
 async def dispatch_alert(
@@ -120,6 +115,19 @@ async def dispatch_alert(
         db = SessionLocal()
 
     try:
+        # One open alert per (type, camera, person/plate) within the window: a person lingering in view
+        # must not page the officer every few seconds. Acknowledge/dismiss re-arms it.
+        window = int(os.getenv("ALERT_DEDUPE_SECONDS", "120"))
+        if window > 0 and alert_type != "PIPELINE_HEARTBEAT":
+            cutoff = datetime.utcnow() - timedelta(seconds=window)
+            dup = db.query(Alert).filter(
+                Alert.alert_type == alert_type, Alert.camera_id == camera_id,
+                Alert.person_name == person_name, Alert.plate_number == plate_number,
+                Alert.acknowledged == False, Alert.dismissed == False,  # noqa: E712
+                Alert.timestamp >= cutoff).order_by(Alert.id.desc()).first()
+            if dup:
+                return {"status": "deduplicated", "alert_id": dup.id}
+
         display_name = None
         if alert_type == "CRIMINAL_DETECTED":
             # Defense in depth: only a currently enrolled, alert-eligible criminal may raise this.

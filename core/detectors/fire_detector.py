@@ -1,4 +1,4 @@
-from core.detectors.device import lock_for
+from core.detectors.device import lock_for, read_boxes
 
 import numpy as np
 from ultralytics import YOLO
@@ -16,12 +16,8 @@ class FireSmokeDetector:
     def detect(self, frame: np.ndarray):
         with self._lock:
             results = self.model(frame, conf=self.conf_threshold, verbose=False, device=self.device)
-        out = []
-        for r in results:
-            names = r.names
-            for box in r.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cls_id = int(box.cls[0])
-                out.append({"bbox": (x1, y1, x2, y2), "score": float(box.conf[0]),
-                            "class_id": cls_id, "class_name": names.get(cls_id, str(cls_id))})
-        return out
+            boxes = read_boxes(results)
+            names = results[0].names if len(results) else {}
+        return [{"bbox": (x1, y1, x2, y2), "score": conf,
+                 "class_id": cls_id, "class_name": names.get(cls_id, str(cls_id))}
+                for x1, y1, x2, y2, conf, cls_id in boxes]

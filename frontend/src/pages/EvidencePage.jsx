@@ -1,9 +1,10 @@
+import { can } from '../lib/permissions'
 import { useState } from 'react'
 import { Card, Icons, Tag, Empty, timeAgo, Modal, Seg } from '../components/ui'
 import { evidenceImageUrl, fetchCustody, verifyCustody, addCalibrationLabel } from '../services/api'
 
 export function EvidencePage({ ctx }) {
-  const { evidence } = ctx
+  const { evidence, me } = ctx
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [selected, setSelected] = useState(null)
@@ -118,7 +119,7 @@ export function EvidencePage({ ctx }) {
                   <Icons.download /> Download
                 </a>
               )}
-              <button className="btn" onClick={labelFP}>Mark False Positive</button>
+              {can(me?.role, 'evidence.label') && <button className="btn" onClick={labelFP}>Mark False Positive</button>}
               <button className="btn btn-primary" onClick={doVerify}><Icons.check /> Verify Integrity</button>
             </>
           }

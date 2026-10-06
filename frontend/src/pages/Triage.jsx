@@ -5,6 +5,8 @@ import {
   createIncidentFromAlert, evidenceImageUrl,
 } from '../services/api'
 import { useToast } from '../components/Toast'
+import { can } from '../lib/permissions'
+import { useConfirm } from '../components/ui'
 import {
   eventLabel, eventIconKey, fromAlertRow, EXPLAIN, REJECT_REASONS, REVIEW_LABEL,
 } from '../lib/events'
@@ -42,7 +44,7 @@ function Fact({ label, value }) {
   return (<><dt>{label}</dt><dd>{value}</dd></>)
 }
 
-function DetailPane({ item, detail, mode, setMode, busy, onConfirm, onReject, onDispatch, onIncident }) {
+function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident }) {
   const [evIdx, setEvIdx] = useState(0)
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
@@ -122,6 +124,8 @@ function DetailPane({ item, detail, mode, setMode, busy, onConfirm, onReject, on
           <ReviewTag status={item.reviewStatus} />
           {item.reviewNote && <span className="meta">{item.reviewNote}</span>}
         </div>
+      ) : !canAct ? (
+        <div className="meta">Your role can view alerts but not act on them.</div>
       ) : mode === 'confirm' ? (
         <div className="tq-panel" role="group" aria-label="Confirm alert">
           <p>
@@ -176,6 +180,8 @@ function DetailPane({ item, detail, mode, setMode, busy, onConfirm, onReject, on
 export function Triage({ ctx }) {
   const { setEvents, setPage, reviewPending, refreshReviewCount } = ctx
   const { push: toast } = useToast()
+  const [ask, confirmDialog] = useConfirm()
+  const canAct = can(ctx.me?.role, 'triage.act')
   const [queue, setQueue] = useState('review')
   const [items, setItems] = useState([])
   const [loaded, setLoaded] = useState(false)
@@ -252,9 +258,11 @@ export function Triage({ ctx }) {
     }),
     'Alert rejected', selected.id, { dismissed: true },
   )
-  const dispatch = () => selected && run(
-    () => dispatchPolice(selected.id), 'Police dispatched', selected.id, { acknowledged: true },
-  )
+  const dispatch = async () => {
+    if (!selected) return
+    if (!(await ask({ title: 'Dispatch police', message: 'This notifies the configured external channels (CAD, SMS, security). Continue?', confirmLabel: 'Dispatch', danger: true }))) return
+    run(() => dispatchPolice(selected.id), 'Police dispatched', selected.id, { acknowledged: true })
+  }
   const incident = async () => {
     if (!selected) return
     try {
@@ -339,7 +347,7 @@ export function Triage({ ctx }) {
           {selected ? (
             <DetailPane
               key={selected.id}
-              item={selected} detail={detail} mode={mode} setMode={setMode} busy={busy}
+              item={selected} detail={detail} mode={mode} setMode={setMode} busy={busy} canAct={canAct}
               onConfirm={confirm} onReject={reject} onDispatch={dispatch} onIncident={incident}
             />
           ) : (
@@ -347,6 +355,7 @@ export function Triage({ ctx }) {
           )}
         </Card>
       </div>
+      {confirmDialog}
     </>
   )
 }

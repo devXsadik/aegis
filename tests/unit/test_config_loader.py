@@ -1,6 +1,5 @@
 """Tests for config loader utilities."""
 
-import os
 from utils.config import expand_env, load_cameras_config
 
 
@@ -23,12 +22,14 @@ class TestExpandEnv:
 
 
 class TestLoadCamerasConfig:
-    def test_loads_enabled_cameras(self):
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        project_root = os.path.dirname(base)
-        cameras = load_cameras_config(project_root)
-        assert len(cameras) >= 1
-        assert all(c.get("enabled", True) for c in cameras)          # disabled ones are filtered out
-        ids = [c["id"] for c in cameras]
-        assert len(ids) == len(set(ids))
+    def test_loads_enabled_cameras(self, tmp_path):
+        # Own config: the real cameras.yaml is edited at runtime (the dashboard toggles `enabled`).
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "cameras.yaml").write_text(
+            "cameras:\n"
+            "- {id: a, source: 0, enabled: true}\n"
+            "- {id: b, source: 1, enabled: false}\n"
+            "- {id: c, source: 'rtsp://x/y'}\n")
+        cameras = load_cameras_config(str(tmp_path))
+        assert [c["id"] for c in cameras] == ["a", "c"]              # disabled ones are filtered out
 

@@ -16,7 +16,8 @@ from backend.models.user import User  # noqa: E402
 from backend.services import alert_dispatcher as ad  # noqa: E402
 
 
-def test_criminal_alert_holds_webhooks_then_releases():
+def test_criminal_alert_holds_webhooks_then_releases(monkeypatch):
+    monkeypatch.setenv("ALERT_DEDUPE_SECONDS", "0")      # this test dispatches the same type repeatedly
     init_db()
     _db = SessionLocal()
     _db.add(KnownPerson(person_id="X", name="Test Crook", category="criminal", criminal_status="wanted"))

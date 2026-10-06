@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Icons, Tag, Seg } from '../components/ui'
+import { Card, Icons, Tag, Seg, useConfirm } from '../components/ui'
 import { fetchCameraGeometry, saveCameraGeometry, snapshotUrl } from '../services/api'
 import { useToast } from '../components/Toast'
 import { clamp01, centroid, core, dist, nextName, validateNames } from '../lib/geometry'
@@ -13,6 +13,7 @@ const TOOL_HINT = {
 export function ZoneEditor({ ctx }) {
   const { cameras = [], streamingCams = [], me } = ctx
   const { push: toast } = useToast()
+  const [ask, confirmDialog] = useConfirm()
   const canEdit = me?.role === 'admin' || me?.role === 'supervisor'
 
   const firstCam = useMemo(() => {
@@ -127,8 +128,8 @@ export function ZoneEditor({ ctx }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const switchCamera = (id) => {
-    if (dirty && !window.confirm('Discard unsaved changes to this camera?')) return
+  const switchCamera = async (id) => {
+    if (dirty && !(await ask({ title: 'Unsaved changes', message: 'Discard unsaved changes to this camera?', confirmLabel: 'Discard', danger: true }))) return
     setLoaded(false); setCamId(id); setImgOk(false); setImgKey(Date.now())
   }
 
@@ -321,6 +322,7 @@ export function ZoneEditor({ ctx }) {
           )}
         </div>
       </div>
+      {confirmDialog}
     </>
   )
 }

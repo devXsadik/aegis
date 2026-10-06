@@ -213,8 +213,10 @@ def update_incident(
         if body.assigned_to and not name:
             u = db.query(User).filter(User.id == body.assigned_to).first()
             name = u.username if u else str(body.assigned_to)
-        add_event(db, inc, "ASSIGNED", f"Assigned to {name}", user.username)
-        inc.assigned_to = body.assigned_to
+        if body.assigned_to == 0:          # 0 = unassign
+            name = None
+        add_event(db, inc, "ASSIGNED", f"Assigned to {name}" if name else "Unassigned", user.username)
+        inc.assigned_to = body.assigned_to or None
         inc.assigned_name = name
 
     if body.title is not None:

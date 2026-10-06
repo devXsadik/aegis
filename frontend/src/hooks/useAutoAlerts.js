@@ -22,9 +22,10 @@ export function useAutoAlerts(onCriticalAlert) {
         `🚨 ${type.replace(/_/g, ' ')}`,
         `${msg} — ${camera}${data.camera_lat ? ` @ ${data.camera_lat.toFixed(5)}, ${data.camera_lng.toFixed(5)}` : ''}`,
       )
-      flashDocumentTitle('CRIMINAL ALERT')
+      flashDocumentTitle(`${type.replace(/_/g, ' ')}`)
       onCriticalAlert?.({
         type,
+        alertId: data.alert_id ?? data.data?.alert_id,
         message: msg,
         camera: data.camera_location || data.camera_id || 'Unknown camera',
         cameraId: data.camera_id,

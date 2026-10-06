@@ -9,7 +9,18 @@ function getAudioContext() {
   return audioCtx
 }
 
+const MUTE_KEY = 'aegis.alertsMuted'
+
+export function isAlertSoundMuted() {
+  try { return localStorage.getItem(MUTE_KEY) === '1' } catch { return false }
+}
+
+export function setAlertSoundMuted(muted) {
+  try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0') } catch { /* storage unavailable */ }
+}
+
 export function playAlertSound(severity = 'critical') {
+  if (isAlertSoundMuted()) return
   try {
     const ctx = getAudioContext()
     const osc = ctx.createOscillator()
