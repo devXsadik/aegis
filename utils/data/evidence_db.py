@@ -17,7 +17,7 @@ def save_evidence_db(
     reasons: list,
     frame: np.ndarray,
     roi: np.ndarray,
-    encrypt: bool = False,
+    encrypt: bool = None,
 ):
     db = SessionLocal()
     try:
@@ -25,7 +25,10 @@ def save_evidence_db(
         frame_bytes = frame_buffer.tobytes()
         _, roi_buffer = cv2.imencode(".jpg", roi, [cv2.IMWRITE_JPEG_QUALITY, 85])
         roi_bytes = roi_buffer.tobytes()
-        content_hash = sha256_bytes(frame_bytes)
+        content_hash = sha256_bytes(frame_bytes)       # of the plaintext JPEG, so exports can be checked
+        if encrypt is None:
+            from backend.utils.at_rest import enabled as encrypt_at_rest
+            encrypt = encrypt_at_rest()
         if encrypt:
             enc_manager = EncryptionManager()
             frame_bytes = enc_manager.encrypt(frame_bytes)

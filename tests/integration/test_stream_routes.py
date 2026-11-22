@@ -52,10 +52,10 @@ def test_only_the_pipeline_can_push_frames():
     assert client.post(f"{API}/frame/cam_a", content=_jpeg(), headers=KEY).status_code == 200
 
 
-def test_viewers_need_an_operational_role():
+def test_video_needs_a_session_and_the_viewer_role_may_watch():
     client.post(f"{API}/frame/cam_a", content=_jpeg(), headers=KEY)
     assert client.get(f"{API}/cameras").status_code == 401
-    assert client.get(f"{API}/cam_a/snapshot", headers=_auth("viewer")).status_code == 403
+    assert client.get(f"{API}/cam_a/snapshot", headers=_auth("viewer")).status_code == 200   # wall display
     assert client.get(f"{API}/cameras", headers=_auth()).json() == {"cameras": ["cam_a"]}
 
 

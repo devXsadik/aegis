@@ -508,3 +508,15 @@ export async function fetchResponderAlerts(hours = 24) {
 export async function setResponderStatus(alertId, status, note) {
   return apiFetch(`/responder/alerts/${alertId}/status`, { method: 'POST', body: JSON.stringify({ status, note: note || null }) });
 }
+
+/* ---- Backups (admin) ---- */
+export async function fetchBackups() {
+  return apiFetch('/system/backups');
+}
+export async function runBackupNow() {
+  return apiFetch('/system/backups', { method: 'POST' });
+}
+
+export async function fetchFalseAlerts(days = 30) {
+  return apiFetch(`/analytics/false-alerts?days=${days}`);
+}

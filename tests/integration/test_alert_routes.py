@@ -103,8 +103,16 @@ def test_list_filters_and_queues():
     assert rc["escalated_types"] == ["CRIMINAL_DETECTED", "WEAPON_DETECTED"]
 
 
-def test_viewers_cannot_read_alerts():
-    assert client.get(f"{API}/", headers=_auth("viewer")).status_code == 403
+def test_viewers_read_the_live_picture_but_cannot_act_or_see_personal_data():
+    viewer = _auth("viewer")
+    a = _alert(review_status="pending")
+    assert client.get(f"{API}/", headers=viewer).status_code == 200               # a wall display may look
+    assert client.get("/api/v1/system/status", headers=viewer).status_code == 200
+    assert client.put(f"{API}/{a.id}/acknowledge", headers=viewer, json={}).status_code == 403   # ... not act
+    assert client.post(f"{API}/{a.id}/dispatch", headers=viewer).status_code == 403
+    for path in ("/api/v1/faces/known-persons", "/api/v1/evidence/", "/api/v1/captures/",
+                 "/api/v1/incidents/", "/api/v1/reid/persons", "/api/v1/shift/log", "/api/v1/reports/incident"):
+        assert client.get(path, headers=viewer).status_code == 403, path         # personal / investigative
     assert client.get(f"{API}/").status_code == 401
 
 

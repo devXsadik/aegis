@@ -317,13 +317,14 @@ export function LiveMonitoring({ ctx }) {
   const n = layout === 'auto' ? wall.length : slots
   const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4
 
+  const canMedia = can(me?.role, 'media.view')       // recordings: not for the read-only viewer
   const loadTimeline = useCallback(() => {
-    if (!activeCam) return
+    if (!activeCam || !canMedia) return
     fetchVmsTimeline({ cameraId: activeCam, hours: 24 }).then((r) => {
       setTimeline(r.segments || [])
       setCoverageHrs(r.continuous_coverage_hours || 0)
     }).catch(() => {})
-  }, [activeCam])
+  }, [activeCam, canMedia])
   useEffect(() => { loadTimeline() }, [loadTimeline, streamingCams.length])
 
   const scrubToReplay = async () => {
@@ -440,6 +441,7 @@ export function LiveMonitoring({ ctx }) {
           </Card>
           )}
 
+      {canMedia && (
       <Card title="Recordings" sub={`${timeline.length} clips · ${coverageHrs.toFixed(1)} h recorded in 24 hours · ${activeInfo?.name || 'no camera selected'}`}
         actions={<button className="btn btn-sm" onClick={loadTimeline}>Refresh</button>}>
         {timeline.length === 0 ? (
@@ -478,6 +480,7 @@ export function LiveMonitoring({ ctx }) {
           </>
         )}
       </Card>
+      )}
         </div>
 
         <div className="live-rail">

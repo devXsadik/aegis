@@ -95,13 +95,13 @@ function Fact({ label, value }) {
 
 const JOURNEY_TYPES = new Set(['CRIMINAL_DETECTED', 'PERSON_TRACKED'])
 
-function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident, now, escalation, playRef, onJourney }) {
+function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident, now, escalation, playRef, onJourney, media = true }) {
   const [evIdx, setEvIdx] = useState(0)
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
 
   const data = detail?.id === item.id ? detail.data : null
-  const evidence = data?.evidence?.filter((e) => e.has_image) || []
+  const evidence = media ? data?.evidence?.filter((e) => e.has_image) || [] : []
   const shown = evidence[Math.min(evIdx, Math.max(evidence.length - 1, 0))]
   const resolved = item.acknowledged || item.dismissed
   const notifies = data?.holds_external_notification
@@ -129,28 +129,30 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
         <ReviewTag status={item.reviewStatus} />
       </header>
 
-      <div className="tq-evidence">
-        {shown ? (
-          <img
-            src={evidenceImageUrl(shown.id, 'frame')}
-            alt={`Snapshot for ${eventLabel(item.type)} on ${item.camera || 'camera'}`}
-          />
-        ) : (
-          <Empty icon={Icons.camera}>{data ? 'No snapshot was saved for this alert' : 'Loading snapshot…'}</Empty>
-        )}
-        {evidence.length > 1 && (
-          <div className="tq-thumbs" role="group" aria-label="Snapshots">
-            {evidence.map((e, i) => (
-              <button
-                key={e.id} type="button" className={i === evIdx ? 'on' : ''}
-                onClick={() => setEvIdx(i)} aria-label={`Snapshot ${i + 1}`}
-              >
-                <img src={evidenceImageUrl(e.id, 'roi')} alt="" />
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {media && (
+        <div className="tq-evidence">
+          {shown ? (
+            <img
+              src={evidenceImageUrl(shown.id, 'frame')}
+              alt={`Snapshot for ${eventLabel(item.type)} on ${item.camera || 'camera'}`}
+            />
+          ) : (
+            <Empty icon={Icons.camera}>{data ? 'No snapshot was saved for this alert' : 'Loading snapshot…'}</Empty>
+          )}
+          {evidence.length > 1 && (
+            <div className="tq-thumbs" role="group" aria-label="Snapshots">
+              {evidence.map((e, i) => (
+                <button
+                  key={e.id} type="button" className={i === evIdx ? 'on' : ''}
+                  onClick={() => setEvIdx(i)} aria-label={`Snapshot ${i + 1}`}
+                >
+                  <img src={evidenceImageUrl(e.id, 'roi')} alt="" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {urgency && (
         <p className={`tq-waiting u-${urgency}`} role="status">
@@ -168,9 +170,9 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
         </p>
       )}
 
-      <AlertVideo item={item} playRef={playRef} />
+      {media && <AlertVideo item={item} playRef={playRef} />}
 
-      {onJourney && JOURNEY_TYPES.has(item.type) && item.personName && item.personName !== 'Unknown' && (
+      {media && onJourney && JOURNEY_TYPES.has(item.type) && item.personName && item.personName !== 'Unknown' && (
         <button type="button" className="btn btn-sm tq-journey" onClick={() => onJourney(item.personName)}>
           <Icons.map /> Where else was {item.personName} seen?
         </button>
@@ -455,6 +457,7 @@ export function Triage({ ctx }) {
               item={selected} detail={detail} mode={mode} setMode={setMode} busy={busy} canAct={canAct}
               onConfirm={confirm} onReject={reject} onDispatch={dispatch} onIncident={incident}
               now={now} escalation={ctx.escalation} playRef={playRef} onJourney={setJourneyFor}
+              media={can(ctx.me?.role, 'media.view')}
             />
           ) : (
             <Empty icon={Icons.shield}>Select an alert to review it</Empty>

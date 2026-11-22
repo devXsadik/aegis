@@ -183,9 +183,12 @@ def ingest():
 
                 image_bytes = _read_image_bytes(img_path)
                 if image_bytes:
+                    from backend.utils.at_rest import seal
+                    sealed, encrypted = seal(image_bytes)        # face photos are encrypted at rest
                     img_record = PersonImage(
                         person_id=person.id,
-                        image_data=image_bytes,
+                        image_data=sealed,
+                        encrypted=encrypted,
                         image_type="face",
                         filename=img_file.name,
                     )

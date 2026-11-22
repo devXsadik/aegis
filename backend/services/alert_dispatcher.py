@@ -81,6 +81,8 @@ async def _send_webhooks(alert_type: str, payload: dict) -> str:
         keys = ("emergency", "security")
     elif alert_type == "SUSPICIOUS_VEHICLE":
         keys = ("law_enforcement",)
+    elif alert_type in ("DETECTION_DOWN", "CAMERA_OFFLINE", "CAMERA_TAMPER"):
+        keys = ("security",)             # the people who keep the cameras running
     else:
         keys = ()
     for key in keys:

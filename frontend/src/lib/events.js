@@ -14,6 +14,10 @@ export const EVENT_META = {
   CAMERA_TAMPER: { label: 'Camera tampered', group: 'camera', icon: 'camera' },
   OCCUPANCY_LIMIT: { label: 'Too many people', group: 'behavior', icon: 'users' },
   RESPONDER_UPDATE: { label: 'Responder update', group: 'other', icon: 'dispatch' },
+  DETECTION_DOWN: { label: 'Detection down', group: 'camera', icon: 'alert' },
+  DETECTION_RESTORED: { label: 'Detection back', group: 'camera', icon: 'check' },
+  CAMERA_OFFLINE: { label: 'Camera offline', group: 'camera', icon: 'camera' },
+  CAMERA_RESTORED: { label: 'Camera back', group: 'camera', icon: 'camera' },
 }
 
 export const GROUPS = [
@@ -24,7 +28,7 @@ export const GROUPS = [
   { id: 'behavior', label: 'Behavior' },
   { id: 'fire', label: 'Fire & smoke' },
   { id: 'fall', label: 'Falls' },
-  { id: 'camera', label: 'Camera tamper' },
+  { id: 'camera', label: 'Camera health' },
 ]
 
 export function eventLabel(type = '') {
@@ -126,10 +130,34 @@ export const EXPLAIN = {
   WEAPON_DETECTED: 'A weapon-like object was seen on the same person in at least 3 of the last 5 processed frames. Tiny detections are ignored, and one that is not in a hand needs a higher score; the details say whether it was in hand. Check the snapshot: tools, phones and umbrellas are common false positives.',
   FIRE_SMOKE_DETECTED: 'Fire or smoke was seen in at least 5 of the last 8 frames. Steam, fog and bright lights can look similar.',
   OCCUPANCY_LIMIT: 'More people are in this zone than its limit allows (set under Zones). One alert each time the count goes over; it can fire again once the count has dropped back.',
+  DETECTION_DOWN: 'No camera that is switched on has reported for a while: the detection pipeline is not running (crashed, stopped, or the computer is asleep or off). Nothing is being analysed until it is back.',
+  CAMERA_OFFLINE: 'This camera is switched on but stopped sending pictures: unplugged, network trouble, or the camera crashed. The others still work.',
   CAMERA_TAMPER: 'The camera picture changed in a way people do not cause: it went dark or uniform (covered), lost its sharpness (smeared or knocked out of focus), now shows a different steady view (turned or knocked), or stopped changing (frozen). Check the camera itself, and the recording just before, for who did it.',
   FALL_SUSPECTED: 'A person was upright, then stayed horizontal for 2 seconds or more. They may be resting or exercising — check the camera.',
   INTRUSION: "A person's feet entered a zone marked restricted for this camera.",
   ANOMALY_DETECTED: 'A zone rule fired (crowding or long dwell time).',
   SUSPICIOUS_BEHAVIOR: 'Movement or posture matched a behaviour rule (loitering, rapid or erratic movement, raised arms). These rules are heuristics and do produce false alarms.',
   SUSPICIOUS_VEHICLE: 'A plate read matched the vehicle watchlist. OCR misreads are common — verify the plate in the snapshot.',
+}
+
+/** A live event from the alerts WebSocket (or an API alert row) → the dashboard's event shape. */
+export function formatEvent(evt) {
+  const type = evt.alert_type || evt.event_type || 'EVENT'
+  const msg = evt.message || evt.person_name || evt.data?.criminal_name || type.replace(/_/g, ' ')
+  return {
+    id: evt.alert_id ?? evt.id ?? null,
+    acknowledged: evt.acknowledged ?? false,
+    dismissed: evt.dismissed ?? false,
+    type, msg,
+    severity: evt.severity || 'info',
+    time: evt.timestamp,
+    camera: evt.camera_location || evt.camera_id,
+    cameraId: evt.camera_id,
+    cameraName: evt.camera_name || evt.data?.camera_name,
+    personName: evt.person_name,
+    lat: evt.camera_lat ?? evt.data?.camera_lat,
+    lng: evt.camera_lng ?? evt.data?.camera_lng,
+    mapsUrl: evt.maps_url ?? evt.data?.maps_url,
+    assignedOfficers: evt.assigned_officers ?? evt.data?.assigned_officers ?? [],
+  }
 }

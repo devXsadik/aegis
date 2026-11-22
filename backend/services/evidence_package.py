@@ -128,7 +128,8 @@ def build_package(db: Session, incident_id: int, actor) -> tuple[str, bytes]:
     caps = db.query(AlertCapture)
     caps = caps.filter(AlertCapture.alert_id == alert.id) if alert else caps.filter(False)
     for c in caps.order_by(AlertCapture.timestamp).limit(MAX_STILLS):
-        files[f"captures/{c.id}.jpg"] = c.image_data
+        from backend.utils.at_rest import unseal
+        files[f"captures/{c.id}.jpg"] = unseal(c.image_data, c.encrypted)
 
     if camera_id:
         clips = (db.query(RecordingClip)

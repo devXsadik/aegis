@@ -42,7 +42,7 @@ def viewer_user(token: Optional[str], db: Session) -> User:
         raise HTTPException(status_code=401, detail="Invalid token")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Invalid token")
-    if user.role not in ROLES_OPS:
+    if user.role not in ROLES_OPS and user.role != "viewer":
         raise HTTPException(status_code=403, detail="Operational access required")
     return user
 
@@ -57,8 +57,12 @@ def verify_viewer_token(token: Optional[str]) -> User:
 
 
 def viewer_dep(request: Request, db: Session = Depends(get_db)) -> User:
-    """Dependency for media endpoints: session cookie (browser) or Bearer header."""
-    return viewer_user(request_token(request), db)
+    """Dependency for media endpoints: session cookie (browser) or Bearer header.
+    The viewer role (a wall display) gets live video only: no faces, evidence or captures."""
+    user = viewer_user(request_token(request), db)
+    if user.role == "viewer" and not request.url.path.startswith("/api/v1/stream"):
+        raise HTTPException(status_code=403, detail="Operational access required")
+    return user
 
 
 def safe_media_path(raw: str, base: Path, root: Path) -> Path:

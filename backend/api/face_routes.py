@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.auth import admin_only, operator_or_admin, supervisor_or_admin
 from backend.auth.guards import viewer_dep
+from backend.utils.at_rest import unseal
 from backend.db.database import get_db
 from backend.models.audit_log import AuditLog
 from backend.models.evidence import Evidence
@@ -235,7 +236,7 @@ def get_image(image_id: int, db: Session = Depends(get_db), viewer: User = Depen
     img = db.query(PersonImage).filter(PersonImage.id == image_id).first()
     if not img:
         raise HTTPException(404, "Image not found")
-    return Response(content=img.image_data, media_type="image/jpeg",
+    return Response(content=unseal(img.image_data, img.encrypted), media_type="image/jpeg",
                     headers={"Cache-Control": "private, no-store"})
 
 
@@ -350,7 +351,7 @@ def reencode_faces(db: Session = Depends(get_db), admin: User = Depends(admin_on
         fresh = []
         for img in images:
             try:
-                rgb = fs.decode_image(img.image_data)
+                rgb = fs.decode_image(unseal(img.image_data, img.encrypted))
                 enc = fs.encode_single_face(rgb)
                 fresh.append(FaceEncoding(person_id=person.id, image_id=img.id,
                                           encoding=FaceEncoding.serialize_encoding(enc)))

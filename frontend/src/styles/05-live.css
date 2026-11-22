@@ -1,0 +1,169 @@
+/* Live cameras: tiles, overlays, camera list, recordings. Part of index.css: the files load in number order (later wins). */
+/* ——— Live monitoring ——— */
+
+.live-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.live-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.live-rail { display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 1100px) { .live-layout { grid-template-columns: 1fr; } }
+.live-hint { margin: 12px 0 0; font-size: 0.82rem; color: var(--text-3); }
+
+.cam-grid { display: grid; gap: 10px; }
+.cam-tile {
+  aspect-ratio: 16/9;
+  border-radius: 16px;
+  overflow: hidden;
+  background: radial-gradient(120% 120% at 50% 0%, #232624 0%, var(--media) 70%);
+  position: relative;
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
+}
+.cam-tile:hover { border-color: var(--primary); }
+.cam-tile:active { transform: scale(0.992); }
+.cam-tile:focus-visible { outline: none; box-shadow: var(--ring); border-color: var(--primary); }
+.cam-tile.selected { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.cam-tile.alerting { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.cam-tile.offline .cam-video { display: none; }
+.cam-tile.empty {
+  background: transparent; border: 1px dashed var(--border-strong);
+  color: var(--text-3); font-size: 0.82rem; cursor: default;
+}
+.cam-tile.empty:hover { border-color: var(--border-strong); }
+.cam-tile.empty:active { transform: none; }
+.cam-video { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* Top bar: status + metrics. Bottom bar: identity. Both fade over the video. */
+.cam-top, .cam-bottom {
+  position: absolute; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px; pointer-events: none;
+}
+.cam-top { top: 0; background: linear-gradient(180deg, rgba(16, 18, 17, 0.72), transparent); padding-right: 46px; }
+.cam-bottom {
+  bottom: 0; flex-direction: column; align-items: flex-start; gap: 0; padding-top: 20px;
+  background: linear-gradient(0deg, rgba(16, 18, 17, 0.82), transparent);
+}
+.cam-name { color: #f2f1e3; font-weight: 600; font-size: 0.88rem; line-height: 1.25; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+.cam-loc { color: #b9baae; font-size: 0.76rem; }
+.cam-badge, .cam-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.7rem; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px; font-family: var(--font-mono);
+  background: rgba(16, 18, 17, 0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); color: #d9dacd;
+}
+.cam-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.cam-badge.ok { color: #6fcf8e; }
+.cam-badge.ok .dot { animation: camPulse 1.8s ease-in-out infinite; }
+.cam-badge.warn { color: #e9b949; }
+.cam-badge.muted { color: #b9baae; }
+.cam-badge.rec { color: #f0655b; }
+.cam-chip.warn { color: #e9b949; }
+.cam-chip.danger { color: #fff; background: #d8463c; }
+@keyframes camPulse { 50% { opacity: 0.35; } }
+
+.cam-expand {
+  position: absolute; top: 8px; right: 8px; z-index: 4;
+  width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(16, 18, 17, 0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: #f2f1e3; opacity: 0;
+  transition: opacity 0.2s var(--ease), background 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.cam-expand svg { width: 15px; height: 15px; }
+.cam-tile:hover .cam-expand, .cam-tile:focus-within .cam-expand { opacity: 1; }
+.cam-expand:hover { background: #a8bca1; color: #1b1b1b; }
+.cam-expand:active { transform: scale(0.9); }
+@media (hover: none) { .cam-expand { opacity: 1; } }
+
+.cam-offline {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: #8a8c81; font-size: 0.8rem; text-align: center; padding: 0 16px;
+}
+.cam-offline svg { width: 30px; height: 30px; opacity: 0.55; margin-bottom: 4px; }
+.cam-offline b { color: #b9baae; font-size: 0.86rem; font-weight: 600; }
+
+/* Camera list rail */
+.cam-list { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; padding: 6px; }
+.cam-row {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 9px 12px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--text); cursor: pointer; font: inherit;
+  transition: background 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.cam-row:hover { background: var(--surface-2); }
+.cam-row:active { transform: scale(0.985); }
+.cam-row.active { background: var(--primary-soft); }
+.cam-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cam-row-main b { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cam-row-main span { font-size: 0.78rem; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
+.status-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status-dot.warn { background: var(--warn); }
+
+/* Recordings */
+.vms-legend { display: flex; gap: 14px; margin: 8px 0 14px; font-size: 0.78rem; color: var(--text-3); }
+.vms-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; }
+.vms-legend i.cont { background: var(--ok); opacity: 0.7; }
+.vms-legend i.event { background: var(--danger); }
+.vms-controls { display: flex; gap: 12px; align-items: center; }
+.vms-controls input[type='range'] { flex: 1; }
+.vms-player { width: 100%; max-height: 360px; margin-top: 12px; border-radius: 14px; background: #000; }
+.vms-list { margin-top: 14px; }
+
+.cam-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: var(--media);
+  display: flex;
+  flex-direction: column;
+  animation: zoomIn 0.4s var(--ease);
+}
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.cam-fullscreen-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(245, 245, 220, 0.12);
+  background: rgba(16, 18, 17, 0.9);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.cam-fullscreen-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 1rem;
+  color: #f2f1e3;
+}
+.cam-fullscreen-close { background: rgba(245, 245, 220, 0.1); color: #f2f1e3; }
+.cam-fullscreen-tile {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: unset;
+  border-radius: 0;
+  border: none;
+  min-height: 0;
+}
+.cam-fullscreen-tile:active { transform: none; }
+.cam-fullscreen-tile .cam-name { font-size: 1.1rem; }
+.cam-fullscreen-tile .cam-badge, .cam-fullscreen-tile .cam-chip { font-size: 0.82rem; }
+.cam-fullscreen-tile .cam-expand { display: none; }
+
+.chart-wrap { width: 100%; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 0.82rem; color: var(--text-2); }
+.chart-legend .key { display: flex; align-items: center; gap: 7px; }
+.chart-legend .key b { margin-left: auto; padding-left: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.chart-legend .swatch { width: 10px; height: 10px; border-radius: 50%; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; font-size: 0.88rem; }
+.bar-row .bar-label { width: 110px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-row .bar-track { flex: 1; height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.bar-row .bar-fill { height: 100%; border-radius: 999px; background: var(--primary); transition: width 0.7s var(--ease); }
+.bar-row .bar-val { width: 36px; text-align: right; font-weight: 600; font-size: 0.84rem; font-variant-numeric: tabular-nums; }

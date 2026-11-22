@@ -98,6 +98,8 @@ async def lifespan(app: FastAPI):
     init_db()
     from backend.services.escalation import escalation_loop
     escalation_task = asyncio.create_task(escalation_loop())
+    from backend.services.maintenance import health_watch_loop, maintenance_loop
+    background = [asyncio.create_task(maintenance_loop()), asyncio.create_task(health_watch_loop())]
     from scripts.seed_cameras import seed_cameras
     seed_cameras()
     try:
@@ -112,9 +114,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Config auto_alerts load skipped: {e}")
     logger.info("✅ AI-SSS Backend started successfully")
     yield
-    escalation_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await escalation_task
+    for task in (escalation_task, *background):
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 # ---------------------------------------------------------------------------

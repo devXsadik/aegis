@@ -165,7 +165,9 @@ def enroll_image(db, person: KnownPerson, data: bytes, filename: Optional[str], 
     # Flag (don't block) a face that already matches someone else.
     dup = [c for c in rank_candidates(enc, db, tolerance, top_k=3)
            if c.is_match and c.person_id != person.person_id]
-    img = PersonImage(person_id=person.id, image_data=to_jpeg(rgb), image_type="face", filename=filename)
+    from backend.utils.at_rest import seal
+    sealed, encrypted = seal(to_jpeg(rgb))              # a face photo is personal data: encrypted at rest
+    img = PersonImage(person_id=person.id, image_data=sealed, encrypted=encrypted, image_type="face", filename=filename)
     db.add(img)
     db.flush()
     db.add(FaceEncoding(person_id=person.id, image_id=img.id,

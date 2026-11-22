@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text, LargeBinary, Index
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, Text, LargeBinary, Index
 from sqlalchemy.sql import func
 from backend.db.database import Base
 
@@ -33,6 +33,7 @@ class AlertCapture(Base):
     attributes = Column(Text, nullable=True)          # JSON: estimated gender, clothing colours, …
 
     image_data = Column(LargeBinary, nullable=False)
+    encrypted = Column(Boolean, nullable=False, default=False, server_default='0')   # see backend/utils/at_rest.py
     content_sha256 = Column(String(64), nullable=True)
 
     __table_args__ = (

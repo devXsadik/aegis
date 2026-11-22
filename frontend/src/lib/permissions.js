@@ -11,8 +11,10 @@ export const ROLE_PAGES = {
 }
 
 const ACTIONS = {
-  // Alerts, cameras, status, evidence, analytics: the backend's ROLES_OPS (operator_or_admin).
-  'data.view': ['operator', 'supervisor', 'admin', 'police', 'investigator'],
+  // Live data (alerts, cameras, status, map, analytics): ROLES_OPS plus the read-only viewer.
+  'data.view': ['operator', 'supervisor', 'admin', 'police', 'investigator', 'viewer'],
+  // Stills, recordings and person searches: personal / investigative data (not the viewer).
+  'media.view': ['operator', 'supervisor', 'admin', 'police', 'investigator'],
   'audit.view': ['admin'],
   'camera.manage': ['admin'],
   'camera.power': ['operator', 'supervisor', 'admin'],

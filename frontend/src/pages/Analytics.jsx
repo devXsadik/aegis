@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, Icons, Empty, Stat, Tag } from '../components/ui'
 import { AreaChart, BarList, Donut } from '../components/charts'
 import { fetchCalibrationMetrics, fetchLiveAnalytics } from '../services/api'
+import { FalseAlerts } from '../components/FalseAlerts'
 
 function fmtDuration(sec) {
   if (sec == null) return '—'
@@ -114,6 +115,10 @@ export function Analytics({ ctx }) {
           delta={cal?.false_alarm_rate != null ? 'From labelled detections' : '* Estimated from dismissed alerts'} accent="warn" icon={Icons.alert} />
         <Stat label="Time to acknowledge" value={fmtDuration(summary?.mtta_seconds)}
           delta={summary?.acknowledged_alerts ? `Average of ${summary.acknowledged_alerts} acknowledged alerts` : 'No acknowledged alerts yet'} accent="cyan" icon={Icons.clock} />
+      </div>
+
+      <div className="mb">
+        <FalseAlerts canTune={['admin', 'supervisor'].includes(ctx.me?.role)} />
       </div>
 
       <div className="grid grid-2 mb">

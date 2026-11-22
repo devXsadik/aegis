@@ -1,7 +1,8 @@
 import { isAlertSoundMuted, setAlertSoundMuted } from '../hooks/alertNotifications'
 import { useEffect, useState } from 'react'
 import { Card, Tag } from '../components/ui'
-import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs } from '../services/api'
+import { fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs, fetchBackups, runBackupNow } from '../services/api'
+import { timeAgo } from '../components/ui'
 import { useToast } from '../components/Toast'
 
 const THRESHOLD_UI = {
@@ -36,6 +37,43 @@ function ThresholdSlider({ id, spec, value, canEdit, onCommit }) {
         )}
       </span>
     </div>
+  )
+}
+
+/** Nightly clean-up and backup; admins can see the backups and make one now. */
+function BackupsCard({ isAdmin }) {
+  const { push: toast } = useToast()
+  const [info, setInfo] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (isAdmin) fetchBackups().then(setInfo).catch(() => {}) }, [isAdmin])
+  const now = async () => {
+    setBusy(true)
+    try {
+      const b = await runBackupNow()
+      toast(`Backup ${b.name} saved (${(b.bytes / 1e6).toFixed(1)} MB)`, 'ok')
+      setInfo(await fetchBackups())
+    } catch (e) {
+      toast(e.message || 'Backup failed', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const last = info?.backups?.[0]
+  return (
+    <Card title="Backups and clean-up" sub={`Every night at ${String(info?.maintenance_hour ?? 3).padStart(2, '0')}:00`}
+      actions={isAdmin && <button type="button" className="btn btn-sm" disabled={busy} onClick={now}>{busy ? 'Backing up…' : 'Back up now'}</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '0.86rem' }}>
+        Old recordings, capture stills and evidence images are removed on schedule (evidence keeps its record and
+        custody chain; open cases are kept whole), then the database and settings are backed up.
+      </p>
+      {isAdmin && (
+        <dl className="kv">
+          <dt>Last backup</dt><dd>{last ? `${timeAgo(last.created_at)} · ${(last.bytes / 1e6).toFixed(1)} MB` : 'None yet'}</dd>
+          <dt>Kept</dt><dd>{info ? `${info.backups.length} of the last ${info.keep}` : '—'}</dd>
+          <dt>Folder</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{info?.folder || '—'}</dd>
+        </dl>
+      )}
+    </Card>
   )
 }
 
@@ -177,19 +215,7 @@ export function Settings({ ctx }) {
           </p>
         </Card>
 
-        <Card title="High Availability">
-          <div className="row">
-            <span>Redis</span>
-            <Tag tone={redis?.connected ? 'ok' : 'muted'}>
-              {redis?.connected ? 'Connected' : redis?.enabled ? 'Configured (down)' : 'In-process'}
-            </Tag>
-          </div>
-          <div className="row"><span>Offline cameras</span><Tag tone={(systemStatus?.offline_cameras || 0) ? 'warn' : 'ok'}>{systemStatus?.offline_cameras ?? 0}</Tag></div>
-          <div className="row"><span>Mode</span><span className="mono muted">{redis?.mode || 'in-process'}</span></div>
-          <p className="muted" style={{ fontSize: '0.74rem', marginTop: 8 }}>
-            docker compose up redis — set REDIS_URL=redis://localhost:6379/0
-          </p>
-        </Card>
+        <BackupsCard isAdmin={me?.role === 'admin'} />
 
         <Card title="API & Storage">
           <dl className="kv">
@@ -197,6 +223,7 @@ export function Settings({ ctx }) {
             <dt>Docs</dt><dd><a href="/docs" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>/docs</a></dd>
             <dt>Evidence</dt><dd>PostgreSQL + SHA-256 custody</dd>
             <dt>Recordings</dt><dd className="mono">data/recordings/</dd>
+            <dt>Shared state</dt><dd>{redis?.connected ? 'Redis connected' : redis?.enabled ? 'Redis configured but down' : 'In this process (single server)'}</dd>
           </dl>
         </Card>
 

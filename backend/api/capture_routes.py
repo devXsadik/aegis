@@ -23,6 +23,7 @@ from backend.models.capture import AlertCapture
 from backend.models.config_entry import ConfigEntry
 from backend.models.known_person import KnownPerson
 from backend.models.user import User
+from backend.utils.at_rest import seal, unseal
 from backend.utils.websocket import manager
 from clock import utcnow
 
@@ -124,9 +125,11 @@ def _store(image: bytes, fields: dict) -> dict:
                     "criminal_status": known.criminal_status, "threat_level": known.threat_level,
                 }
 
+        sealed, encrypted = seal(image)                     # personal data: encrypted at rest
         capture = AlertCapture(
             alert_id=alert.id,
-            image_data=image,
+            image_data=sealed,
+            encrypted=encrypted,
             content_sha256=hashlib.sha256(image).hexdigest(),
             width=bgr.shape[1],
             height=bgr.shape[0],
@@ -249,7 +252,7 @@ def get_capture_image(
     capture = db.query(AlertCapture).filter(AlertCapture.id == capture_id).first()
     if not capture:
         raise HTTPException(status_code=404, detail="Capture not found")
-    content = capture.image_data
+    content = unseal(capture.image_data, capture.encrypted)
     if w and capture.width and w < capture.width:
         import cv2
         import numpy as np

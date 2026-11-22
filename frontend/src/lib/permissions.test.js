@@ -23,7 +23,9 @@ describe('canViewPage', () => {
 
 describe('can', () => {
   it('matches the backend role sets', () => {
-    expect(can('viewer', 'data.view')).toBe(false)
+    expect(can('viewer', 'data.view')).toBe(true)      // a wall display reads the live picture ...
+    expect(can('viewer', 'media.view')).toBe(false)    // ... but not stills, recordings or person searches
+    expect(can('police', 'media.view')).toBe(true)
     expect(can('police', 'data.view')).toBe(true)
     expect(can('supervisor', 'audit.view')).toBe(false)
     expect(can('admin', 'audit.view')).toBe(true)

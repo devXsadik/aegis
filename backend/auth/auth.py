@@ -117,8 +117,25 @@ VALID_ROLES = frozenset({
 })
 
 
-def operator_or_admin(user: User = Depends(get_current_user)) -> User:
-    """Any operational role can view alerts, evidence, cameras, analytics."""
+# The viewer role is a wall display: it may look at the live picture (alerts, cameras, map,
+# status) and change nothing. Personal and investigative data stays with operational roles.
+VIEWER_DENIED_PATHS = (
+    "/api/v1/faces", "/api/v1/evidence", "/api/v1/captures", "/api/v1/reid", "/api/v1/custody",
+    "/api/v1/reports", "/api/v1/incidents", "/api/v1/shift", "/api/v1/vehicles", "/api/v1/audit",
+    "/api/v1/calibration", "/api/v1/recordings", "/api/v1/vms", "/api/v1/responder", "/api/v1/auth/assignees",
+)
+
+
+def viewer_may_read(user: User, request: Request) -> bool:
+    return (user.role == "viewer" and request.method == "GET"
+            and not request.url.path.startswith(VIEWER_DENIED_PATHS))
+
+
+def operator_or_admin(request: Request, user: User = Depends(get_current_user)) -> User:
+    """Any operational role can view alerts, evidence, cameras, analytics; viewers may read
+    the live picture (GET, outside VIEWER_DENIED_PATHS) and nothing else."""
+    if viewer_may_read(user, request):
+        return user
     if user.role not in ROLES_OPS:
         raise HTTPException(status_code=403, detail="Operational access required")
     if not user.is_active:

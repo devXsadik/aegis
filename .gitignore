@@ -20,6 +20,7 @@ archive/
 .venv/
 frontend/node_modules/
 data/recordings/
+data/backups/
 *.DS_Store
 .DS_Store
 frontend/dist/
@@ -50,3 +51,6 @@ presentation/*.webm
 data/eval/clips/*
 !data/eval/clips/manifest*.yaml
 data/eval/civilians/
+
+# Defense slides, report and images live next to the repo: ../aegis-presentation
+presentation/

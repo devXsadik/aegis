@@ -89,10 +89,13 @@ anomaly:
   dwell_seconds: 300               # Seconds in zone to trigger dwell anomaly
 
 # --- Data Retention ---
+# Runs nightly (MAINTENANCE_HOUR, default 03:00) with recording/capture cleanup and the backup.
+# Expired evidence keeps its record and custody chain; only the images go. Evidence on an open
+# or investigating incident is kept whole.
 retention:
-  enabled: false                   # Enable automatic evidence cleanup
-  evidence_days: 90                # Keep evidence for N days
-  archive_path: "evidence/archive" # Archive before deletion
+  enabled: true
+  evidence_days: 90                # keep evidence images for N days
+  archive_path: "evidence/archive" # a JSON note per purged item
 
 # --- ANPR (opt-in; needs a plate detector for reliable results) ---
 anpr:

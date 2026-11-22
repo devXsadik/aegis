@@ -1,11 +1,16 @@
 """System status and pipeline heartbeat tracking."""
 
+import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.auth.auth import operator_or_admin
+from sqlalchemy.orm import Session
+
+from backend.auth.auth import admin_only, operator_or_admin
+from backend.db.database import get_db
+from backend.services.audit import log_audit
 from backend.models.user import User
 from backend.utils.websocket import manager
 from backend.utils.events import build_event_payload
@@ -35,6 +40,28 @@ class HeartbeatPayload(BaseModel):
     flags: Optional[list] = None        # red alerts in view now: [{type, label, origin}]
     infer_ms: Optional[int] = None      # last AI pass on this camera
     ai_age_s: Optional[float] = None    # seconds since the last finished AI pass
+
+
+@router.get("/backups")
+def backups(admin: User = Depends(admin_only)):
+    from backend.services.backup import backup_dir, list_backups
+    return {"folder": str(backup_dir()), "backups": list_backups(),
+            "maintenance_hour": int(os.getenv("MAINTENANCE_HOUR", "3")),
+            "keep": int(os.getenv("BACKUP_KEEP", "7"))}
+
+
+@router.post("/backups")
+async def backup_now(request: Request, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    """Back up now (the same as the nightly job's backup step)."""
+    import asyncio
+    from backend.services.backup import run_backup
+    try:
+        info = await asyncio.to_thread(run_backup)
+    except Exception as e:
+        raise HTTPException(500, f"Backup failed: {e}")
+    log_audit(db, admin, "BACKUP", "system", info["name"], f"{info['bytes']} bytes", request)
+    db.commit()
+    return info
 
 
 @router.get("/status")

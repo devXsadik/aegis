@@ -156,6 +156,8 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "heading", "FLOAT"),
     ("cameras", "fov", "FLOAT"),
     ("cameras", "range_m", "FLOAT"),
+    ("alert_captures", "encrypted", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("person_images", "encrypted", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("users", "token_version", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
