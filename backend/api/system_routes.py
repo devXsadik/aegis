@@ -1,6 +1,5 @@
 """System status and pipeline heartbeat tracking."""
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
@@ -12,6 +11,7 @@ from backend.utils.websocket import manager
 from backend.utils.events import build_event_payload
 
 from backend.auth.guards import verify_internal_key
+from clock import utcnow
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -33,6 +33,8 @@ class HeartbeatPayload(BaseModel):
     frame_number: Optional[int] = None
     analytics: Optional[dict] = None
     flags: Optional[list] = None        # red alerts in view now: [{type, label, origin}]
+    infer_ms: Optional[int] = None      # last AI pass on this camera
+    ai_age_s: Optional[float] = None    # seconds since the last finished AI pass
 
 
 @router.get("/status")
@@ -70,7 +72,7 @@ async def pipeline_heartbeat(
     x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key"),
 ):
     verify_internal_key(x_internal_key)
-    now = datetime.utcnow().isoformat()
+    now = utcnow().isoformat()
     _pipeline_status["online"] = True
     _pipeline_status["last_heartbeat"] = now
     _pipeline_status["cameras"][body.camera_id] = {
@@ -79,6 +81,8 @@ async def pipeline_heartbeat(
         "threat_score": body.threat_score,
         "frame_number": body.frame_number,
         "flags": (body.flags or [])[:8],
+        "infer_ms": body.infer_ms,
+        "ai_age_s": body.ai_age_s,
         "last_seen": now,
     }
 
@@ -91,6 +95,9 @@ async def pipeline_heartbeat(
     )
     payload["fps"] = body.fps
     payload["threat_score"] = body.threat_score
+    payload["flags"] = _pipeline_status["cameras"][body.camera_id]["flags"]   # dashboard updates the tile without polling
+    payload["infer_ms"] = body.infer_ms
+    payload["ai_age_s"] = body.ai_age_s
     if body.analytics:
         update_live_analytics(body.camera_id, body.analytics)
     await manager.broadcast(payload, "status")
@@ -106,4 +113,4 @@ def get_live_analytics() -> dict:
 
 
 def update_live_analytics(camera_id: str, data: dict) -> None:
-    _live_analytics[camera_id] = {**data, "camera_id": camera_id, "updated_at": datetime.utcnow().isoformat()}
+    _live_analytics[camera_id] = {**data, "camera_id": camera_id, "updated_at": utcnow().isoformat()}

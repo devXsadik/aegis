@@ -1,11 +1,12 @@
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
+from clock import utcnow
 
 
 class RetentionPolicy:
@@ -20,7 +21,7 @@ class RetentionPolicy:
         if not self.enabled:
             return {"status": "disabled", "message": "Retention policy is disabled"}
 
-        cutoff = datetime.utcnow() - timedelta(days=self.evidence_days)
+        cutoff = utcnow() - timedelta(days=self.evidence_days)
         stats = {"deleted": 0, "archived": 0, "errors": 0, "freed_bytes": 0}
 
         db = SessionLocal()

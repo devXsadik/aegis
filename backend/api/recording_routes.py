@@ -19,6 +19,7 @@ from backend.auth.auth import operator_or_admin
 from paths import RECORDINGS_DIR, ROOT
 
 from backend.auth.guards import safe_media_path, verify_internal_key
+from clock import utcnow
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
 
@@ -51,7 +52,7 @@ def list_clips(
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(RecordingClip).filter(RecordingClip.started_at >= cutoff)
     if camera_id:
         q = q.filter(RecordingClip.camera_id == camera_id)
@@ -66,7 +67,7 @@ def timeline(
     user: User = Depends(operator_or_admin),
 ):
     """Flattened timeline for the Live Monitoring replay UI."""
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(RecordingClip).filter(RecordingClip.started_at >= cutoff)
     if camera_id:
         q = q.filter(RecordingClip.camera_id == camera_id)
@@ -120,7 +121,7 @@ async def ingest_clip(
         raise HTTPException(400, "Empty file")
 
     digest = hashlib.sha256(data).hexdigest()
-    stamp = datetime.utcnow()
+    stamp = utcnow()
     start = datetime.fromisoformat(started_at) if started_at else stamp
 
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,50}", camera_id):

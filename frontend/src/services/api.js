@@ -1,26 +1,17 @@
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
-export function getToken() {
-  return localStorage.getItem('ai_sss_token');
-}
-
-export function setToken(token) {
-  localStorage.setItem('ai_sss_token', token);
-}
-
-export function clearToken() {
-  localStorage.removeItem('ai_sss_token');
-}
+// The session is an httpOnly cookie set by the server at sign-in: scripts never see the token,
+// and every request (fetch, <img>, MJPEG, WebSocket) carries it by itself.
+// Older versions kept the token in localStorage; drop any copy left behind.
+try { localStorage.removeItem('ai_sss_token') } catch { /* ignore */ }
 
 async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers });
   if (!res.ok) {
     if (res.status === 401 && !path.includes('/auth/login')) {
       // Dispatch auth_expired event instead of abruptly reloading
@@ -42,19 +33,26 @@ async function apiFetch(path, options = {}) {
 }
 
 export async function login(username, password) {
-  const data = await apiFetch('/auth/login', {
+  return apiFetch('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   });
-  setToken(data.access_token);
-  return data;
 }
 
-/** Swap the current token for a fresh one. Ignored if it fails: the next real request reports expiry. */
+/** The signed-in user, or null. For start-up: a missing session is not "expired". */
+export async function currentUser() {
+  const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' }).catch(() => null);
+  return res?.ok ? res.json() : null;
+}
+
+export async function signOut() {
+  await apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+}
+
+/** Renew the session cookie. Ignored if it fails: the next real request reports expiry. */
 export async function refreshSession() {
   try {
-    const data = await apiFetch('/auth/refresh', { method: 'POST' });
-    setToken(data.access_token);
+    await apiFetch('/auth/refresh', { method: 'POST' });
   } catch { /* handled by the 401 flow */ }
 }
 
@@ -137,8 +135,7 @@ export async function fetchKnownPersons() {
 }
 
 export function personImageUrl(imageId) {
-  const token = getToken();
-  return `${API_BASE}/faces/images/${imageId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  return `${API_BASE}/faces/images/${imageId}`;
 }
 
 export async function enrollPerson({ name, category, criminalStatus, threatLevel, notes, files }) {
@@ -280,8 +277,7 @@ export async function changePassword(currentPassword, newPassword) {
     method: 'POST',
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
-  // The server revokes every older token on a password change and returns a fresh one.
-  if (res?.access_token) setToken(res.access_token);
+  // The server revokes every older session on a password change and renews this one's cookie.
   return res;
 }
 
@@ -294,19 +290,16 @@ export async function fetchMe() {
 }
 
 export async function fetchStreamingCameras() {
-  const token = getToken();
-  return apiFetch(`/stream/cameras${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  return apiFetch('/stream/cameras');
 }
 
-/* URL builders for <img> tags (JWT passed as query param — imgs can't send headers) */
+/* URL builders for <img> tags: the session cookie authenticates them, no token in the URL */
 export function liveStreamUrl(cameraId) {
-  const token = getToken();
-  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/live${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/live`;
 }
 
 export function snapshotUrl(cameraId) {
-  const token = getToken();
-  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/snapshot${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}/snapshot`;
 }
 
 export async function fetchCameraGeometry(cameraId) {
@@ -321,8 +314,7 @@ export async function saveCameraGeometry(cameraId, { zones, lines }) {
 }
 
 export function evidenceImageUrl(evidenceId, kind = 'frame') {
-  const token = getToken();
-  return `${API_BASE}/evidence/${evidenceId}/image?kind=${kind}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+  return `${API_BASE}/evidence/${evidenceId}/image?kind=${kind}`;
 }
 
 /* ---- Red-alert capture basket ---- */
@@ -340,9 +332,7 @@ export async function setCaptureScope(scope) {
 }
 
 export function captureImageUrl(captureId, width) {
-  const token = getToken();
-  const q = [width ? `w=${width}` : '', token ? `token=${encodeURIComponent(token)}` : ''].filter(Boolean).join('&');
-  return `${API_BASE}/captures/${captureId}/image${q ? `?${q}` : ''}`;
+  return `${API_BASE}/captures/${captureId}/image${width ? `?w=${width}` : ''}`;
 }
 
 /* ---- Incidents ---- */
@@ -390,10 +380,9 @@ export async function fetchTimeline({ cameraId, hours = 24 } = {}) {
   if (cameraId) qs.set('camera_id', cameraId);
   return apiFetch(`/recordings/timeline?${qs}`);
 }
-/** Clip download needs the Authorization header, so it is fetched and handed back as a blob URL. */
+/** The clip is fetched and handed back as a blob URL (one request, then seekable locally). */
 export async function openRecordingFile(clipId) {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/recordings/${clipId}/file`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(`${API_BASE}/recordings/${clipId}/file`, { credentials: 'include' });
   if (!res.ok) throw new Error(res.status === 404 ? 'Clip file is missing' : 'Could not open the clip');
   return URL.createObjectURL(await res.blob());
 }
@@ -465,9 +454,8 @@ export async function ptzGotoPreset(cameraId, name) {
   });
 }
 export async function openVmsPlayback(cameraId, isoTime) {
-  const token = getToken();
   const url = `${API_BASE}/vms/playback?camera_id=${encodeURIComponent(cameraId)}&t=${encodeURIComponent(isoTime)}`;
-  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) throw new Error('No recording at this time');
   const blob = await res.blob();
   const seek = res.headers.get('X-Seek-Offset-Seconds');
@@ -477,9 +465,7 @@ export async function openVmsPlayback(cameraId, isoTime) {
 export function wsUrl(channel = 'alerts') {
   const base = import.meta.env.VITE_WS_URL
     || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
-  const token = getToken();
-  const qs = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${base}/api/v1/ws/${channel}${qs}`;
+  return `${base}/api/v1/ws/${channel}`;
 }
 
 

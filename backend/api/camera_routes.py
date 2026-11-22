@@ -14,7 +14,7 @@ from backend.models.audit_log import AuditLog
 from backend.services.audit import log_audit
 from core.analysis.zones import validate_geometry
 import json
-from datetime import datetime
+from clock import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ def put_geometry(camera_id: str, body: GeometryBody, db: Session = Depends(get_d
         raise HTTPException(status_code=422, detail=str(e))
     before = _geometry_of(cam)
     cam.geometry = json.dumps(clean)
-    cam.geometry_updated_at = datetime.utcnow()
+    cam.geometry_updated_at = utcnow()
     db.add(AuditLog(
         user_id=user.id, username=user.username, action="GEOMETRY_CHANGE",
         resource="camera", resource_id=camera_id,

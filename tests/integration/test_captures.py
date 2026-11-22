@@ -74,7 +74,8 @@ def test_capture_is_stored_for_a_live_red_alert_and_served_back():
     assert (item["width"], item["height"]) == (160, 400)
     assert len(item["content_sha256"]) == 64
 
-    img = client.get(f"/api/v1/captures/{item['id']}/image?token={token}")
+    client.cookies.clear()
+    img = client.get(f"/api/v1/captures/{item['id']}/image", headers={"Authorization": f"Bearer {token}"})
     assert img.status_code == 200
     assert img.content[:2] == b"\xff\xd8"
     assert client.get(f"/api/v1/captures/{item['id']}/image").status_code == 401

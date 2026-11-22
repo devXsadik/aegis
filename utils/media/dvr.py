@@ -18,6 +18,7 @@ from typing import Callable, Optional
 
 import cv2
 import numpy as np
+from clock import utcnow
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -126,12 +127,12 @@ class ContinuousRecorder:
 
     def _open(self, sample: np.ndarray) -> None:
         h, w = sample.shape[:2]
-        day = datetime.utcnow().strftime("%Y%m%d")
+        day = utcnow().strftime("%Y%m%d")
         dest = self.out_dir / day
         dest.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.utcnow().strftime("%H%M%S")
+        stamp = utcnow().strftime("%H%M%S")
         self._path = dest / f"{stamp}_{self.camera_id}.mp4"
-        self._started = datetime.utcnow()
+        self._started = utcnow()
         self._started_mono = time.monotonic()
         self._frames = 0
 
@@ -172,7 +173,7 @@ class ContinuousRecorder:
                     pass
             return
 
-        ended = datetime.utcnow()
+        ended = utcnow()
         duration = (ended - started).total_seconds() if started else frames / self.target_fps
         digest = _file_sha256(path)
         thumb_path = None

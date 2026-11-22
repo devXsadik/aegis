@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel, field_validator
@@ -10,6 +10,7 @@ from backend.models.user import User
 from backend.auth.auth import (
     hash_password, verify_password, issue_token, revoke_tokens,
     get_current_user, admin_only, operator_or_admin, VALID_ROLES, ROLES_OPS,
+    set_session_cookie, clear_session_cookie,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -21,7 +22,7 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    access_token: str
+    access_token: Optional[str] = None      # for API clients; the dashboard uses the session cookie
     token_type: str = "bearer"
     user_id: int
     role: str
@@ -75,7 +76,7 @@ class UserResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+def login(req: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
     now = datetime.now(timezone.utc)
     if user and user.locked_until:
@@ -100,7 +101,16 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user.locked_until = None
     _audit(db, "LOGIN", user, user.username, "ok", request)
     db.commit()
-    return LoginResponse(access_token=issue_token(user), user_id=user.id, role=user.role)
+    token = issue_token(user)
+    set_session_cookie(response, token)
+    return LoginResponse(access_token=token, user_id=user.id, role=user.role)
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """End this browser's session (the cookie cannot be removed by page scripts)."""
+    clear_session_cookie(response)
+    return {"status": "signed_out"}
 
 
 @router.post("/users", response_model=UserResponse)
@@ -141,7 +151,7 @@ class ChangePassword(BaseModel):
 
 
 @router.post("/change-password")
-def change_password(body: ChangePassword, request: Request, db: Session = Depends(get_db),
+def change_password(body: ChangePassword, request: Request, response: Response, db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):
     if not verify_password(body.current_password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
@@ -149,13 +159,17 @@ def change_password(body: ChangePassword, request: Request, db: Session = Depend
     revoke_tokens(user)                 # a stolen token must not outlive the password it came from
     _audit(db, "PASSWORD_CHANGE", user, user.username, "self-service", request)
     db.commit()
-    return {"status": "changed", "access_token": issue_token(user)}     # keeps this session signed in
+    token = issue_token(user)
+    set_session_cookie(response, token)                                  # keeps this session signed in
+    return {"status": "changed", "access_token": token}
 
 
 @router.post("/logout-all")
-def logout_all(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def logout_all(request: Request, response: Response, db: Session = Depends(get_db),
+               user: User = Depends(get_current_user)):
     """Sign this account out on every device."""
     revoke_tokens(user)
+    clear_session_cookie(response)
     _audit(db, "LOGOUT_ALL", user, user.username, "all sessions revoked", request)
     db.commit()
     return {"status": "revoked"}
@@ -205,9 +219,16 @@ def update_user(user_id: int, body: UserPatch, request: Request, db: Session = D
 
 
 @router.post("/refresh", response_model=LoginResponse)
-def refresh_token(user: User = Depends(get_current_user)):
-    """Sliding session: a still-valid token buys a fresh one, so an open control-room screen never expires."""
-    return LoginResponse(access_token=issue_token(user), user_id=user.id, role=user.role)
+def refresh_token(request: Request, response: Response, user: User = Depends(get_current_user)):
+    """Sliding session: a still-valid token buys a fresh one, so an open control-room screen never expires.
+
+    A Bearer client gets it in the body, as before. A cookie session gets a new cookie only:
+    handing the token to page scripts would let an XSS take it away."""
+    token = issue_token(user)
+    if request.headers.get("authorization", "").lower().startswith("bearer "):
+        return LoginResponse(access_token=token, user_id=user.id, role=user.role)
+    set_session_cookie(response, token)
+    return LoginResponse(user_id=user.id, role=user.role)
 
 
 @router.get("/me", response_model=UserResponse)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.auth.auth import ROLES_ADMIN, get_current_user, security
 from backend.db.database import get_db
 from backend.models.alert import Alert
+from clock import utcnow
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -50,7 +51,7 @@ def prometheus_metrics(db: Session = Depends(get_db)):
     ]
 
     cameras = _pipeline_status.get("cameras", {})
-    now = datetime.utcnow()
+    now = utcnow()
     for name, help_text, value in (
         ("aegis_camera_fps", "Frames per second processed, from the last heartbeat", lambda m: m.get("fps")),
         ("aegis_camera_threat_score", "Threat score from the last heartbeat", lambda m: m.get("threat_score")),

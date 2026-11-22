@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 from typing import Optional
+from clock import utcnow
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -211,7 +212,6 @@ def publish_event_clip(
     def _send():
         try:
             import httpx
-            from datetime import datetime
 
             files = {"file": ("event.jpg", jpeg_bytes, "image/jpeg")}
             data = {
@@ -219,7 +219,7 @@ def publish_event_clip(
                 "camera_location": camera_location or "",
                 "trigger": "event",
                 "alert_type": alert_type,
-                "started_at": datetime.utcnow().isoformat(),
+                "started_at": utcnow().isoformat(),
                 "frame_count": "1",
             }
             httpx.post(
@@ -293,6 +293,8 @@ def publish_heartbeat(
     frame_number: Optional[int] = None,
     analytics: Optional[dict] = None,
     flags: Optional[list] = None,
+    infer_ms: Optional[int] = None,
+    ai_age_s: Optional[float] = None,
 ) -> None:
     if not EVENTS_ENABLED:
         return
@@ -300,6 +302,8 @@ def publish_heartbeat(
         "/api/v1/system/heartbeat",
         {
             "flags": flags or [],
+            "infer_ms": infer_ms,           # last AI pass on this camera
+            "ai_age_s": ai_age_s,           # since the last finished AI pass: grows while it is stuck
             "camera_id": camera_id,
             "camera_location": camera_location,
             "fps": fps,

@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, defer
 
 from backend.auth.auth import operator_or_admin
-from backend.auth.guards import verify_internal_key, viewer_user
+from backend.auth.guards import verify_internal_key, viewer_dep
 from backend.db.database import SessionLocal, get_db
 from backend.models.alert import Alert
 from backend.models.audit_log import AuditLog
@@ -24,6 +24,7 @@ from backend.models.config_entry import ConfigEntry
 from backend.models.known_person import KnownPerson
 from backend.models.user import User
 from backend.utils.websocket import manager
+from clock import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def _serialize(c: AlertCapture, seq: Optional[int] = None, subject: Optional[dic
 
 
 def _find_alert(db: Session, alert_type: str, camera_id: str, track_id: Optional[int]) -> Optional[Alert]:
-    cutoff = datetime.utcnow() - timedelta(minutes=ALERT_WINDOW_MINUTES)
+    cutoff = utcnow() - timedelta(minutes=ALERT_WINDOW_MINUTES)
     severity = "high" if alert_type == SUSPICIOUS_TYPE else "critical"
     q = db.query(Alert).filter(
         Alert.alert_type == alert_type, Alert.camera_id == camera_id,
@@ -135,7 +136,7 @@ def _store(image: bytes, fields: dict) -> dict:
         db.add(capture)
         if RETENTION_DAYS > 0:
             db.query(AlertCapture).filter(
-                AlertCapture.timestamp < datetime.utcnow() - timedelta(days=RETENTION_DAYS),
+                AlertCapture.timestamp < utcnow() - timedelta(days=RETENTION_DAYS),
             ).delete(synchronize_session=False)
         db.commit()
         db.refresh(capture)
@@ -241,11 +242,10 @@ def set_scope(body: ScopeIn, db: Session = Depends(get_db), user: User = Depends
 @router.get("/{capture_id}/image")
 def get_capture_image(
     capture_id: int,
-    token: Optional[str] = Query(default=None),
     w: Optional[int] = Query(default=None, ge=32, le=1024, description="Thumbnail width"),
     db: Session = Depends(get_db),
+    viewer: User = Depends(viewer_dep),
 ):
-    viewer_user(token, db)
     capture = db.query(AlertCapture).filter(AlertCapture.id == capture_id).first()
     if not capture:
         raise HTTPException(status_code=404, detail="Capture not found")

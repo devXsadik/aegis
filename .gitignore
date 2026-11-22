@@ -31,8 +31,10 @@ docs/CREDENTIALS.local.md
 # Watchlist face photos are personal data — keep local, never commit
 data/watchlist/*/
 
-# Local agent/editor settings
-.claude/settings.local.json
+# Local agent skills / editor settings — keep out of this repo (~43MB skills)
+.agents/
+.claude/
+*.mcp.local.json
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
@@ -42,3 +44,8 @@ presentation/*.mp4
 presentation/*.zip
 presentation/*.mov
 presentation/*.webm
+
+# Evaluation clips and faces show real people — keep local; labels (manifest*.yaml) are fine to commit
+data/eval/clips/*
+!data/eval/clips/manifest*.yaml
+data/eval/civilians/

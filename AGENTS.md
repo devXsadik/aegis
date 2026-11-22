@@ -30,7 +30,7 @@ cd frontend && npm run dev
 - **Face recognition**: `core/recognition/face_recognizer_db.py` + encodings stored in the DB (PostgreSQL or SQLite)
 - **Dashboard**: `frontend/src/` — components, hooks, services
 - **Reports API**: `GET /api/v1/reports/incident`
-- **Tests**: `pytest tests/unit/`
+- **Tests**: `pytest tests/` (backend, 70% coverage gate in CI); `cd frontend && npm test` (Vitest, `src/lib`); `npm run e2e` (Playwright smoke against `scripts/e2e_server.py`: temp SQLite, outside channels blanked; first run `npx playwright install chromium` or `PW_CHANNEL=chrome`)
 - **Docs**: `docs/ARCHITECTURE.md`, `docs/DEFENSE.md`
 
 ## Directory conventions

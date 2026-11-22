@@ -11,6 +11,9 @@ export const ROLE_PAGES = {
 }
 
 const ACTIONS = {
+  // Alerts, cameras, status, evidence, analytics: the backend's ROLES_OPS (operator_or_admin).
+  'data.view': ['operator', 'supervisor', 'admin', 'police', 'investigator'],
+  'audit.view': ['admin'],
   'camera.manage': ['admin'],
   'camera.power': ['operator', 'supervisor', 'admin'],
   'ptz': ['operator', 'supervisor', 'admin', 'police'],
@@ -21,10 +24,21 @@ const ACTIONS = {
   'user.manage': ['admin'],
 }
 
+// Pages that hold the views of two former pages: open if either view is.
+// The view ids (watchlist, detection) keep their own entries above.
+export const PAGE_VIEWS = {
+  faces: ['faces', 'watchlist'],
+  analytics: ['analytics', 'detection'],
+}
+
+function allows(role, id) {
+  const allowed = ROLE_PAGES[role]
+  return allowed === undefined ? false : allowed === null || allowed.has(id)
+}
+
 export function canViewPage(role, pageId) {
   if (!role) return false
-  const allowed = ROLE_PAGES[role]
-  return allowed === undefined ? false : allowed === null || allowed.has(pageId)
+  return (PAGE_VIEWS[pageId] || [pageId]).some((id) => allows(role, id))
 }
 
 export function can(role, action) {

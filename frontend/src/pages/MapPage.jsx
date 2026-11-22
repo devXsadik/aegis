@@ -232,7 +232,7 @@ export function MapPage({ ctx }) {
                     <b>{c.name || c.camera_id}</b>
                     <span className="meta" style={{ display: 'block' }}>{c.lat != null ? `${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}` : 'No location set'} · {officerLine(c.camera_id)}</span>
                   </span>
-                  <Tag tone={{ live: 'ok', idle: 'warn', off: 'danger' }[statusOf(c)]}>{{ live: 'Live', idle: 'No signal', off: 'Off' }[statusOf(c)]}</Tag>
+                  <Tag tone={{ live: 'ok', idle: 'warn', off: 'muted' }[statusOf(c)]}>{{ live: 'Live', idle: 'No video', off: 'Paused' }[statusOf(c)]}</Tag>
                 </button>
               ))}
             </div>

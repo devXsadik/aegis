@@ -1,5 +1,8 @@
+import asyncio
+import contextlib
 import os
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,10 +76,50 @@ def _validate_secrets():
         )
 
 
+def _warn_if_multi_worker():
+    """Live frames, pipeline status, WebSocket clients and rate limits live in this process.
+    With several workers each would see only part of them (a camera "offline" on one, alerts
+    missing on another). Every launcher here starts one worker; say so loudly if that changes."""
+    workers = int(os.getenv("WEB_CONCURRENCY", "1") or 1)
+    if workers > 1:
+        logger.error(f"WEB_CONCURRENCY={workers}: Aegis keeps live state in-process and needs exactly "
+                     "one API worker. Run uvicorn with --workers 1.")
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _validate_secrets()
+    _warn_if_multi_worker()
+    init_db()
+    from backend.services.escalation import escalation_loop
+    escalation_task = asyncio.create_task(escalation_loop())
+    from scripts.seed_cameras import seed_cameras
+    seed_cameras()
+    try:
+        from utils.config import load_yaml, expand_env
+        from utils.alerts.event_publisher import set_auto_alerts_enabled
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.yaml")
+        if os.path.exists(cfg_path):
+            cfg = expand_env(load_yaml(cfg_path))
+            if "auto_alerts_enabled" in cfg:
+                set_auto_alerts_enabled(bool(cfg.get("auto_alerts_enabled", True)))
+    except Exception as e:
+        logger.warning(f"Config auto_alerts load skipped: {e}")
+    logger.info("✅ AI-SSS Backend started successfully")
+    yield
+    escalation_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await escalation_task
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(
+    lifespan=lifespan,
     title="Aegis — AI Smart Surveillance API",
     description="Intelligent surveillance platform with face recognition, ANPR, "
                 "anomaly detection, cross-camera tracking, and analytics.",
@@ -129,31 +172,6 @@ app.include_router(vms_router, prefix=API_V1)
 app.include_router(config_router, prefix=API_V1)
 app.include_router(metrics_router, prefix=API_V1)
 app.include_router(capture_router, prefix=API_V1)
-
-
-# ---------------------------------------------------------------------------
-# Lifecycle
-# ---------------------------------------------------------------------------
-@app.on_event("startup")
-async def startup_event():
-    _validate_secrets()
-    init_db()
-    import asyncio
-    from backend.services.escalation import escalation_loop
-    app.state.escalation_task = asyncio.create_task(escalation_loop())
-    from scripts.seed_cameras import seed_cameras
-    seed_cameras()
-    try:
-        from utils.config import load_yaml, expand_env
-        from utils.alerts.event_publisher import set_auto_alerts_enabled
-        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.yaml")
-        if os.path.exists(cfg_path):
-            cfg = expand_env(load_yaml(cfg_path))
-            if "auto_alerts_enabled" in cfg:
-                set_auto_alerts_enabled(bool(cfg.get("auto_alerts_enabled", True)))
-    except Exception as e:
-        logger.warning(f"Config auto_alerts load skipped: {e}")
-    logger.info("✅ AI-SSS Backend started successfully")
 
 
 @app.get("/health")

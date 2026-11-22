@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from backend.db.database import get_db
 from backend.auth.auth import operator_or_admin
 from backend.models.user import User
@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from backend.auth.guards import verify_internal_key
+from clock import utcnow
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -36,6 +37,8 @@ class AlertResponse(BaseModel):
     camera_id: Optional[str] = None
     track_id: Optional[int] = None
     evidence_id: Optional[int] = None
+    acknowledged_at: Optional[datetime] = None
+    escalated_at: Optional[datetime] = None      # backup officers were paged (no acknowledgement in time)
 
     class Config:
         from_attributes = True
@@ -141,7 +144,7 @@ def alert_stats(
     user: User = Depends(operator_or_admin),
 ):
     from datetime import timedelta
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     total = db.query(Alert).filter(Alert.timestamp >= cutoff).count()
     unack = db.query(Alert).filter(Alert.timestamp >= cutoff, Alert.acknowledged == False).count()
     by_type = (
@@ -162,8 +165,13 @@ def alert_stats(
 
 @router.get("/review-queue-count")
 def review_queue_count(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    from backend.services.escalation import escalate_after_seconds
+    from backend.services.officer_dispatch import OFFICER_ALERT_TYPES
+
     pending = db.query(Alert).filter(Alert.review_status == "pending", Alert.dismissed == False).count()  # noqa: E712
-    return {"pending": pending}
+    # The queue shows how long each alert has waited against the escalation limit.
+    return {"pending": pending, "escalate_after_seconds": escalate_after_seconds(),
+            "escalated_types": sorted(OFFICER_ALERT_TYPES)}
 
 
 @router.get("/{alert_id}/context")
@@ -196,7 +204,8 @@ def alert_context(alert_id: int, db: Session = Depends(get_db),
     if alert.camera_id:
         related = (
             db.query(Event)
-            .filter(Event.camera_id == alert.camera_id, Event.alert_id != alert_id)
+            # NULL-safe: most events (plain detections) have no alert, and `NULL != id` is never true.
+            .filter(Event.camera_id == alert.camera_id, or_(Event.alert_id.is_(None), Event.alert_id != alert_id))
             .order_by(desc(Event.timestamp)).limit(5).all()
         )
     return {
@@ -235,7 +244,7 @@ async def acknowledge_alert(
     alert.dismissed = body.dismissed
     if body.acknowledged:
         alert.acknowledged_by = user.id
-        alert.acknowledged_at = datetime.utcnow()
+        alert.acknowledged_at = utcnow()
 
     released = ""
     needs_review = alert.review_status == "pending"
@@ -249,7 +258,7 @@ async def acknowledge_alert(
         was_pending = alert.review_status == "pending"
         alert.review_status = decision
         alert.reviewed_by = user.id
-        alert.reviewed_at = datetime.utcnow()
+        alert.reviewed_at = utcnow()
         alert.review_note = body.note
         db.add(AuditLog(
             user_id=user.id, username=user.username,
@@ -285,11 +294,11 @@ async def dispatch_police(
     )
     alert.acknowledged = True
     alert.acknowledged_by = user.id
-    alert.acknowledged_at = datetime.utcnow()
+    alert.acknowledged_at = utcnow()
     if alert.review_status == "pending":
         alert.review_status = "confirmed"
         alert.reviewed_by = user.id
-        alert.reviewed_at = datetime.utcnow()
+        alert.reviewed_at = utcnow()
     db.add(AuditLog(
         user_id=user.id,
         username=user.username,

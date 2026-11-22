@@ -1,6 +1,6 @@
 """Data for the operations map: every camera (with status) and recent alerts placed on it."""
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +12,7 @@ from backend.db.database import get_db
 from backend.models.alert import Alert
 from backend.models.camera import Camera
 from backend.models.user import User
+from clock import utcnow
 
 router = APIRouter(prefix="/map", tags=["map"])
 
@@ -62,7 +63,7 @@ def get_map_events(
     user: User = Depends(operator_or_admin),
 ):
     """Recent alerts with the position they were raised at (GPS stored with the alert, else the camera's)."""
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(Alert).filter(Alert.timestamp >= cutoff, Alert.alert_type.notin_(HIDDEN_TYPES),
                                Alert.review_status != "rejected")
     if types:
@@ -76,7 +77,7 @@ def get_map_events(
             try:
                 geo = json.loads(a.details)
                 lat, lng = geo.get("lat"), geo.get("lng")
-            except Exception:  # noqa: BLE001
+            except (ValueError, TypeError, AttributeError):     # details not a JSON object
                 pass
         if lat is None and cam is not None:
             lat, lng = cam.lat, cam.lng

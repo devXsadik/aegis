@@ -3,7 +3,7 @@
 import json
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 import httpx
@@ -21,6 +21,7 @@ from backend.services.watchlist_store import ALERT_STATUSES
 from backend.utils.events import broadcast_live_event
 from backend.utils.http_retry import post_with_retry
 from backend.utils.websocket import manager
+from clock import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ async def dispatch_alert(
         # must not page the officer every few seconds. Acknowledge/dismiss re-arms it.
         window = int(os.getenv("ALERT_DEDUPE_SECONDS", "120"))
         if window > 0 and alert_type != "PIPELINE_HEARTBEAT":
-            cutoff = datetime.utcnow() - timedelta(seconds=window)
+            cutoff = utcnow() - timedelta(seconds=window)
             dup = db.query(Alert).filter(
                 Alert.alert_type == alert_type, Alert.camera_id == camera_id,
                 Alert.person_name == person_name, Alert.plate_number == plate_number,
@@ -167,7 +168,7 @@ async def dispatch_alert(
             "track_id": track_id,
             "plate_number": plate_number,
             "message": message,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow().isoformat(),
         }
         needs_review = alert_type in REVIEW_REQUIRED_TYPES
         # Held: operators see it on the dashboard now; outside parties only after confirm.
@@ -304,7 +305,7 @@ async def release_held_webhooks(alert: Alert) -> str:
         "alert_id": alert.id,
         "review_status": alert.review_status,
         "reviewed_by": alert.reviewed_by,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utcnow().isoformat(),
     }
     return await _send_webhooks(alert.alert_type, payload)
 
@@ -327,7 +328,7 @@ async def redispatch_alert(
                 camera_lat = geo.get("lat")
                 camera_lng = geo.get("lng")
                 camera_name = geo.get("camera_name")
-            except Exception:
+            except (ValueError, TypeError, AttributeError):     # details not a JSON object
                 pass
 
         camera_lat, camera_lng, camera_name = _resolve_camera_geo(
@@ -350,7 +351,7 @@ async def redispatch_alert(
             "track_id": alert.track_id,
             "plate_number": alert.plate_number,
             "message": dispatch_message,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow().isoformat(),
             "alert_id": alert.id,
             "manual_redispatch": True,
         }

@@ -1,8 +1,8 @@
 """Live video streaming — pipeline pushes annotated JPEG frames, dashboard pulls MJPEG.
 
 The CV pipeline POSTs frames (internal key auth). Browsers consume them as an
-MJPEG stream or single snapshot. Since <img> tags cannot send Authorization
-headers, viewer endpoints accept the JWT as a query parameter.
+MJPEG stream or single snapshot. <img> tags cannot send Authorization headers:
+viewers are authenticated by the dashboard's session cookie (viewer_dep).
 """
 
 import asyncio
@@ -10,10 +10,11 @@ import threading
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
-from backend.auth.guards import verify_internal_key, verify_viewer_token
+from backend.auth.guards import verify_internal_key, viewer_dep
+from backend.models.user import User
 
 router = APIRouter(prefix="/stream", tags=["stream"])
 
@@ -42,9 +43,8 @@ async def push_frame(
 
 
 @router.get("/cameras")
-def streaming_cameras(token: Optional[str] = Query(default=None)):
+def streaming_cameras(viewer: User = Depends(viewer_dep)):
     """Camera ids that pushed a frame recently (i.e. have live video)."""
-    verify_viewer_token(token)
     now = time.monotonic()
     with _lock:
         return {
@@ -76,8 +76,7 @@ def _frame_with_digital_ptz(camera_id: str, jpeg_bytes: bytes) -> bytes:
 
 
 @router.get("/{camera_id}/snapshot")
-def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
-    verify_viewer_token(token)
+def snapshot(camera_id: str, viewer: User = Depends(viewer_dep)):
     with _lock:
         entry = _frames.get(camera_id)
     if not entry or time.monotonic() - entry[1] > FRAME_STALE_SECONDS:
@@ -88,9 +87,8 @@ def snapshot(camera_id: str, token: Optional[str] = Query(default=None)):
 
 
 @router.get("/{camera_id}/live")
-async def live_mjpeg(camera_id: str, token: Optional[str] = Query(default=None)):
+async def live_mjpeg(camera_id: str, viewer: User = Depends(viewer_dep)):
     """MJPEG stream (multipart/x-mixed-replace) of the latest pipeline frames."""
-    verify_viewer_token(token)
 
     async def generate():
         # Woken by push_frame instead of polling: a new frame goes out at once (no 0-100 ms wait

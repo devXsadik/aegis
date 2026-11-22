@@ -154,9 +154,14 @@ def test_image_lifecycle_and_delete():
     first_img = detail["images"][0]["id"]
 
     token = sup["Authorization"].split()[1]
-    img = client.get(f"/api/v1/faces/images/{first_img}?token={token}")
+    client.cookies.clear()
+    img = client.get(f"/api/v1/faces/images/{first_img}", headers=sup)
     assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg"
     assert client.get(f"/api/v1/faces/images/{first_img}").status_code == 401
+    # A token in the URL is no longer accepted (it leaks into logs and history); <img> tags use the cookie.
+    assert client.get(f"/api/v1/faces/images/{first_img}?token={token}").status_code == 401
+    client.cookies.set("aegis_session", token)
+    assert client.get(f"/api/v1/faces/images/{first_img}").status_code == 200
 
     assert client.delete(f"/api/v1/faces/images/{first_img}", headers=sup).status_code == 200
     after = client.get(f"/api/v1/faces/persons/{pid}", headers=sup).json()

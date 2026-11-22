@@ -5,19 +5,33 @@ import os
 import time
 import logging
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 import cv2
 
+from core.analysis.tamper import MESSAGES as TAMPER_MESSAGES
 from core.runtime.runtime_config import RuntimeConfigSync
 from core.visualization.hud import render_full_hud
 from core.visualization.stream_overlay import StreamOverlay
 from utils.media import open_capture, read_frame_with_reconnect, ContinuousRecorder
-from utils.alerts import publish_event_clip, publish_frame, publish_heartbeat
+from utils.alerts import dispatch_alert, publish_event_clip, publish_frame, publish_heartbeat
 from utils.system import FrameSkipper, ResourceMonitor
 from paths import RECORDINGS_DIR
 
 logger = logging.getLogger("HumanAnalysis")
+
+
+class _Failures:
+    """Counts a recurring failure and logs the first one, then every `every`-th: a recording or
+    stream that keeps failing must show up in the log without flooding it."""
+
+    def __init__(self, camera_id: str, what: str, every: int = 200):
+        self.camera_id, self.what, self.every, self.count = camera_id, what, every, 0
+
+    def __call__(self, exc: Exception) -> None:
+        self.count += 1
+        if self.count == 1 or self.count % self.every == 0:
+            logger.error(f"[{self.camera_id}] {self.what} failed ({self.count}x so far): {exc}")
 
 
 def thermal_view(frame):
@@ -81,6 +95,17 @@ class InferenceWorker(threading.Thread):
         self._result = None
         self.result_seq = 0
         self.last_infer_seconds = 0.0
+        self._busy_since = None          # monotonic start of the inference running now
+        self._last_done = time.monotonic()
+
+    def stalled_for(self) -> float:
+        """Seconds the current inference has been running (0 when idle)."""
+        busy = self._busy_since
+        return time.monotonic() - busy if busy is not None else 0.0
+
+    def result_age(self) -> float:
+        """Seconds since the last finished inference (or since start)."""
+        return time.monotonic() - self._last_done
 
     def submit(self, frame) -> None:
         with self._cond:
@@ -106,10 +131,12 @@ class InferenceWorker(threading.Thread):
                     return
                 frame, self._pending = self._pending, None
             started = time.time()
+            self._busy_since = time.monotonic()
             try:
                 self.config_sync.maybe_sync()
                 ctx = self.pipeline.run(frame, **self.run_kwargs)
             except Exception as e:  # noqa: BLE001
+                self._busy_since = None
                 errors += 1
                 logger.exception(f"[{self.camera_id}] inference failed ({errors}/{self.max_consecutive_errors}): {e}")
                 if errors >= self.max_consecutive_errors:
@@ -117,6 +144,8 @@ class InferenceWorker(threading.Thread):
                     return
                 continue
             errors = 0
+            self._busy_since = None
+            self._last_done = time.monotonic()
             self.last_infer_seconds = time.time() - started
             self._result = ctx
             self.result_seq += 1
@@ -135,8 +164,14 @@ def run_camera_loop(
     camera_lat: Optional[float] = None,
     camera_lng: Optional[float] = None,
     stop_event: Optional[threading.Event] = None,
+    on_stall: Optional[Callable[[], None]] = None,
+    tamper=None,
 ):
-    """Run the CV pipeline on one video source until quit or stream end."""
+    """Run the CV pipeline on one video source until quit or stream end.
+
+    If one inference runs longer than INFERENCE_STALL_SECONDS (a hung model or face worker),
+    the loop stops and calls `on_stall`. The stuck thread cannot be killed and may hold the
+    shared model lock, so the caller restarts the whole pipeline process."""
     cap = open_capture(source)
     frame_skipper = FrameSkipper(target_fps=target_fps)
     config_sync = RuntimeConfigSync(pipeline, camera_id=camera_id)
@@ -148,6 +183,7 @@ def run_camera_loop(
     last_heartbeat = 0.0
     sent_flags = []
     heartbeat_interval = float(os.getenv("HEARTBEAT_INTERVAL", "5"))
+    stall_limit = float(os.getenv("INFERENCE_STALL_SECONDS", "120"))
     last_stream = 0.0
     stream_interval = 1.0 / float(os.getenv("STREAM_FPS", "5"))
     stream_width = int(os.getenv("STREAM_WIDTH", "1280"))
@@ -186,12 +222,19 @@ def run_camera_loop(
     worker.start()
     ctx = None
     clip_seq = 0
+    dvr_failed = _Failures(camera_id, "DVR recording")
+    stream_failed = _Failures(camera_id, "Publishing the live stream")
     try:
         while True:
             if stop_event and stop_event.is_set():
                 break
             if worker.failed or not worker.is_alive():
                 logger.error(f"Inference worker for {camera_id} failed; restarting camera")
+                break
+            if worker.stalled_for() > stall_limit:
+                logger.error(f"[{camera_id}] inference stuck for {worker.stalled_for():.0f}s; restarting the pipeline")
+                if on_stall:
+                    on_stall()
                 break
             cap, frame = read_frame_with_reconnect(cap, source)
             if frame is None:
@@ -209,12 +252,25 @@ def run_camera_loop(
                 ctx.frame = frame
                 ctx.timestamp = time.time()
 
+            # Covered / blurred / moved / frozen camera: checked on the raw picture once a second.
+            if tamper is not None:
+                people = [b for b, _, _ in (result.human_detections if result is not None else [])]
+                kind = tamper.check(frame, time.time(), people)
+                if kind:
+                    logger.warning(f"[{camera_id}] camera tamper: {kind}")
+                    dispatch_alert(
+                        alert_type="CAMERA_TAMPER", severity="high",
+                        camera_id=camera_id, camera_location=camera_location, camera_name=camera_name,
+                        camera_lat=camera_lat, camera_lng=camera_lng,
+                        message=f"{TAMPER_MESSAGES[kind]} — {camera_name or camera_location or camera_id}",
+                    )
+
             # Continuous DVR writes raw (pre-HUD) frames for forensic fidelity
             if dvr is not None:
                 try:
                     dvr.write(frame)
-                except Exception:
-                    pass
+                except Exception as e:
+                    dvr_failed(e)
 
             fps_counter += 1
             elapsed = time.time() - fps_window_start
@@ -239,8 +295,8 @@ def run_camera_loop(
                             "heatmap": a.get_heatmap_grid(),
                             "track_count": len(ctx.tracks) if ctx is not None and hasattr(ctx, "tracks") else 0,
                         }
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[{camera_id}] analytics snapshot skipped: {e}")
                 publish_heartbeat(
                     camera_id=camera_id,
                     camera_location=camera_location,
@@ -249,6 +305,8 @@ def run_camera_loop(
                     frame_number=ctx.frame_number if ctx is not None else 0,
                     analytics=analytics_snapshot,
                     flags=flags,
+                    infer_ms=round(worker.last_infer_seconds * 1000),
+                    ai_age_s=round(worker.result_age(), 1),
                 )
                 last_heartbeat = now
 
@@ -293,8 +351,8 @@ def run_camera_loop(
                                 camera_location=camera_location,
                                 alert_type=alert_type,
                             )
-                except Exception:
-                    pass  # never let streaming break the CV loop
+                except Exception as e:
+                    stream_failed(e)        # never let streaming break the CV loop
 
             if show_window:
                 cv2.imshow(title, display)

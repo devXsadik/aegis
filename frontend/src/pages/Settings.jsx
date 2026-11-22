@@ -106,7 +106,7 @@ export function Settings({ ctx }) {
             <div className="row" key={key}>
               <span>{{ human_detector: 'Person detection', weapon_detector: 'Weapon detection', vehicle_detector: 'Vehicle detection', pose_analyzer: 'Pose / fall checks', fire_detector: 'Fire & smoke detection' }[key] || key}</span>
               <Tag tone={status === 'ok' ? 'ok' : status === 'missing' ? 'danger' : 'muted'}>
-                {status === 'ok' ? 'Loaded' : status === 'missing' ? 'OFF — model file missing' : 'Not installed (optional)'}
+                {status === 'ok' ? 'Loaded' : status === 'missing' ? 'OFF — model file missing' : status === 'disabled' ? 'Turned off in config.yaml' : 'Not installed (optional)'}
               </Tag>
             </div>
           ))}
@@ -152,7 +152,7 @@ export function Settings({ ctx }) {
           <div className="row"><span>Watchlist match → external notification</span><Tag tone="info">After operator confirms</Tag></div>
           <div className="row"><span>Weapon and fire alerts</span><Tag tone="info">Multi-frame confirmed</Tag></div>
           <div className="row"><span>Incident ticket for critical / high alerts</span><Tag tone="ok">Automatic</Tag></div>
-          <div className="row"><span>Heartbeat / camera SLA</span><Tag tone={systemStatus?.online ? 'ok' : 'warn'}>{systemStatus?.online ? 'Healthy' : 'No signal'}</Tag></div>
+          <div className="row"><span>Heartbeat / camera SLA</span><Tag tone={Object.keys(systemStatus?.cameras || {}).length ? 'ok' : 'warn'}>{Object.keys(systemStatus?.cameras || {}).length ? 'Healthy' : 'No camera reporting'}</Tag></div>
         </Card>
       </div>
 
@@ -203,7 +203,7 @@ export function Settings({ ctx }) {
         <Card title="Keyboard Shortcuts">
           <div className="row"><span>Command palette</span><span className="mono">⌘K / Ctrl+K</span></div>
           <div className="row"><span>Notifications</span><span className="mono">N</span></div>
-          <div className="row"><span>AI Copilot</span><span className="mono">C</span></div>
+          <div className="row"><span>Quick answers</span><span className="mono">C</span></div>
           <div className="row"><span>Triage: next / previous</span><span className="mono">J / K</span></div>
           <div className="row"><span>Triage: confirm / reject</span><span className="mono">V / D</span></div>
         </Card>

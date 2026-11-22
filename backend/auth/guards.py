@@ -5,10 +5,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from backend.auth.auth import ROLES_OPS, user_from_token
+from backend.auth.auth import ROLES_OPS, request_token, user_from_token
 from backend.db.database import SessionLocal, get_db
 from backend.models.user import User
 
@@ -29,9 +29,9 @@ def verify_internal_key(key: Optional[str]) -> None:
 
 
 def viewer_user(token: Optional[str], db: Session) -> User:
-    """Resolve the user behind a query-param JWT (for <img>/<video> tags).
+    """Resolve the user behind a session for <img>/<video>/WebSocket requests (see request_token).
 
-    Token is always required, in every environment, and the user must hold an
+    A session is always required, in every environment, and the user must hold an
     operational role and be active.
     """
     if not token:
@@ -56,8 +56,9 @@ def verify_viewer_token(token: Optional[str]) -> User:
         db.close()
 
 
-def viewer_dep(token: Optional[str] = None, db: Session = Depends(get_db)) -> User:
-    return viewer_user(token, db)
+def viewer_dep(request: Request, db: Session = Depends(get_db)) -> User:
+    """Dependency for media endpoints: session cookie (browser) or Bearer header."""
+    return viewer_user(request_token(request), db)
 
 
 def safe_media_path(raw: str, base: Path, root: Path) -> Path:

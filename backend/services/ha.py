@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Optional
+from clock import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def camera_offline_sla(last_seen_iso: Optional[str], sla_seconds: int = 30) -> s
     from datetime import datetime
     try:
         ts = datetime.fromisoformat(last_seen_iso.replace("Z", "+00:00").replace("+00:00", ""))
-        age = (datetime.utcnow() - ts).total_seconds()
+        age = (utcnow() - ts).total_seconds()
     except Exception:
         return "offline"
     if age <= sla_seconds:

@@ -1,15 +1,18 @@
-import { Icons, Tag, SEVERITY_TONE, timeAgo, Empty } from './ui'
+import { useRef } from 'react'
+import { Icons, Tag, SEVERITY_TONE, timeAgo, Empty, useDialog } from './ui'
 
 export function NotificationDrawer({ events, onClose, onClear }) {
+  const ref = useRef(null)
+  useDialog(ref, onClose)
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} />
-      <div className="drawer">
+      <div className="drawer" ref={ref} role="dialog" aria-modal="true" aria-label="Notifications">
         <div className="drawer-head">
           <span>Notifications</span>
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn btn-sm btn-ghost" onClick={onClear}>Clear all</button>
-            <button className="icon-btn" onClick={onClose}><Icons.close /></button>
+            <button className="icon-btn" onClick={onClose} aria-label="Close notifications"><Icons.close /></button>
           </div>
         </div>
         <div className="drawer-body">

@@ -21,8 +21,11 @@ device: auto                       # auto | cpu | cuda:0 | mps
 model_dir: "models"
 human_model: "yolov8n.pt"         # Nano model for speed
 weapon_model: "weapon_yolo.pt"
-# vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
-vehicle_detection: false           # yolov8l doubles detection time per frame; enable for road/parking cameras
+# Vehicles (car, motorcycle, bus, truck):
+#   fast     — the person model reports them in the same pass, next to no extra cost
+#   accurate — a separate YOLOv8l (models/yolov8l.pt): better on small/far vehicles, ~2x detection time
+#   off
+vehicle_detection: fast
 
 # --- Tracking ---
 tracking:
@@ -45,6 +48,21 @@ action:
 # --- Detection Thresholds ---
 confidence_threshold: 0.4         # 0.5 dropped people who were partly hidden or far away
 weapon_conf_threshold: 0.4
+# Camera tamper alerts (core/analysis/tamper.py): covered, blurred, moved, frozen picture.
+# Checked once a second on the raw frames. Tested on ~97 min of the dev webcams: no false alerts.
+tamper:
+  enabled: true
+  persist: 5                       # seconds a condition must hold (covered, blurred)
+  moved_persist: 10                # a new, steady view for this long = camera moved
+  frozen_seconds: 60               # identical picture for this long = frozen
+  dark_level: 18                   # mean brightness (0-255) below this = covered
+  cooldown: 300                    # the same condition is reported again only after this
+
+# Before a weapon hit counts towards the 3-of-5-frames confirmation (core/analysis/weapon_confirm.py):
+weapon:
+  min_box_side_px: 14              # smaller boxes are mostly guesses
+  unheld_min_score: 0.65           # needed when the person's wrists are visible but away from it, or nobody holds it
+  hand_reach: 0.25                 # "in hand": a wrist within this fraction of the person's height
 face_tolerance: 0.45
 
 # --- Recognition ---

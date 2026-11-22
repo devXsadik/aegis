@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy.orm import Session
 from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
 from backend.models.alert import Alert
+from clock import utcnow
 
 
 class ReportGenerator:
@@ -13,7 +14,7 @@ class ReportGenerator:
         self.db.close()
 
     def generate_incident_report(self, hours: int = 24) -> dict:
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utcnow() - timedelta(hours=hours)
         evidence_records = self.db.query(Evidence).filter(Evidence.timestamp >= cutoff).all()
         alert_records = self.db.query(Alert).filter(Alert.timestamp >= cutoff).all()
         criminals = [e for e in evidence_records if e.is_criminal]
@@ -22,7 +23,7 @@ class ReportGenerator:
         return {
             "report_type": "incident",
             "period_hours": hours,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utcnow().isoformat(),
             "summary": {
                 "total_events": len(evidence_records),
                 "criminal_detections": len(criminals),
@@ -45,8 +46,8 @@ class ReportGenerator:
     def generate_evidence_bundle(self, evidence_ids: list[int]) -> dict:
         records = self.db.query(Evidence).filter(Evidence.id.in_(evidence_ids)).all()
         return {
-            "bundle_id": f"bundle_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
-            "generated_at": datetime.utcnow().isoformat(),
+            "bundle_id": f"bundle_{utcnow().strftime('%Y%m%d_%H%M%S')}",
+            "generated_at": utcnow().isoformat(),
             "evidence_count": len(records),
             "items": [
                 {

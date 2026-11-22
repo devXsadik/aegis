@@ -19,6 +19,7 @@ import time
 
 import cv2
 
+from core.analysis.tamper import TamperDetector
 from core.app.factory import build_pipeline
 from core.runtime import run_camera_loop
 from paths import CONFIG_YAML, EVIDENCE_DIR, ROOT
@@ -105,6 +106,7 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
     )
 
     stop_event = threading.Event()
+    tamper = TamperDetector.from_config(cfg.get("tamper"))    # one per camera: it learns that camera's view
 
     def worker():
         # A camera that is unreachable (phone app closed, Wi-Fi down) or whose stream
@@ -126,6 +128,8 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
                     show_window=show_window,
                     window_title=f"AI-SSS — {cam_name}",
                     stop_event=stop_event,
+                    on_stall=_restart_requested.set,
+                    tamper=tamper,
                 )
             except Exception as e:
                 logger.error(f"[{cam_id}] camera unavailable: {e}")
@@ -249,7 +253,12 @@ def main():
         camera_lng=camera_lng,
         target_fps=target_fps,
         show_window=show_window,
+        on_stall=_restart_requested.set,
+        tamper=TamperDetector.from_config(cfg.get("tamper")),
     )
+    if _restart_requested.is_set():
+        logging.shutdown()
+        os._exit(RESTART_EXIT_CODE)     # the stuck inference thread cannot be joined
 
     stats = pipeline.get_stats()
     logger.info(f"Final pipeline stats: {stats}")

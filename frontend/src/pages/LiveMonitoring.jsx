@@ -3,7 +3,7 @@ import { buildCamList } from '../lib/cameras'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from '../components/Toast'
 import { CaptureBasket } from '../components/CaptureBasket'
-import { Card, Icons, Seg, Pill, Stat, Tag, Empty, timeAgo, useConfirm } from '../components/ui'
+import { Card, Icons, Seg, Pill, Tag, Empty, timeAgo, useConfirm } from '../components/ui'
 import {
   liveStreamUrl, setCameraPower,
   fetchVmsTimeline, fetchPtz, ptzMove, ptzStop, ptzHome, ptzSetMode,
@@ -14,7 +14,7 @@ const STATUS = {
   live: { label: 'LIVE', tone: 'ok' },
   online: { label: 'NO VIDEO', tone: 'warn' },
   offline: { label: 'OFFLINE', tone: 'muted' },
-  off: { label: 'OFF', tone: 'muted' },
+  off: { label: 'PAUSED', tone: 'muted' },
 }
 
 // Red alerts in view right now, as reported by the camera itself.
@@ -59,9 +59,9 @@ function CamFeed({ cam, objectFit = 'cover', starting = false, onPower }) {
         <div className="cam-offline">
           <Icons.camera />
           <b>
-            {cam.status === 'off' ? 'Camera is off'
+            {cam.status === 'off' ? 'Camera is paused'
               : starting ? 'Starting camera…'
-                : st.label === 'NO VIDEO' ? 'Connected, waiting for video' : 'No signal'}
+                : st.label === 'NO VIDEO' ? 'Connected, waiting for video' : 'Offline'}
           </b>
           {starting && cam.status !== 'off' && <span>This can take up to half a minute</span>}
           {cam.status === 'off' && onPower && (
@@ -213,6 +213,18 @@ function PtzPad({ cameraId }) {
   )
 }
 
+// Video wall layouts. All fits every camera; 1 shows the selected (or alerting) camera large.
+const WALL_LAYOUTS = [
+  { value: 'auto', label: 'All' },
+  { value: '1', label: '1' },
+  { value: '4', label: '2×2' },
+  { value: '9', label: '3×3' },
+]
+
+function readWallLayout() {
+  try { return localStorage.getItem('aegis_wall') || 'auto' } catch { return 'auto' }
+}
+
 export function LiveMonitoring({ ctx }) {
   const { systemStatus, cameras, threatLevel, streamingCams = [], me, captureEvent, liveFocus, power = {}, setPower } = ctx
   const [selectedId, setSelectedId] = useState(liveFocus?.cameraId || null)
@@ -239,7 +251,7 @@ export function LiveMonitoring({ ctx }) {
   const canPower = can(me?.role, 'camera.power')
 
   const switchCamera = async (cam, on) => {
-    if (!on && !(await ask({ title: 'Stop camera', message: `Stop "${cam.name}"? Detection and recording on it stop until it is started again.`, confirmLabel: 'Stop', danger: true }))) return
+    if (!on && !(await ask({ title: 'Pause camera', message: `Pause "${cam.name}"? Detection and recording on it stop until it is started again.`, confirmLabel: 'Pause', danger: true }))) return
     try {
       setPower(await setCameraPower(cam.camera_id, on))
       setStarting((prev) => { const next = new Set(prev); if (on) next.add(cam.camera_id); else next.delete(cam.camera_id); return next })
@@ -262,6 +274,20 @@ export function LiveMonitoring({ ctx }) {
   const activeInfo = camList.find((c) => c.camera_id === activeCam)
   const alertingId = threatLevel === 'critical' ? camList.find((c) => c.threat_score >= 40)?.camera_id : null
   const fullscreenCam = camList.find((c) => c.camera_id === fullscreenId)
+
+  const [layout, setLayoutState] = useState(readWallLayout)
+  const setLayout = (v) => {
+    setLayoutState(v)
+    try { localStorage.setItem('aegis_wall', v) } catch { /* ignore */ }
+  }
+  // The camera with a threat in view goes first, so it is on the wall whatever the layout.
+  const wallOrder = [...camList].sort((a, b) => (b.camera_id === alertingId) - (a.camera_id === alertingId))
+  const slots = layout === 'auto' ? wallOrder.length : Number(layout)
+  const wall = layout === '1'
+    ? [camList.find((c) => c.camera_id === (alertingId || activeCam))].filter(Boolean)
+    : wallOrder.slice(0, slots)
+  const n = layout === 'auto' ? wall.length : slots
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4
 
   const loadTimeline = useCallback(() => {
     if (!activeCam) return
@@ -290,24 +316,57 @@ export function LiveMonitoring({ ctx }) {
     }
   }
 
-  const pipelineLabel = systemStatus?.online ? 'Pipeline online' : 'Pipeline offline'
+  // `online` stays true after the first heartbeat; a camera reporting now is what "on" means.
+  const detecting = Object.keys(systemStatus?.cameras || {}).length > 0
+  const pipelineLabel = detecting ? 'Detection on' : 'Detection off'
 
   return (
     <>
-      <div className="grid grid-4 live-stats">
-        <Stat label="Live streams" value={`${counts.live}/${camList.length}`} accent={counts.live ? 'ok' : 'warn'}
-          delta={counts.live ? 'Receiving video' : 'No video received'} icon={Icons.live} />
-        <Stat label="Cameras reporting" value={counts.online} accent="primary" delta="Connected to the system" icon={Icons.camera} />
-        <Stat label="Threat level" value={(threatLevel || 'low').replace(/^./, (c) => c.toUpperCase())} icon={Icons.shield}
-          accent={threatLevel === 'critical' ? 'danger' : threatLevel === 'high' ? 'warn' : 'ok'} delta="Last 15 minutes" />
-        <Stat label="Recorded video" value={`${coverageHrs.toFixed(1)} h`} accent="primary" delta="Selected camera · last 24 hours" icon={Icons.clock} />
+      <div className="wall-bar">
+        <span className="wall-summary">
+          <b>{counts.live}</b> of {camList.length} camera{camList.length === 1 ? '' : 's'} live
+          {!detecting && camList.length > 0 && <span className="muted"> · detection is off</span>}
+        </span>
+        <span className="spacer" />
+        <Seg value={layout} onChange={setLayout} options={WALL_LAYOUTS} />
       </div>
 
-      {/* The video itself is in the strip above every page; this page is controls and recordings. */}
+      {camList.length === 0 ? (
+        <Card><Empty icon={Icons.camera}>No cameras yet. Add one under Set up → Cameras.</Empty></Card>
+      ) : (
+        <div className="cam-grid wall" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {wall.map((c) => (
+            <div key={c.camera_id} role="button" tabIndex={0}
+              className={`cam-tile ${c.status} ${c.camera_id === activeCam ? 'selected' : ''} ${c.camera_id === alertingId ? 'alerting' : ''}`}
+              aria-label={`${c.name}: select (double-click for full screen)`}
+              onClick={() => setSelectedId(c.camera_id)}
+              onDoubleClick={() => setFullscreenId(c.camera_id)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setFullscreenId(c.camera_id) }}>
+              <CamFeed cam={c} starting={starting.has(c.camera_id) && c.status !== 'live'}
+                onPower={canPower && c.camera_id in power ? (on) => switchCamera(c, on) : undefined} />
+              <button type="button" className="cam-expand" title="Full screen" aria-label={`${c.name} full screen`}
+                onClick={(e) => { e.stopPropagation(); setFullscreenId(c.camera_id) }}>
+                <ExpandIcon />
+              </button>
+              {canPower && c.camera_id in power && c.status !== 'off' && (
+                <button type="button" className="cam-expand cam-stop" title="Pause camera" aria-label={`Pause ${c.name}`}
+                  onClick={(e) => { e.stopPropagation(); switchCamera(c, false) }}>
+                  <PowerIcon />
+                </button>
+              )}
+            </div>
+          ))}
+          {Array.from({ length: Math.max(0, n - wall.length) }, (_, i) => (
+            <div key={`empty-${i}`} className="cam-tile empty">No camera</div>
+          ))}
+        </div>
+      )}
+
       <div className="live-layout">
         <div className="live-main">
+          {layout !== 'auto' && (
           <Card title="Cameras" sub={activeInfo ? `Selected: ${activeInfo.name}` : `${camList.length}`} flush
-            actions={<Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{pipelineLabel}</Pill>}>
+            actions={<Pill tone={detecting ? 'ok' : 'warn'}>{pipelineLabel}</Pill>}>
             <div className="cam-list">
               {camList.map((c) => {
                 const isStarting = starting.has(c.camera_id) && c.status !== 'live'
@@ -325,7 +384,7 @@ export function LiveMonitoring({ ctx }) {
                     {canPower && c.camera_id in power && (
                       c.status === 'off'
                         ? <button type="button" className="btn btn-sm btn-primary" onClick={() => switchCamera(c, true)}><PowerIcon /> Start</button>
-                        : <button type="button" className="icon-btn" title="Stop camera" aria-label={`Stop ${c.name}`} onClick={() => switchCamera(c, false)}><PowerIcon /></button>
+                        : <button type="button" className="icon-btn" title="Pause camera" aria-label={`Pause ${c.name}`} onClick={() => switchCamera(c, false)}><PowerIcon /></button>
                     )}
                     <button type="button" className="icon-btn" title="Full screen" aria-label={`${c.name} full screen`} onClick={() => setFullscreenId(c.camera_id)}>
                       <ExpandIcon />
@@ -335,12 +394,13 @@ export function LiveMonitoring({ ctx }) {
               })}
               {camList.length === 0 && <Empty icon={Icons.camera}>No cameras yet. Add one under Cameras.</Empty>}
             </div>
-            {!systemStatus?.online && camList.length > 0 && (
+            {!detecting && camList.length > 0 && (
               <p className="live-hint" style={{ padding: '0 14px 14px' }}>The analysis pipeline is not reporting. Cameras stay offline until it is running.</p>
             )}
           </Card>
+          )}
 
-      <Card title="Recordings" sub={`${timeline.length} clips · last 24 hours · ${activeInfo?.name || 'no camera selected'}`}
+      <Card title="Recordings" sub={`${timeline.length} clips · ${coverageHrs.toFixed(1)} h recorded in 24 hours · ${activeInfo?.name || 'no camera selected'}`}
         actions={<button className="btn btn-sm" onClick={loadTimeline}>Refresh</button>}>
         {timeline.length === 0 ? (
           <Empty icon={Icons.clock}>No recordings for this camera yet. Segments are saved every 60 seconds while video is flowing.</Empty>

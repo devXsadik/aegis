@@ -12,13 +12,14 @@ from backend.models.alert import Alert
 from backend.services import officer_dispatch
 from backend.services.audit import log_audit
 from backend.utils.websocket import manager
+from clock import utcnow
 
 logger = logging.getLogger(__name__)
 
 
 async def escalate_unacknowledged(db: Session, after_seconds: int, now: Optional[datetime] = None) -> int:
     """Returns how many alerts were escalated. Each alert escalates at most once."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     cutoff = now - timedelta(seconds=after_seconds)
     pending = db.query(Alert).filter(
         Alert.alert_type.in_(list(officer_dispatch.OFFICER_ALERT_TYPES)),
@@ -43,8 +44,13 @@ async def escalate_unacknowledged(db: Session, after_seconds: int, now: Optional
     return len(pending)
 
 
+def escalate_after_seconds() -> int:
+    """Seconds an unacknowledged watchlist/weapon alert waits before backups are paged (0 = never)."""
+    return int(os.getenv("ESCALATE_AFTER_SECONDS", "120"))
+
+
 async def escalation_loop() -> None:
-    after = int(os.getenv("ESCALATE_AFTER_SECONDS", "120"))
+    after = escalate_after_seconds()
     if after <= 0:
         return
     while True:

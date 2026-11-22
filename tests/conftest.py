@@ -14,3 +14,17 @@ try:
 except BaseException:  # ImportError, RuntimeError (dlib models), or SystemExit (quit())
     sys.modules.pop("face_recognition", None)
     sys.modules["face_recognition"] = types.ModuleType("face_recognition")
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _signed_out_clients(request):
+    """Login also sets the dashboard's session cookie. A module-level TestClient would carry it
+    into the next test and make "requires auth" checks pass, so every test starts signed out."""
+    from starlette.testclient import TestClient
+    for value in vars(request.module).values():
+        if isinstance(value, TestClient):
+            value.cookies.clear()
+    yield

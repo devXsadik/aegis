@@ -1,40 +1,54 @@
 cameras:
 - id: gate_1
   name: Main Gate Camera 1
-  source: 0
+  source: '0'
   location: Gate_1
   lat: 23.8103
   lng: 90.4125
-  enabled: false
+  enabled: true
   fps_limit: 8
   priority: high
+  started: false
 - id: laptop
   name: Laptop Camera
   source: device:6C707041-05AC-0011-0003-000000000001
   location: Local
   lat: 23.8103
   lng: 90.4125
-  enabled: true
+  enabled: false
   fps_limit: 8
   priority: high
-  started: true
+  started: false
 - id: usb_webcam
   name: USB Webcam (C270)
   source: http://192.168.1.3:8080/video
   lat: 23.8103
   lng: 90.4125
   fps_limit: 8
+  started: false
 - id: tarik_tab
   name: Tarik Tablet Camera
   source: http://192.168.1.6:8080/video
   fps_limit: 8
+  started: false
 - id: mobile
   name: Mobile IP Camera
   source: http://192.168.0.103:8080/video
   location: Mobile
   fps_limit: 8
+  started: false
 - id: fahim_camera
   name: Fahim Camera
   source: http://192.168.0.101:8080/video
   location: uttara sector 9
   fps_limit: 8
+  started: false
+- id: video_0
+  name: Main Gate Camera 1
+  source: null
+  location: Gate_1
+  lat: 23.8103
+  lng: 90.4125
+  enabled: false
+  fps_limit: 15
+  priority: high

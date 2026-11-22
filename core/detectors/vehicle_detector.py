@@ -2,12 +2,8 @@ from core.detectors.device import lock_for, read_boxes
 
 import numpy as np
 from ultralytics import YOLO
+from core.detectors.detector import VEHICLE_CLASSES
 from core.tracking.tracker import hist_embed, make_tracker
-
-
-VEHICLE_CLASSES = {
-    2: "car", 3: "motorcycle", 5: "bus", 7: "truck",
-}
 
 
 class VehicleDetector:

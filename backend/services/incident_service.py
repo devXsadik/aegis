@@ -51,7 +51,7 @@ def create_incident_from_alert(
             import json
             geo = json.loads(alert.details)
             lat, lng = geo.get("lat"), geo.get("lng")
-        except Exception:
+        except (ValueError, TypeError, AttributeError):         # details not a JSON object
             pass
 
     priority = alert.severity if alert.severity in ("critical", "high", "medium", "low", "info") else "high"

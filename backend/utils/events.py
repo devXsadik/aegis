@@ -1,9 +1,9 @@
 """Shared live-event payload builder and WebSocket broadcaster."""
 
-from datetime import datetime
 from typing import Optional
 
 from backend.utils.websocket import manager
+from clock import utcnow
 
 
 def _maps_url(lat: Optional[float], lng: Optional[float]) -> Optional[str]:
@@ -37,7 +37,7 @@ def build_event_payload(
         "track_id": track_id,
         "person_name": person_name,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utcnow().isoformat(),
         "data": {
             "camera_location": camera_location,
             "camera_id": camera_id,

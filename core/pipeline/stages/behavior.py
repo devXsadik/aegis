@@ -63,6 +63,7 @@ class BehaviorStage(PipelineStage):
                 if self.action_recognizer is not None:     # fed once per fresh pose pass
                     self._actions = self.action_recognizer.update(now, ctx.frame.shape, self._last_poses)
         poses = {k: v for k, v in self._last_poses.items() if k in live}
+        ctx.poses = poses          # the output stage checks whether a weapon is in someone's hand
         self.fall_detector.prune(live)
 
         # --- Per-person behavior analysis ---

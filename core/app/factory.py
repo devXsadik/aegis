@@ -16,7 +16,8 @@ from core.pipeline.stages import (
 from utils.system import logger
 from utils.live_names import live_criminal_names
 from core.analysis.behavior import configure_behavior
-from utils.config import model_path, model_setting
+from core.analysis.weapon_confirm import WeaponScreen
+from utils.config import model_path, model_setting, vehicle_mode
 
 
 def play_alarm():
@@ -95,10 +96,13 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         logger.warning(f"Weapon detector DISABLED: model not found at {weapon_model_path}")
 
     vehicle_detector = None
-    if not cfg.get("vehicle_detection", True):
-        # YOLOv8l: ~2x the person model's time, on every frame of every camera
-        logger.info("Vehicle detector: OFF (vehicle_detection: false)")
+    mode = vehicle_mode(cfg)
+    if mode == "off":
+        logger.info("Vehicle detector: OFF (vehicle_detection: off)")
+    elif mode == "fast":
+        logger.info("Vehicle detector: FAST (person model, same pass)")
     elif os.path.exists(vehicle_model_path):
+        # accurate: YOLOv8l, ~2x the person model's time, on every frame of every camera
         try:
             vehicle_detector = _shared(
                 ("vehicle", vehicle_model_path),
@@ -194,6 +198,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         vehicle_detector=vehicle_detector,
         weapon_detector=weapon_detector,
         fire_detector=fire_detector,
+        vehicles_from_people=mode == "fast",
     ))
     pipeline.add_stage(TrackingStage(
         human_tracker=human_tracker,
@@ -214,11 +219,17 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         anpr_every_n=anpr_cfg.get("every_n_frames", 3),
     ))
     pipeline.add_stage(AnalyticsStage())
+    weapon_cfg = cfg.get("weapon") or {}
     pipeline.add_stage(OutputStage(
         camera_location=loc,
         evidence_throttle_seconds=cfg.get("evidence_throttle_seconds", 10.0),
         alarm_interval_seconds=cfg.get("alarm_interval_seconds", 5.0),
         alarm_callback=play_alarm,
+        weapon_screen=WeaponScreen(
+            min_side_px=int(weapon_cfg.get("min_box_side_px", 14)),
+            unheld_min_score=float(weapon_cfg.get("unheld_min_score", 0.65)),
+            reach=float(weapon_cfg.get("hand_reach", 0.25)),
+        ),
     ))
 
     return pipeline, criminal_names, loc

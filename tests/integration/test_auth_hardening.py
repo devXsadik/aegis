@@ -127,5 +127,40 @@ def test_tokens_are_revoked_by_password_change_role_change_and_logout_all():
     again = _login("ah_op", "BrandNew12345").json()["access_token"]
     assert client.post(f"{API}/logout-all", headers={"Authorization": f"Bearer {again}"}).status_code == 200
     assert me(again) == 401
-    media = client.get("/api/v1/stream/cameras", params={"token": again})
-    assert media.status_code == 401                                     # query-param media tokens too
+    client.cookies.clear()
+    media = client.get("/api/v1/stream/cameras", headers={"Authorization": f"Bearer {again}"})
+    assert media.status_code == 401                                     # media endpoints too
+
+
+def test_dashboard_session_is_an_httponly_cookie_and_refresh_keeps_the_token_out_of_scripts():
+    client.cookies.clear()
+    r = _login("ah_admin", "AdminPass123")
+    cookie = r.headers["set-cookie"].lower()
+    assert "aegis_session=" in cookie and "httponly" in cookie and "samesite=strict" in cookie
+    assert client.get(f"{API}/me").status_code == 200                 # the cookie alone signs in
+    ref = client.post(f"{API}/refresh")
+    assert ref.status_code == 200 and ref.json()["access_token"] is None
+    assert "aegis_session=" in ref.headers["set-cookie"]
+    assert client.post(f"{API}/logout").status_code == 200
+    assert client.get(f"{API}/me").status_code == 401
+
+
+def test_websocket_takes_the_cookie_and_refuses_foreign_origins():
+    from starlette.websockets import WebSocketDisconnect
+    client.cookies.clear()
+    _login("ah_admin", "AdminPass123")
+    with client.websocket_connect("/api/v1/ws/alerts") as ws:
+        ws.send_text("ping")                                         # accepted: stays open
+    try:
+        with client.websocket_connect("/api/v1/ws/alerts", headers={"origin": "https://evil.example"}) as ws:
+            ws.receive_text()
+        raise AssertionError("foreign origin was accepted")
+    except WebSocketDisconnect as e:
+        assert e.code == 1008
+    client.cookies.clear()
+    try:
+        with client.websocket_connect("/api/v1/ws/alerts") as ws:
+            ws.receive_text()
+        raise AssertionError("no session was accepted")
+    except WebSocketDisconnect as e:
+        assert e.code == 1008

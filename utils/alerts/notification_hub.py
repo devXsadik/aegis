@@ -12,6 +12,12 @@ from utils.config.camera_registry import maps_url
 
 logger = logging.getLogger("HumanAnalysis")
 
+# What the pose says about a confirmed weapon, so the operator knows what to look for.
+WEAPON_HELD_NOTE = {
+    True: " (in hand)",
+    False: " (not in hand: check for a holster, bag or a look-alike object)",
+}
+
 
 class NotificationHub:
     """Central hub — throttles and dispatches alerts across every defense channel."""
@@ -131,6 +137,7 @@ class NotificationHub:
         camera_lat: Optional[float] = None,
         camera_lng: Optional[float] = None,
         confidence: Optional[float] = None,
+        held: Optional[bool] = None,
     ) -> None:
         key = f"weapon_{camera_id}"
         if not self._should_fire(key, now):
@@ -147,7 +154,7 @@ class NotificationHub:
             camera_lat=camera_lat,
             camera_lng=camera_lng,
             message=self._geo_message(
-                "WEAPON DETECTED", camera_location, camera_id, camera_lat, camera_lng,
+                "WEAPON DETECTED" + WEAPON_HELD_NOTE.get(held, ""), camera_location, camera_id, camera_lat, camera_lng,
             ),
         )
 

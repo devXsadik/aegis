@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
-import { Icons } from './ui'
+import { Icons, useDialog } from './ui'
 
 /*
- * Command Assistant — on-device analyst assistant.
+ * Quick answers — on-device, rule-based (not an AI model).
  * Answers from live dashboard data (alerts, cameras, analytics) using
  * rule-based intent matching. Designed so an LLM endpoint can be plugged
  * in later by replacing `answer()` with an API call.
@@ -90,6 +90,8 @@ export function Copilot({ ctx, onClose, initialQuery = '' }) {
   ])
   const [input, setInput] = useState('')
   const bodyRef = useRef(null)
+  const ref = useRef(null)
+  useDialog(ref, onClose)
 
   const send = (text) => {
     const q = (text || input).trim()
@@ -105,10 +107,10 @@ export function Copilot({ ctx, onClose, initialQuery = '' }) {
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} />
-      <div className="drawer">
+      <div className="drawer" ref={ref} role="dialog" aria-modal="true" aria-label="Quick answers">
         <div className="drawer-head">
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icons.bot /> Assistant</span>
-          <button className="icon-btn" onClick={onClose}><Icons.close /></button>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icons.bot /> Quick answers</span>
+          <button className="icon-btn" onClick={onClose} aria-label="Close quick answers"><Icons.close /></button>
         </div>
         <div className="drawer-body" ref={bodyRef}>
           <div className="assistant-suggestions">
@@ -130,8 +132,9 @@ export function Copilot({ ctx, onClose, initialQuery = '' }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && send()}
+            aria-label="Question"
           />
-          <button className="btn btn-primary" onClick={() => send()}><Icons.dispatch /></button>
+          <button className="btn btn-primary" onClick={() => send()} aria-label="Ask"><Icons.dispatch /></button>
         </div>
       </div>
     </>

@@ -1,47 +1,51 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import {
-  login, clearToken, getToken, fetchAlerts, fetchSystemStatus,
+  login, signOut, currentUser, fetchAlerts, fetchSystemStatus,
   fetchKnownPersons, fetchEvidence, fetchMapCameras, fetchMapEvents,
   fetchIncidentReport, fetchCameras, fetchAnalyticsSummary,
   fetchAnalyticsTrends, fetchAnalyticsLocations, fetchVehiclePlates,
   fetchVehicleDetections, fetchAuditLogs, fetchMe, fetchStreamingCameras,
-  fetchReviewCount, acknowledgeAlert, refreshSession, fetchCameraDevices, addCamera, fetchCameraPower,
+  fetchReviewCount, acknowledgeAlert, refreshSession, fetchCameraDevices, fetchCameraPower,
 } from './services/api'
 import { useToast } from './components/Toast'
 import { ProfileModal } from './components/ProfileModal'
-import { AddCameraModal } from './components/AddCameraModal'
 import { parseTs } from './lib/time'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAutoAlerts } from './hooks/useAutoAlerts'
-import { can, canViewPage } from './lib/permissions'
-import { buildCamList, cameraForDevice } from './lib/cameras'
-import { Card, Empty, Icons, Pill } from './components/ui'
+import { can, canViewPage, PAGE_VIEWS } from './lib/permissions'
+import { buildCamList } from './lib/cameras'
+import { Card, Empty, Icons, Pill, Seg } from './components/ui'
 import { CommandPalette } from './components/CommandPalette'
 import { NotificationDrawer } from './components/NotificationDrawer'
 import { Copilot } from './components/Copilot'
-import { AccountMenu, AskBar, CameraDeck, CameraPanel, Clock, ResponsePanel } from './components/Workspace'
+import { AccountMenu, AskBar, Clock } from './components/Workspace'
+import { Sidebar } from './components/Sidebar'
 import { CriticalAlertBanner } from './components/CriticalAlertBanner'
+import { SystemStatus } from './components/SystemStatus'
 import { Overview } from './pages/Overview'
-import { LiveMonitoring } from './pages/LiveMonitoring'
-import { MapPage } from './pages/MapPage'
-import { DetectionCenter } from './pages/DetectionCenter'
-import { Triage } from './pages/Triage'
-import { Incidents } from './pages/Incidents'
-import { Cameras } from './pages/Cameras'
-import { Analytics } from './pages/Analytics'
-import { EvidencePage } from './pages/EvidencePage'
-import { Watchlist } from './pages/Watchlist'
-import { FaceRegistryPage } from './pages/FaceRegistryPage'
-import { Vehicles } from './pages/Vehicles'
-import { Reports } from './pages/Reports'
-import { Users } from './pages/Users'
-import { Settings } from './pages/Settings'
-import { ZoneEditor } from './pages/ZoneEditor'
+
+// Every other page loads on first visit: the sign-in bundle stays small and Leaflet comes with the map.
+const lazyPage = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })))
+const LiveMonitoring = lazyPage(() => import('./pages/LiveMonitoring'), 'LiveMonitoring')
+const MapPage = lazyPage(() => import('./pages/MapPage'), 'MapPage')
+const DetectionCenter = lazyPage(() => import('./pages/DetectionCenter'), 'DetectionCenter')
+const Triage = lazyPage(() => import('./pages/Triage'), 'Triage')
+const Incidents = lazyPage(() => import('./pages/Incidents'), 'Incidents')
+const Cameras = lazyPage(() => import('./pages/Cameras'), 'Cameras')
+const Analytics = lazyPage(() => import('./pages/Analytics'), 'Analytics')
+const EvidencePage = lazyPage(() => import('./pages/EvidencePage'), 'EvidencePage')
+const Watchlist = lazyPage(() => import('./pages/Watchlist'), 'Watchlist')
+const FaceRegistryPage = lazyPage(() => import('./pages/FaceRegistryPage'), 'FaceRegistryPage')
+const Vehicles = lazyPage(() => import('./pages/Vehicles'), 'Vehicles')
+const Reports = lazyPage(() => import('./pages/Reports'), 'Reports')
+const Users = lazyPage(() => import('./pages/Users'), 'Users')
+const Settings = lazyPage(() => import('./pages/Settings'), 'Settings')
+const ZoneEditor = lazyPage(() => import('./pages/ZoneEditor'), 'ZoneEditor')
 
 // Names are what an operator would call the page; `desc` is the one line shown under its title.
 const NAV = [
   {
-    group: 'Watch',
+    group: 'Monitor',
     pages: [
       { id: 'overview', label: 'Home', desc: 'What needs you right now, and how the system is doing.', icon: Icons.overview },
       { id: 'live', label: 'Live cameras', desc: 'Watch every camera as it happens.', icon: Icons.live },
@@ -59,11 +63,9 @@ const NAV = [
   {
     group: 'Investigate',
     pages: [
-      { id: 'detection', label: 'Detection history', desc: 'Everything the cameras have detected, newest first.', icon: Icons.ai },
-      { id: 'faces', label: 'Faces', desc: 'People the system can recognise.', icon: Icons.users },
-      { id: 'watchlist', label: 'Watchlist', desc: 'People who raise an alert when a camera sees them.', icon: Icons.watchlist },
+      { id: 'faces', label: 'People', desc: 'Who the system can recognise, and where watchlist people were seen.', icon: Icons.users },
       { id: 'vehicles', label: 'Vehicles', desc: 'Number plates read by the cameras.', icon: Icons.vehicle },
-      { id: 'analytics', label: 'Analytics', desc: 'Trends in detections over time and by place.', icon: Icons.chart },
+      { id: 'analytics', label: 'Analytics', desc: 'Trends over time, and everything the cameras detected.', icon: Icons.chart },
       { id: 'reports', label: 'Reports', desc: 'Summaries you can print or export.', icon: Icons.report },
     ],
   },
@@ -78,22 +80,44 @@ const NAV = [
   },
 ]
 const ALL_PAGES = NAV.flatMap((g) => g.pages)
-// The pages used every shift: tabs over the centre panel, and the phone tab bar.
+// The pages used every shift: the phone's bottom tab bar (the sidebar has them all).
 const TAB_PAGES = ['overview', 'live', 'alerts', 'map'].map((id) => ALL_PAGES.find((p) => p.id === id))
-// Response panel tiles. The colour only tells the tiles apart; it carries no severity.
-const TOOLS = [
-  ['incidents', 'orange'], ['evidence', 'cyan'], ['faces', 'purple'], ['watchlist', 'danger'],
-  ['vehicles', 'warn'], ['detection', 'primary'], ['analytics', 'ok'], ['reports', 'text-2'],
-].map(([id, tone]) => ({ ...ALL_PAGES.find((p) => p.id === id), tone }))
+// Views inside a page (PAGE_VIEWS). An old link (#/watchlist, #/detection) opens its view.
+const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history' }
+// Views the search palette lists by their old names, so "watchlist" still finds them.
+const PALETTE_VIEWS = [
+  { id: 'watchlist', label: 'Watchlist sightings', desc: 'Where watchlist people were seen (People page).', icon: Icons.watchlist },
+  { id: 'detection', label: 'Detection history', desc: 'Everything the cameras detected (Analytics page).', icon: Icons.ai },
+]
+const VIEW_HOME = Object.fromEntries(Object.entries(PAGE_VIEWS).flatMap(([home, views]) => views.map((v) => [v, home])))
 const THREAT = {
   low: { tone: 'ok', label: 'Threat level low' },
   high: { tone: 'warn', label: 'Threat level elevated' },
   critical: { tone: 'danger', label: 'Threat level critical' },
 }
 
-function pageFromHash() {
-  const id = (window.location.hash || '#/overview').replace('#/', '').split('?')[0]
-  return ALL_PAGES.some((p) => p.id === id) ? id : 'overview'
+function routeFromHash() {
+  const [path, query = ''] = (window.location.hash || '#/overview').replace('#/', '').split('?')
+  const view = new URLSearchParams(query).get('view') || (VIEW_HOME[path] ? path : null)
+  const id = VIEW_HOME[path] || path
+  return ALL_PAGES.some((p) => p.id === id) ? { page: id, view } : { page: 'overview', view: null }
+}
+
+/** A page made of views: tabs for the ones this role may open, then the chosen view. */
+function ViewSwitch({ pageId, view, onView, role, ctx }) {
+  const views = PAGE_VIEWS[pageId].filter((v) => canViewPage(role, v))
+  const current = views.includes(view) ? view : views[0]
+  const Current = VIEW_COMPONENTS[current]
+  return (
+    <>
+      {views.length > 1 && (
+        <div className="view-switch">
+          <Seg value={current} onChange={onView} options={views.map((v) => ({ value: v, label: VIEW_LABELS[v] }))} />
+        </div>
+      )}
+      <Current ctx={ctx} />
+    </>
+  )
 }
 
 function normalizeTheme(t) {
@@ -109,10 +133,13 @@ function applyTheme(t) {
 }
 
 const PAGE_COMPONENTS = {
-  overview: Overview, live: LiveMonitoring, map: MapPage, detection: DetectionCenter,
+  overview: Overview, live: LiveMonitoring, map: MapPage,
   alerts: Triage, incidents: Incidents, evidence: EvidencePage,
-  faces: FaceRegistryPage, watchlist: Watchlist, vehicles: Vehicles, analytics: Analytics, reports: Reports,
+  vehicles: Vehicles, reports: Reports,
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
+}
+const VIEW_COMPONENTS = {
+  faces: FaceRegistryPage, watchlist: Watchlist, analytics: Analytics, detection: DetectionCenter,
 }
 
 function formatEvent(evt) {
@@ -196,12 +223,22 @@ function LoginForm({ onLogin, theme, setTheme, notice }) {
 
 function App() {
   const { push: toast } = useToast()
-  const [authed, setAuthed] = useState(!!getToken())
+  // null while the session cookie is checked at start-up (scripts cannot read it).
+  const [authed, setAuthed] = useState(null)
+  const [me, setMe] = useState(null)
+  useEffect(() => {
+    currentUser().then((u) => { if (u) setMe(u); setAuthed(!!u) })
+  }, [])
+  const doSignOut = () => { signOut(); setMe(null); setAuthed(false) }
   const [sessionNotice, setSessionNotice] = useState('')
-  const [page, setPageState] = useState(pageFromHash())
-  const setPage = (id) => {
-    setPageState(id)
-    window.history.pushState(null, '', `#/${id}`)
+  const [route, setRoute] = useState(routeFromHash)
+  const { page, view } = route
+  // `id` may be a view (watchlist, detection): it opens the page that holds it.
+  const setPage = (id, nextView = null) => {
+    const home = VIEW_HOME[id] || id
+    const v = nextView || (VIEW_HOME[id] ? id : null)
+    setRoute({ page: home, view: v })
+    window.history.pushState(null, '', `#/${home}${v ? `?view=${v}` : ''}`)
   }
   const [theme, setThemeState] = useState(() => {
     try {
@@ -217,6 +254,7 @@ function App() {
   const [clearedAt, setClearedAt] = useState(0)
   const [nowTick, setNowTick] = useState(() => Date.now())   // re-evaluates the 15-min window
   const [reviewPending, setReviewPending] = useState(0)
+  const [escalation, setEscalation] = useState({ after: 0, types: [] })   // backup paging limit, for queue timers
   const [knownPersons, setKnownPersons] = useState([])
   const [evidence, setEvidence] = useState([])
   const reloadKnownPersons = useCallback(
@@ -231,32 +269,51 @@ function App() {
   const [plates, setPlates] = useState([])
   const [vehicleDetections, setVehicleDetections] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
-  const [me, setMe] = useState(null)
   const [streamingCams, setStreamingCams] = useState([])
 
   const [showPalette, setShowPalette] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
-  const [showAddCamera, setShowAddCamera] = useState(false)
   const [mapFocus, setMapFocus] = useState(null)      // {cameraId, lat, lng, t}: which camera the map should show
   const [showNotifs, setShowNotifs] = useState(false)
   const [showCopilot, setShowCopilot] = useState(false)
   const [askQuery, setAskQuery] = useState('')        // question typed in the Home ask bar
   const [showAccount, setShowAccount] = useState(false)
-  const [liveFocus, setLiveFocus] = useState(null)    // {cameraId, t}: camera picked in the cameras panel
-  // Side panels: open where there is room, then whatever the operator last chose.
-  const [panels, setPanels] = useState(() => {
-    const roomy = { left: window.innerWidth >= 1360, right: window.innerWidth >= 1100, top: true }
-    try { return { ...roomy, ...JSON.parse(localStorage.getItem('aegis_panels') || '{}') } } catch { return roomy }
+  const [showSystem, setShowSystem] = useState(false)
+  const [liveFocus, setLiveFocus] = useState(null)    // {cameraId, t}: camera to open on the Live page
+  // Sidebar: folded to icons on narrow screens unless the operator chose otherwise; set-up group folded.
+  const [nav, setNav] = useState(() => {
+    const base = { collapsed: window.innerWidth < 1100, setup: false }
+    try { return { ...base, ...JSON.parse(localStorage.getItem('aegis_nav') || '{}') } } catch { return base }
   })
-  const togglePanel = (side) => {
-    const next = { ...panels, [side]: !panels[side] }
-    setPanels(next)
-    try { localStorage.setItem('aegis_panels', JSON.stringify(next)) } catch { /* ignore */ }
+  const toggleNav = (key) => {
+    const next = { ...nav, [key]: !nav[key] }
+    setNav(next)
+    try { localStorage.setItem('aegis_nav', JSON.stringify(next)) } catch { /* ignore */ }
   }
   // One card per (type, camera, person): two cameras alerting at once must both stay on screen.
   const [criticalAlerts, setCriticalAlerts] = useState([])
   const alertKey = (a) => `${a.type}|${a.cameraId ?? a.camera}|${a.personName ?? ''}`
   const dropCritical = (key) => setCriticalAlerts((list) => list.filter((a) => alertKey(a) !== key))
+
+  // A camera that keeps firing on something known (a guard, a poster) can be muted for a while:
+  // its alerts still reach the queue and the badge, they just stop popping up and ringing.
+  const MUTE_MS = 10 * 60 * 1000
+  const [muted, setMuted] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('aegis_muted_cams') || '{}') } catch { return {} }
+  })
+  const saveMuted = (next) => {
+    setMuted(next)
+    try { localStorage.setItem('aegis_muted_cams', JSON.stringify(next)) } catch { /* ignore */ }
+  }
+  const activeMuted = Object.fromEntries(Object.entries(muted).filter(([, m]) => m.until > nowTick))
+  const muteCamera = (alert, now) => {
+    const id = alert.cameraId ?? alert.camera
+    saveMuted({ ...activeMuted, [id]: { until: now + MUTE_MS, name: alert.cameraName || alert.camera || id } })
+    setCriticalAlerts((list) => list.filter((a) => (a.cameraId ?? a.camera) !== id))
+    toast(`Pop-ups from ${alert.cameraName || alert.camera || id} muted for 10 minutes. Alerts still go to the queue.`, 'ok')
+  }
+  const mutedRef = useRef(muted)
+  useEffect(() => { mutedRef.current = muted }, [muted])
 
   const setTheme = (t) => {
     setThemeState(applyTheme(t))
@@ -266,14 +323,14 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    const onHash = () => { setPageState(pageFromHash()) }
+    const onHash = () => { setRoute(routeFromHash()) }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
   useEffect(() => {
     const onAuthExpired = () => {
-      clearToken()
+      setMe(null)
       setSessionNotice('Your session expired. Please sign in again.')
       setAuthed(false)
     }
@@ -299,11 +356,44 @@ function App() {
     // A police officer is only paged for cameras assigned to them (unassigned alerts reach everyone).
     const assigned = data.assigned_officers || data.data?.assigned_officers || []
     if (me?.role === 'police' && assigned.length && !assigned.some((o) => o.id === me.id)) return
+    if ((mutedRef.current[data.camera_id ?? data.camera_location]?.until || 0) > Date.now()) return
     handleAutoAlert(data)
   }, [handleAutoAlert, me])
 
-  const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage, authed)
-  const { connected: statusWsConnected } = useWebSocket('status', () => {}, authed)
+  const { connected: wsConnected } = useWebSocket('alerts', handleWsMessage, authed && can(me?.role, 'data.view'))
+  // A heartbeat updates its camera at once (fps, threat score, red-alert flags), between full polls.
+  const streamingRef = useRef(streamingCams)
+  useEffect(() => { streamingRef.current = streamingCams }, [streamingCams])
+  const lastStreamCheck = useRef(0)
+  const handleStatusMessage = useCallback((data) => {
+    if (data.alert_type !== 'PIPELINE_HEARTBEAT' || !data.camera_id) return
+    const id = data.camera_id
+    setSystemStatus((s) => s && {
+      ...s,
+      online: true,
+      last_heartbeat: data.timestamp ?? s.last_heartbeat,
+      cameras: {
+        ...s.cameras,
+        [id]: {
+          ...s.cameras?.[id],
+          camera_location: data.camera_location,
+          fps: data.fps,
+          threat_score: data.threat_score,
+          flags: data.flags ?? s.cameras?.[id]?.flags ?? [],
+          infer_ms: data.infer_ms,
+          ai_age_s: data.ai_age_s,
+          last_seen: data.timestamp,
+          sla: 'ok',
+        },
+      },
+    })
+    // A camera that just came up: fetch the streaming list now rather than at the next poll.
+    if (!streamingRef.current.includes(id) && Date.now() - lastStreamCheck.current > 5000) {
+      lastStreamCheck.current = Date.now()
+      fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
+    }
+  }, [])
+  const { connected: statusWsConnected } = useWebSocket('status', handleStatusMessage, authed && can(me?.role, 'data.view'))
 
   const reloadVehicles = useCallback(() => {
     fetchVehiclePlates().then(setPlates).catch(() => {})
@@ -326,26 +416,41 @@ function App() {
   const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
-    if (!authed) return undefined
+    if (!authed) return
+    fetchMe().then(setMe).catch(() => setLoadFailed((f) => [...new Set([...f, 'profile'])]))
+  }, [authed, reloadTick])
+
+  // Only ask for what this role may read: a 403 here used to show "Some data could not be loaded".
+  const role = me?.role
+  const ops = can(role, 'data.view')
+  const sees = useCallback((...ids) => ids.some((id) => canViewPage(role, id)), [role])
+
+  useEffect(() => {
+    if (!authed || !role) return
+    if (!ops) return
     const failed = new Set()
     const load = (label, promise, apply) => promise.then(apply).catch(() => {
       failed.add(label)
       setLoadFailed([...failed])
     })
     load('alerts', fetchAlerts(50), (alerts) => setEvents(alerts.map((a) => formatEvent(a))))
-    load('profile', fetchMe(), setMe)
     load('cameras', fetchCameras(), setCameras)
     load('map cameras', fetchMapCameras(), setMapCameras)
-    load('map events', fetchMapEvents(24), setMapEvents)
-    load('persons', fetchKnownPersons(), setKnownPersons)
     load('evidence', fetchEvidence(60), setEvidence)
     load('summary', fetchAnalyticsSummary(24), setSummary)
     load('trends', fetchAnalyticsTrends(7), setTrends)
     load('locations', fetchAnalyticsLocations(24), setLocations)
-    load('report', fetchIncidentReport(24), setReport)
-    load('audit log', fetchAuditLogs(50), setAuditLogs)
-    reloadVehicles()
+    if (sees('map')) load('map events', fetchMapEvents(24), setMapEvents)
+    if (sees('faces', 'watchlist')) load('persons', fetchKnownPersons(), setKnownPersons)
+    if (sees('reports', 'analytics', 'incidents')) load('report', fetchIncidentReport(24), setReport)
+    if (can(role, 'audit.view')) load('audit log', fetchAuditLogs(50), setAuditLogs)
+    if (sees('vehicles')) reloadVehicles()
+  }, [authed, role, ops, sees, reloadVehicles, reloadTick])
 
+  /* Status: heartbeats arrive on the status socket (see onStatusMessage); this full poll only
+     picks up what heartbeats don't carry (offline cameras, model health, which cameras stream). */
+  useEffect(() => {
+    if (!authed || !ops) return undefined
     let misses = 0
     const poll = () => {
       fetchSystemStatus().then((s) => { misses = 0; setApiDown(false); setSystemStatus(s) }).catch(() => {
@@ -355,15 +460,15 @@ function App() {
       fetchStreamingCameras().then((r) => setStreamingCams(r.cameras || [])).catch(() => {})
     }
     poll()
-    const interval = setInterval(poll, 3000)
+    const interval = setInterval(poll, 10000)
     return () => clearInterval(interval)
-  }, [authed, reloadVehicles, reloadTick])
+  }, [authed, ops, reloadTick])
 
   /* Refresh page-specific data when navigating */
   useEffect(() => {
-    if (!authed) return
-    if (page === 'watchlist' || page === 'faces') fetchKnownPersons().then(setKnownPersons).catch(() => {})
-    if (page === 'evidence' || page === 'watchlist' || page === 'faces') fetchEvidence(60).then(setEvidence).catch(() => {})
+    if (!authed || !ops || !canViewPage(role, page)) return
+    if (page === 'faces') fetchKnownPersons().then(setKnownPersons).catch(() => {})
+    if (page === 'evidence' || page === 'faces') fetchEvidence(60).then(setEvidence).catch(() => {})
     if (page === 'map') {
       fetchMapCameras().then(setMapCameras).catch(() => {})
       fetchMapEvents(24).then(setMapEvents).catch(() => {})
@@ -375,9 +480,9 @@ function App() {
     }
     if (page === 'cameras') fetchCameras().then(setCameras).catch(() => {})
     if (page === 'vehicles') reloadVehicles()
-    if (page === 'users') fetchAuditLogs(50).then(setAuditLogs).catch(() => {})
+    if (page === 'users' && can(role, 'audit.view')) fetchAuditLogs(50).then(setAuditLogs).catch(() => {})
     if (page === 'reports') fetchIncidentReport(24).then(setReport).catch(() => {})
-  }, [authed, page, reloadVehicles])
+  }, [authed, ops, role, page, reloadVehicles])
 
   /* Keyboard shortcuts */
   useEffect(() => {
@@ -394,7 +499,7 @@ function App() {
       } else if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) {
         setShowCopilot((v) => !v)
       } else if (e.key === 'Escape') {
-        setShowPalette(false); setShowNotifs(false); setShowCopilot(false); setShowAccount(false)
+        setShowPalette(false); setShowNotifs(false); setShowCopilot(false); setShowAccount(false); setShowSystem(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -407,15 +512,18 @@ function App() {
   }, [])
 
   const refreshReviewCount = useCallback(() => {
-    fetchReviewCount().then((r) => setReviewPending(r.pending || 0)).catch(() => {})
+    fetchReviewCount().then((r) => {
+      setReviewPending(r.pending || 0)
+      setEscalation({ after: r.escalate_after_seconds ?? 0, types: r.escalated_types || [] })
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (!authed) return undefined
+    if (!authed || !ops) return undefined
     refreshReviewCount()
     const t = setInterval(refreshReviewCount, 15000)
     return () => clearInterval(t)
-  }, [authed, refreshReviewCount])
+  }, [authed, ops, refreshReviewCount])
 
   const reloadCameras = useCallback(() => {
     fetchCameras().then(setCameras).catch(() => {})
@@ -436,20 +544,10 @@ function App() {
     const timer = setInterval(load, 5000)
     return () => clearInterval(timer)
   }, [authed, me?.role, cameras])
-  const connectDevice = async (d) => {
-    try {
-      await addCamera(cameraForDevice(d, cameras))
-      toast(`"${d.name}" is connected`, 'ok')
-      reloadCameras()
-    } catch (e) {
-      toast(`Could not connect the camera: ${e.message}`, 'danger')
-    }
-  }
-
   const camList = useMemo(() => buildCamList(cameras, systemStatus, streamingCams, power, devices.unplugged),
     [cameras, systemStatus, streamingCams, power, devices.unplugged])
-  // A camera picked in the cameras panel or the video strip opens on the Live page.
-  const openCamera = canViewPage(me?.role, 'live') ? (c) => { setLiveFocus({ cameraId: c.camera_id, t: Date.now() }); setPage('live') } : null
+  // A camera picked anywhere (Home tiles, map) opens on the Live page.
+  const openCamera = (cameraId) => { setLiveFocus({ cameraId, t: Date.now() }); setPage('live') }
 
   /* Page grids follow the centre panel's width (see .center[data-w] in index.css). */
   const centerRef = useRef(null)
@@ -478,6 +576,7 @@ function App() {
     return 'low'
   }, [events, systemStatus, clearedAt, nowTick])
 
+  if (authed === null) return <div className="login-screen" aria-busy="true" />
   if (!authed) {
     return (
       <LoginForm
@@ -499,13 +598,14 @@ function App() {
   }
 
   const criticalEvents = events.filter((e) => e.severity === 'critical' && !e.acknowledged && !e.dismissed)
-  const pipelineOnline = systemStatus?.online
   const activePage = ALL_PAGES.find((p) => p.id === page)
-  const PageComponent = PAGE_COMPONENTS[page] || Overview
-  const alertCount = reviewPending || criticalEvents.length
+  const PageComponent = PAGE_COMPONENTS[page]
+  // One number for "alerts that need someone": every badge and summary uses it.
+  const alertCount = reviewPending
   const allowed = !me || canViewPage(me.role, page)
-  // While the profile loads (role unknown) show no tabs instead of flashing the admin set.
+  // While the profile loads (role unknown) show no pages instead of flashing the admin set.
   const tabPages = TAB_PAGES.filter((p) => canViewPage(me?.role, p.id))
+  const navGroups = NAV.map((g) => ({ ...g, pages: g.pages.filter((p) => canViewPage(me?.role, p.id)) })).filter((g) => g.pages.length)
 
   const ctx = {
     events, setEvents, systemStatus, threatLevel, wsConnected,
@@ -513,7 +613,7 @@ function App() {
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
     me, streamingCams, reloadCameras, setPage, mapFocus, liveFocus, unplugged: devices.unplugged, power, setPower,
-    reviewPending, refreshReviewCount, captureEvent,
+    reviewPending, refreshReviewCount, captureEvent, openCamera, camList, escalation,
     theme, setTheme,
   }
 
@@ -527,24 +627,37 @@ function App() {
                 setMapFocus({ cameraId: a.cameraId, lat: a.lat, lng: a.lng, t: Date.now() })
                 setPage('map'); dropCritical(alertKey(a))
               }} onOpenAlerts={() => { setPage('alerts'); dropCritical(alertKey(a)) }}
-              onAcknowledge={() => ackCritical(a)} />
+              onAcknowledge={() => ackCritical(a)} onMuteCamera={() => muteCamera(a, Date.now())} />
           ))}
         </div>
       )}
+      <Sidebar
+        groups={navGroups} page={page} setPage={setPage}
+        badges={{ alerts: alertCount }} alerting={criticalEvents.length > 0}
+        collapsed={nav.collapsed} onToggleCollapsed={() => toggleNav('collapsed')}
+        setupOpen={nav.setup} onToggleSetup={() => toggleNav('setup')}
+      />
+
+      <div className="main-col">
       <header className="appbar">
-        <div className="brand">
-          <span className="brand-logo" aria-hidden="true">
-            <img src="/logo.svg" alt="" width="34" height="34" />
-          </span>
-          <div>Aegis<small>Surveillance operations</small></div>
+        <span className="brand-logo appbar-logo" aria-hidden="true"><img src="/logo.svg" alt="" width="30" height="30" /></span>
+        <div className="appbar-title">
+          <h1>{activePage?.label}</h1>
+          <p>{activePage?.desc}</p>
         </div>
         <div className="appbar-right">
           <div className="status-rail" aria-label="System status">
             <Pill tone={THREAT[threatLevel].tone}>{THREAT[threatLevel].label}</Pill>
-            <Pill tone={pipelineOnline ? 'ok' : 'warn'}>{pipelineOnline ? 'Detection on' : 'Detection off'}</Pill>
-            <Pill tone={wsConnected && statusWsConnected ? 'ok' : 'danger'}>
-              {wsConnected && statusWsConnected ? 'Live' : 'Reconnecting…'}
-            </Pill>
+            {ops && (
+              <SystemStatus connected={wsConnected && statusWsConnected} status={systemStatus} camList={camList}
+                open={showSystem} setOpen={setShowSystem} />
+            )}
+            {Object.keys(activeMuted).length > 0 && (
+              <button type="button" className="pill pill-warn pill-btn" onClick={() => saveMuted({})}
+                title={`Muted: ${Object.values(activeMuted).map((m) => `${m.name} (${Math.ceil((m.until - nowTick) / 60000)} min)`).join(', ')}. Click to unmute.`}>
+                <span className="dot" />{Object.keys(activeMuted).length} camera{Object.keys(activeMuted).length === 1 ? '' : 's'} muted · Unmute
+              </button>
+            )}
           </div>
           <Clock />
           <button
@@ -558,10 +671,10 @@ function App() {
             <kbd>⌘K</kbd>
           </button>
           <div className="row" style={{ gap: 2 }}>
-            <button type="button" className="icon-btn" title="Ask the assistant" aria-label="Ask the assistant" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
+            <button type="button" className="icon-btn" title="Quick answers (C)" aria-label="Quick answers" onClick={() => setShowCopilot(true)}><Icons.bot /></button>
             <button type="button" className="icon-btn has-badge" title="Notifications" aria-label="Notifications" onClick={() => setShowNotifs(true)}>
               <Icons.bell />
-              {criticalEvents.length > 0 && <span className="nav-badge">{criticalEvents.length}</span>}
+              {alertCount > 0 && <span className="nav-badge">{alertCount}</span>}
             </button>
             <button
               type="button"
@@ -582,59 +695,12 @@ function App() {
                 return { label: p.label, icon: p.icon, run: () => setPage(id) }
               }),
             ]}
-            onSignOut={() => { clearToken(); setAuthed(false) }}
+            onSignOut={doSignOut}
           />
         </div>
       </header>
 
-      <div className="workspace">
-        <CameraPanel
-          camList={camList} open={panels.left} onToggle={() => togglePanel('left')}
-          canManage={can(me?.role, 'camera.manage')} canZones={canViewPage(me?.role, 'zones')} hasMap={canViewPage(me?.role, 'map')}
-          onOpenCamera={openCamera}
-          newDevices={devices.devices.filter((d) => !d.camera_id)}
-          onConnect={can(me?.role, 'camera.manage') ? connectDevice : null}
-          onAdd={() => setShowAddCamera(true)}
-          onLocate={(c) => {
-            const at = mapCameras.find((m) => m.camera_id === c.camera_id)
-            setMapFocus({ cameraId: c.camera_id, lat: at?.lat, lng: at?.lng, t: Date.now() })
-            setPage('map')
-          }}
-          setPage={setPage}
-        />
-
-        <div className="center-stack">
-        <CameraDeck camList={camList} open={panels.top} onToggle={() => togglePanel('top')} onOpenCamera={openCamera} />
-        <main className={`panel center ${page === 'overview' ? 'has-ask' : ''}`} ref={centerRef}>
-          <nav className="center-head" aria-label="Views">
-            {tabPages.map((p) => {
-              const Icon = p.icon
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`view-tab ${page === p.id ? 'active' : ''}`}
-                  aria-current={page === p.id ? 'page' : undefined}
-                  data-alert-nav={p.id === 'alerts' && criticalEvents.length > 0 ? 'true' : undefined}
-                  onClick={() => setPage(p.id)}
-                >
-                  <Icon />
-                  {p.label}
-                  {p.id === 'alerts' && alertCount > 0 && (
-                    <span className="nav-badge" aria-label={`${alertCount} need attention`}>{alertCount}</span>
-                  )}
-                </button>
-              )
-            })}
-            {/* A page opened from a side panel shows as one more tab, so you can see where you are. */}
-            {activePage && !tabPages.includes(activePage) && (
-              <>
-                <span className="view-sep" aria-hidden="true" />
-                <span className="view-tab active" aria-current="page"><activePage.icon />{activePage.label}</span>
-              </>
-            )}
-          </nav>
-
+      <main className={`center ${page === 'overview' ? 'has-ask' : ''}`} ref={centerRef}>
           <div className="page" key={page}>
             {(apiDown || loadFailed.length > 0) && (
               <div className="conn-banner" role="status">
@@ -649,11 +715,11 @@ function App() {
             <div className="page-view">
               {allowed ? (
                 <>
-                  <div className="page-title">
-                    <h1>{activePage?.label}</h1>
-                    <p>{activePage?.desc}</p>
-                  </div>
-                  <PageComponent ctx={ctx} />
+                  <Suspense fallback={<Empty icon={activePage?.icon || Icons.overview}>Loading…</Empty>}>
+                    {PAGE_VIEWS[page]
+                      ? <ViewSwitch pageId={page} view={view} onView={(v) => setPage(page, v)} role={me?.role} ctx={ctx} />
+                      : <PageComponent ctx={ctx} />}
+                  </Suspense>
                 </>
               ) : (
                 <Card title="You don't have access to this page" sub={`The ${me.role} role cannot open it`}>
@@ -690,39 +756,24 @@ function App() {
               More
             </button>
           </nav>
-        </main>
-        </div>
-
-        <ResponsePanel
-          tools={TOOLS.filter((t) => canViewPage(me?.role, t.id))} page={page} setPage={setPage}
-          feed={events.filter((e) => !e.acknowledged && !e.dismissed)} alertCount={alertCount}
-          open={panels.right} onToggle={() => togglePanel('right')}
-        />
+      </main>
       </div>
 
       {showPalette && (
         <CommandPalette
-          pages={ALL_PAGES.filter((p) => canViewPage(me?.role, p.id))}
+          pages={[...ALL_PAGES, ...PALETTE_VIEWS].filter((p) => canViewPage(me?.role, p.id))}
           actions={[
             { id: 'act-theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`, icon: theme === 'dark' ? Icons.sun : Icons.moon, hint: 'Action', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
-            { id: 'act-copilot', label: 'Ask the assistant', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
+            { id: 'act-copilot', label: 'Quick answers', icon: Icons.bot, hint: 'Action', run: () => setShowCopilot(true) },
             { id: 'act-notifs', label: 'Open notifications', icon: Icons.bell, hint: 'Action', run: () => setShowNotifs(true) },
             { id: 'act-profile', label: 'Change my password', icon: Icons.users, hint: 'Action', run: () => setShowProfile(true) },
-            { id: 'act-logout', label: 'Sign out', icon: Icons.logout, hint: 'Action', run: () => { clearToken(); setAuthed(false) } },
+            { id: 'act-logout', label: 'Sign out', icon: Icons.logout, hint: 'Action', run: doSignOut },
           ]}
           onNavigate={setPage}
           onClose={() => setShowPalette(false)}
         />
       )}
       {showProfile && <ProfileModal me={me} onClose={() => setShowProfile(false)} />}
-      {showAddCamera && (
-        <AddCameraModal
-          cameras={cameras}
-          onConnect={connectDevice}
-          onNetwork={() => { setShowAddCamera(false); setPage('cameras') }}
-          onClose={() => setShowAddCamera(false)}
-        />
-      )}
       {showNotifs && (
         <NotificationDrawer events={events} onClose={() => setShowNotifs(false)} onClear={() => { setEvents([]); setClearedAt(Date.now()) }} />
       )}

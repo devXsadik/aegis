@@ -180,7 +180,7 @@ flowchart TB
 | Pipeline | Modular stages in `core/pipeline/stages/`, composition root in `core/app/factory.py` |
 | API | FastAPI, SQLAlchemy, Alembic, JWT, AES-256-GCM evidence, optional Redis |
 | Dashboard | React 19, Vite 8, Leaflet |
-| Ops | `./run.sh`, Make, Docker Compose, GitHub Actions (ruff + pytest coverage gate) |
+| Ops | `./run.sh`, Make, Docker Compose, GitHub Actions (ruff, pytest coverage gate, Vitest, Playwright smoke) |
 
 ```
 aegis/
@@ -197,7 +197,7 @@ aegis/
 ├── data/demo/clips/        # demo video (sample.mp4)
 ├── scripts/                # setup, ingest, seed, evaluate, docker-up
 ├── docs/                   # architecture, defense, development
-└── tests/                  # pytest (202 collected)
+└── tests/                  # pytest (277 collected); frontend: src/**/*.test.js (Vitest), frontend/e2e (Playwright)
 ```
 
 ---
@@ -287,7 +287,8 @@ python scripts/ingest_watchlist.py
 | `shape_predictor_68_face_landmarks.dat` / `libtorch_cpu` errors | Use `./run.sh` — it always uses `.venv`, not a random system Python |
 | Forgot admin password | `python scripts/seed_demo.py --reset-password` |
 | Old recordings gone | `DVR_RETENTION_HOURS` (default 48); set `0` to keep |
-| Weapon / vehicle “OFF” | Add `models/weapon_yolo.pt` / `models/yolov8l.pt` |
+| Weapon “OFF” | Add `models/weapon_yolo.pt` |
+| Vehicle “OFF” | `vehicle_detection: fast` (default, uses the person model) or `accurate` + `models/yolov8l.pt` |
 | Alerts not reaching the API | `INTERNAL_API_KEY` must match in `.env` for pipeline and backend |
 
 ---
@@ -341,7 +342,7 @@ Copy `.env.example` → `.env`. Important variables:
 | `config/cameras.yaml` | Multi-cam RTSP / indexes (`${RTSP_GATE_1}` from `.env`) |
 | `config/models.yaml` | Model paths, face tolerance, OCR languages |
 
-**Model weights** under `models/` (examples): `yolov8s.pt` (people), `yolov8n-pose.pt`, `weapon_yolo.pt`, `yolov8l.pt` (vehicles), `face_detection_yunet_2023mar.onnx` (fetched by `ensure_local_env.py`).
+**Model weights** under `models/` (examples): `yolov8s.pt` (people), `yolov8n-pose.pt`, `weapon_yolo.pt`, `yolov8l.pt` (vehicles, only for `vehicle_detection: accurate`), `face_detection_yunet_2023mar.onnx` (fetched by `ensure_local_env.py`).
 
 ---
 

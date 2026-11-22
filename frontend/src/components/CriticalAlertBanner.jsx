@@ -7,7 +7,7 @@ const REPEAT_MS = 8000
 const headline = (m) => (m || '').split(' — GPS')[0].split(' | ')[0]
 
 /** Floating critical-alert card. It stays (and the tone repeats) until someone acknowledges it. */
-export function CriticalAlertBanner({ alert, onDismiss, onAcknowledge, onViewMap, onOpenAlerts, repeatSound = true }) {
+export function CriticalAlertBanner({ alert, onDismiss, onAcknowledge, onViewMap, onOpenAlerts, onMuteCamera, repeatSound = true }) {
   const [muted, setMuted] = useState(isAlertSoundMuted)
 
   useEffect(() => {
@@ -44,6 +44,7 @@ export function CriticalAlertBanner({ alert, onDismiss, onAcknowledge, onViewMap
         {onAcknowledge && alert.alertId != null && <button className="btn btn-sm btn-primary" onClick={onAcknowledge}>Acknowledge</button>}
         {onOpenAlerts && <button className="btn btn-sm" onClick={onOpenAlerts}>Review</button>}
         {hasGps && onViewMap && <button className="btn btn-sm" onClick={onViewMap}>View on map</button>}
+        {onMuteCamera && <button className="btn btn-sm btn-ghost" onClick={onMuteCamera} title="Stop pop-ups from this camera for 10 minutes">Mute camera 10 min</button>}
       </div>
     </div>
   )

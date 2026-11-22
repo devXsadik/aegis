@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth.auth import admin_only, operator_or_admin, supervisor_or_admin
-from backend.auth.guards import viewer_user
+from backend.auth.guards import viewer_dep
 from backend.db.database import get_db
 from backend.models.audit_log import AuditLog
 from backend.models.evidence import Evidence
@@ -230,9 +230,8 @@ async def add_images(person_id: str, request: Request, files: List[UploadFile] =
 
 
 @router.get("/images/{image_id}")
-def get_image(image_id: int, token: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
-    """Stored enrollment photo (JWT via query param so <img> tags work)."""
-    viewer_user(token, db)
+def get_image(image_id: int, db: Session = Depends(get_db), viewer: User = Depends(viewer_dep)):
+    """Stored enrollment photo (session cookie, so <img> tags work)."""
     img = db.query(PersonImage).filter(PersonImage.id == image_id).first()
     if not img:
         raise HTTPException(404, "Image not found")

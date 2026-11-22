@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Card, Stat, Icons, Tag, SEVERITY_TONE, timeAgo, Empty, Pill } from '../components/ui'
+import { canViewPage } from '../lib/permissions'
 import { AreaChart, BarList, Donut } from '../components/charts'
 import { MapPin } from '../components/MapPin'
 import { eventLabel } from '../lib/events'
@@ -12,17 +14,58 @@ const MODEL_LABELS = {
   fire_detector: 'Fire & smoke detection',
 }
 
-function attentionItems(ctx, offlineCameras) {
+/* First run: the few steps that make the system useful, ticked off as they happen.
+   Shown to roles that can do them, until done or hidden. */
+function SetupChecklist({ ctx, detecting }) {
+  const [hidden, setHidden] = useState(() => {
+    try { return localStorage.getItem('aegis_setup_hidden') === '1' } catch { return false }
+  })
+  const role = ctx.me?.role
+  const steps = [
+    { done: ctx.cameras.length > 0, title: 'Add a camera', text: 'A webcam on this computer, or a network camera by its address.', page: 'cameras', action: 'Add camera' },
+    { done: detecting, title: 'Turn on detection', text: 'Run ./run.sh (or python main.py --multi) on the computer the cameras are connected to.' },
+    { done: (ctx.knownPersons || []).length > 0, title: 'Enrol a person', text: 'Add clear, front-facing photos. Watchlist people raise an alert when a camera sees them.', page: 'faces', action: 'Enrol' },
+    { optional: true, title: 'Draw zones', text: 'Restricted areas and counting lines for each camera.', page: 'zones', action: 'Open zones' },
+  ].filter((s) => !s.page || canViewPage(role, s.page))
+  const required = steps.filter((s) => !s.optional)
+  if (hidden || !canViewPage(role, 'cameras') || required.every((s) => s.done)) return null
+  const hide = () => {
+    setHidden(true)
+    try { localStorage.setItem('aegis_setup_hidden', '1') } catch { /* ignore */ }
+  }
+  return (
+    <Card className="mb" title="Get started" sub={`${required.filter((s) => s.done).length} of ${required.length} done`}
+      actions={<button type="button" className="btn btn-ghost btn-sm" onClick={hide}>Hide</button>}>
+      <ol className="setup-steps">
+        {steps.map((s) => (
+          <li key={s.title} className={s.done ? 'done' : ''}>
+            <span className="setup-mark" aria-hidden="true">{s.done ? <Icons.check /> : null}</span>
+            <span className="setup-text">
+              <b>{s.title}{s.optional && <small> · optional</small>}</b>
+              <span>{s.done ? 'Done' : s.text}</span>
+            </span>
+            {!s.done && s.page && <button type="button" className="btn btn-sm" onClick={() => ctx.setPage(s.page)}>{s.action}</button>}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  )
+}
+
+function attentionItems(ctx, camList) {
   const items = []
   const sys = ctx.systemStatus
   if (ctx.reviewPending > 0) {
     items.push({ tone: 'warn', text: `${ctx.reviewPending} alert${ctx.reviewPending === 1 ? '' : 's'} waiting for review`, action: 'Review', page: 'alerts' })
   }
-  if (sys && !sys.online) {
-    items.push({ tone: 'danger', text: 'AI pipeline is not reporting — no live detection', action: 'Cameras', page: 'cameras' })
+  // `online` stays true after the first heartbeat; cameras that stopped reporting drop out of `cameras`.
+  if (sys && !Object.keys(sys.cameras || {}).length) {
+    items.push({ tone: 'danger', text: 'Detection is off: no camera is being analysed', action: 'Live cameras', page: 'live' })
   }
-  if (offlineCameras > 0) {
-    items.push({ tone: 'warn', text: `${offlineCameras} camera${offlineCameras === 1 ? '' : 's'} offline`, action: 'Cameras', page: 'cameras' })
+  // Cameras switched on that send no video (paused ones are paused on purpose: not a problem).
+  const down = camList.filter((c) => c.status === 'online' || c.status === 'offline').length
+  if (down > 0) {
+    items.push({ tone: 'warn', text: `${down} camera${down === 1 ? '' : 's'} not sending video`, action: 'Live cameras', page: 'live' })
   }
   Object.entries(sys?.models || {}).forEach(([key, status]) => {
     if (status === 'missing') {
@@ -36,8 +79,10 @@ export function Overview({ ctx }) {
   const { events, systemStatus, summary, trends, locations, threatLevel, cameras } = ctx
 
   const liveCams = Object.values(systemStatus?.cameras || {})
-  const activeCameras = cameras.filter((c) => c.active).length
-  const offlineCameras = cameras.length - activeCameras
+  const detecting = liveCams.length > 0
+  const camList = ctx.camList || []
+  const liveCount = camList.filter((c) => c.status === 'live').length
+  const paused = cameras.filter((c) => !c.active).length + camList.filter((c) => c.status === 'off').length
   const criticalEvents = events.filter((e) => e.severity === 'critical')
   const openCritical = criticalEvents.filter((e) => !e.acknowledged && !e.dismissed)
   const trendData = trends.map((t) => t.events)
@@ -47,14 +92,16 @@ export function Overview({ ctx }) {
   })
   const mapAlert = criticalEvents.find((e) => e.lat != null)
 
-  const attention = attentionItems(ctx, offlineCameras)
+  const attention = attentionItems(ctx, camList)
   const threatAccent = { critical: 'danger', high: 'warn', low: 'ok' }[threatLevel] || 'ok'
 
   return (
     <>
+      <SetupChecklist ctx={ctx} detecting={detecting} />
+
       <section className={`attention ${attention.length ? '' : 'clear'}`} aria-label="Needs attention">
         <h3>{attention.length ? 'Needs attention' : 'All clear'}</h3>
-        {attention.length === 0 && <p className="muted">No pending reviews, offline cameras or missing models.</p>}
+        {attention.length === 0 && <p className="muted">No alerts waiting, every camera sending video, all detection models ready.</p>}
         {attention.map((a) => (
           <div className={`attn-row tone-${a.tone}`} key={a.text}>
             <span>{a.text}</span>
@@ -66,12 +113,11 @@ export function Overview({ ctx }) {
       <div className="section-label"><span>Right now</span></div>
       <div className="grid grid-4" style={{ marginBottom: 24 }}>
         <Stat
-          label={systemStatus?.online ? 'Cameras streaming' : 'Cameras set up'}
-          value={`${systemStatus?.online ? (liveCams.length || activeCameras) : cameras.length}`}
-          delta={systemStatus?.online ? `${offlineCameras} offline` : 'None streaming while detection is off'}
-          accent="primary" icon={Icons.camera}
+          label="Cameras live" value={`${liveCount} of ${cameras.length}`}
+          delta={paused ? `${paused} paused` : 'All switched on'}
+          accent={liveCount ? 'ok' : 'warn'} icon={Icons.camera}
         />
-        <Stat label="Detection" value={systemStatus?.online ? 'On' : 'Off'} delta={systemStatus?.online ? `${liveCams.length} camera${liveCams.length === 1 ? '' : 's'} reporting` : 'Start the pipeline to turn it on'} accent={systemStatus?.online ? 'ok' : 'warn'} icon={Icons.ai} />
+        <Stat label="Detection" value={detecting ? 'On' : 'Off'} delta={detecting ? `${liveCams.length} camera${liveCams.length === 1 ? '' : 's'} reporting` : 'Start a camera on Live cameras'} accent={detecting ? 'ok' : 'warn'} icon={Icons.ai} />
         <Stat label="Open critical alerts" value={openCritical.length} delta={`Not yet acknowledged · of the latest ${events.length} alerts`} accent={openCritical.length ? 'danger' : 'ok'} icon={Icons.alert} />
         <Stat label="Threat level" value={threatLevel[0].toUpperCase() + threatLevel.slice(1)} delta="From unreviewed alerts in the last 15 min" accent={threatAccent} icon={Icons.shield} />
       </div>

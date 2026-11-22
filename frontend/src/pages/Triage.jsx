@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, Icons, Tag, Empty, Seg, timeAgo, SEVERITY_TONE } from '../components/ui'
 import {
   fetchAlertsFiltered, fetchAlertContext, acknowledgeAlert, dispatchPolice,
-  createIncidentFromAlert, evidenceImageUrl,
+  createIncidentFromAlert, evidenceImageUrl, openVmsPlayback,
 } from '../services/api'
 import { useToast } from '../components/Toast'
 import { can } from '../lib/permissions'
 import { useConfirm } from '../components/ui'
 import {
-  eventLabel, eventIconKey, fromAlertRow, EXPLAIN, REJECT_REASONS, REVIEW_LABEL,
+  eventLabel, eventIconKey, fromAlertRow, groupRepeats, waitLabel, waitUrgency, EXPLAIN, REJECT_REASONS, REVIEW_LABEL,
 } from '../lib/events'
 import { parseTs } from '../lib/time'
 
@@ -20,12 +20,60 @@ const QUEUES = {
   done: { params: {}, keep: (a) => a.acknowledged || a.dismissed },
 }
 
-function sortItems(list) {
+// Waiting queues: most severe first, then whoever has waited longest. Resolved: newest first.
+function sortItems(list, longestWaitingFirst = true) {
+  const at = (i) => parseTs(longestWaitingFirst ? (i.since ?? i.time) : i.time)?.getTime() || 0
   return [...list].sort((a, b) => {
     const s = (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)
     if (s) return s
-    return (parseTs(b.time)?.getTime() || 0) - (parseTs(a.time)?.getTime() || 0)
+    return longestWaitingFirst ? at(a) - at(b) : at(b) - at(a)
   })
+}
+
+const PRE_ROLL_MS = 10_000      // the clip starts this long before the alert
+
+/** Recorded video around the alert: the segment covering 10 s before it, cued to that moment. */
+function AlertVideo({ item, playRef }) {
+  const [state, setState] = useState({ status: 'idle' })     // idle | loading | ready | error
+  const urlRef = useRef(null)
+  useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current) }, [])
+  const atMs = parseTs(item.since ?? item.time)?.getTime()
+
+  const play = useCallback(async () => {
+    if (!item.cameraId || !atMs) return
+    setState({ status: 'loading' })
+    try {
+      const { blobUrl, seekOffset } = await openVmsPlayback(item.cameraId, new Date(atMs - PRE_ROLL_MS).toISOString())
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+      urlRef.current = blobUrl
+      setState({ status: 'ready', url: blobUrl, seek: seekOffset })
+    } catch {
+      setState({ status: 'error' })
+    }
+  }, [item.cameraId, atMs])
+  useEffect(() => { if (playRef) playRef.current = play }, [play, playRef])
+
+  if (!item.cameraId) return null
+  if (state.status === 'ready') {
+    return (
+      <video className="tq-video" src={state.url} controls autoPlay muted
+        onLoadedMetadata={(e) => { e.currentTarget.currentTime = state.seek }}
+        aria-label={`Recording from ${item.camera || 'the camera'} around the alert`} />
+    )
+  }
+  return (
+    <div className="tq-video-cta">
+      <button type="button" className="btn btn-sm" disabled={state.status === 'loading'} onClick={play}>
+        <Icons.live /> {state.status === 'loading' ? 'Loading video…' : 'Watch video from 10 s before'} <kbd>P</kbd>
+      </button>
+      {state.status === 'error' && (
+        <span className="meta">
+          No recording covers this moment. Video is saved in one-minute pieces while a camera streams,
+          so a very recent alert can take a minute to appear.
+        </span>
+      )}
+    </div>
+  )
 }
 
 function TypeIcon({ type }) {
@@ -44,7 +92,7 @@ function Fact({ label, value }) {
   return (<><dt>{label}</dt><dd>{value}</dd></>)
 }
 
-function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident }) {
+function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident, now, escalation, playRef }) {
   const [evIdx, setEvIdx] = useState(0)
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
@@ -55,6 +103,11 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
   const resolved = item.acknowledged || item.dismissed
   const notifies = data?.holds_external_notification
   const when = parseTs(item.time)
+  const n = item.repeats?.length || 1
+  const urgency = waitUrgency(item, now, escalation)
+  const waited = (now - (parseTs(item.since ?? item.time)?.getTime() || now)) / 1000
+  const escalates = escalation?.after > 0 && escalation.types?.includes(item.type)
+  const all = n > 1 ? ` all ${n}` : ''
 
   return (
     <div className="tq-detail">
@@ -96,6 +149,24 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
         )}
       </div>
 
+      {urgency && (
+        <p className={`tq-waiting u-${urgency}`} role="status">
+          Waiting {waitLabel(waited)}
+          {item.escalatedAt
+            ? ` · backup officers were paged at ${parseTs(item.escalatedAt)?.toLocaleTimeString()}`
+            : escalates && ` · backup officers are paged after ${waitLabel(escalation.after)} without acknowledgement`}
+        </p>
+      )}
+
+      {n > 1 && (
+        <p className="tq-repeat" role="note">
+          Raised {n} times since {parseTs(item.since)?.toLocaleTimeString() || timeAgo(item.since)}.
+          Your decision applies to all {n}.
+        </p>
+      )}
+
+      <AlertVideo item={item} playRef={playRef} />
+
       <p className="tq-why">{EXPLAIN[String(item.type).toUpperCase()] || item.msg}</p>
 
       <dl className="kv tq-facts">
@@ -135,7 +206,7 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
           </p>
           <div className="a-actions">
             <button type="button" className="btn btn-primary" disabled={busy} onClick={onConfirm} autoFocus>
-              <Icons.check /> {notifies ? 'Confirm & notify' : 'Confirm'}
+              <Icons.check /> {notifies ? 'Confirm & notify' : 'Confirm'}{all}
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => setMode(null)}>Cancel</button>
           </div>
@@ -157,7 +228,7 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
             <button
               type="button" className="btn btn-primary" disabled={busy || !reason}
               onClick={() => onReject(reason, note)}
-            >Reject alert</button>
+            >Reject{all || ' alert'}</button>
             <button type="button" className="btn btn-ghost" onClick={() => setMode(null)}>Cancel</button>
           </div>
         </div>
@@ -170,7 +241,7 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
             <Icons.close /> Reject <kbd>D</kbd>
           </button>
           <button type="button" className="btn" disabled={busy} onClick={onDispatch}><Icons.dispatch /> Dispatch police</button>
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onIncident}>Create incident</button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onIncident}>Create incident <kbd>I</kbd></button>
         </div>
       )}
     </div>
@@ -189,13 +260,19 @@ export function Triage({ ctx }) {
   const [detail, setDetail] = useState(null)
   const [mode, setMode] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [now, setNow] = useState(() => Date.now())     // drives the waiting timers
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const playRef = useRef(null)
 
   const selected = items.find((i) => i.id === selectedId) || items[0] || null
 
   const load = useCallback(async () => {
     const q = QUEUES[queue]
     const rows = await fetchAlertsFiltered({ ...q.params, limit: 100 })
-    return sortItems(rows.map(fromAlertRow).filter(q.keep))
+    return sortItems(groupRepeats(rows.map(fromAlertRow).filter(q.keep)), queue !== 'done')
   }, [queue])
 
   /* Reload on queue change, on new live events, and every 20 s as a safety net. */
@@ -225,22 +302,25 @@ export function Triage({ ctx }) {
     setMode(null)
   }, [items, selected])
 
-  const finish = useCallback((id, patch) => {
-    const idx = items.findIndex((i) => i.id === id)
+  const finish = useCallback((item, patch) => {
+    const idx = items.findIndex((i) => i.id === item.id)
     const next = items[idx + 1] || items[idx - 1]
-    setItems((prev) => prev.filter((i) => i.id !== id))
+    const done = new Set(item.repeats || [item.id])
+    setItems((prev) => prev.filter((i) => i.id !== item.id))
     setSelectedId(next ? next.id : null)
     setMode(null)
-    setEvents?.((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
+    setEvents?.((prev) => prev.map((e) => (done.has(e.id) ? { ...e, ...patch } : e)))
     refreshReviewCount?.()
   }, [items, setEvents, refreshReviewCount])
 
-  const run = async (fn, okMsg, id, patch) => {
+  // Applies `fn` to every alert in the selected entry (repeats included).
+  const run = async (fn, okMsg, item, patch) => {
     setBusy(true)
     try {
-      await fn()
-      toast(okMsg, 'ok')
-      finish(id, patch)
+      await Promise.all((item.repeats || [item.id]).map(fn))
+      const n = item.repeats?.length || 1
+      toast(n > 1 ? `${okMsg} (${n} alerts)` : okMsg, 'ok')
+      finish(item, patch)
     } catch (err) {
       toast(err.message || 'Action failed', 'danger')
     } finally {
@@ -249,21 +329,23 @@ export function Triage({ ctx }) {
   }
 
   const confirm = () => selected && run(
-    () => acknowledgeAlert(selected.id, { acknowledged: true, dismissed: false }),
-    'Alert confirmed', selected.id, { acknowledged: true },
+    (id) => acknowledgeAlert(id, { acknowledged: true, dismissed: false }),
+    'Alert confirmed', selected, { acknowledged: true },
   )
   const reject = (reason, note) => selected && run(
-    () => acknowledgeAlert(selected.id, {
+    (id) => acknowledgeAlert(id, {
       acknowledged: false, dismissed: true, note: `${reason}${note ? `: ${note}` : ''}`,
     }),
-    'Alert rejected', selected.id, { dismissed: true },
+    'Alert rejected', selected, { dismissed: true },
   )
   const dispatch = async () => {
     if (!selected) return
     if (!(await ask({ title: 'Dispatch police', message: 'This notifies the configured external channels (CAD, SMS, security). Continue?', confirmLabel: 'Dispatch', danger: true }))) return
-    run(() => dispatchPolice(selected.id), 'Police dispatched', selected.id, { acknowledged: true })
+    // Police are dispatched once, for the newest alert; its repeats are acknowledged with it.
+    run((id) => (id === selected.id ? dispatchPolice(id) : acknowledgeAlert(id, { acknowledged: true, dismissed: false })),
+      'Police dispatched', selected, { acknowledged: true })
   }
-  const incident = async () => {
+  const incident = useCallback(async () => {
     if (!selected) return
     try {
       await createIncidentFromAlert(selected.id)
@@ -272,13 +354,13 @@ export function Triage({ ctx }) {
     } catch (err) {
       toast(err.message || 'Failed to create incident', 'danger')
     }
-  }
+  }, [selected, toast, setPage])
 
   /* Keyboard triage. A ref keeps the handler current without re-binding every render. */
   const keys = useRef(null)
   useEffect(() => {
-    keys.current = { move, setMode, selected }
-  }, [move, selected])
+    keys.current = { move, setMode, selected, incident, canAct }
+  }, [move, selected, incident, canAct])
   useEffect(() => {
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -290,6 +372,8 @@ export function Triage({ ctx }) {
       else if (key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); k.move(-1) }
       else if (key === 'v' && k.selected) k.setMode('confirm')
       else if (key === 'd' && k.selected) { e.preventDefault(); k.setMode('reject') }
+      else if (key === 'i' && k.selected && k.canAct) k.incident()
+      else if (key === 'p' && k.selected) playRef.current?.()
       else if (e.key === 'Escape') k.setMode(null)
     }
     window.addEventListener('keydown', onKey)
@@ -313,7 +397,11 @@ export function Triage({ ctx }) {
       </div>
 
       <div className="triage">
-        <Card title="Queue" sub={`${items.length} alert${items.length === 1 ? '' : 's'}`} flush>
+        <Card title="Queue" flush sub={(() => {
+          // Repeats are one entry: say both numbers so they add up with the sidebar badge.
+          const total = items.reduce((n, i) => n + (i.repeats?.length || 1), 0)
+          return total === items.length ? `${total} alert${total === 1 ? '' : 's'}` : `${items.length} entries · ${total} alerts`
+        })()}>
           <div className="tq-list" role="listbox" aria-label="Alerts">
             {loaded && items.length === 0 && (
               <Empty icon={Icons.check}>
@@ -330,13 +418,24 @@ export function Triage({ ctx }) {
                 <span className={`tq-icon sev-${it.severity}`}><TypeIcon type={it.type} /></span>
                 <span className="tq-item-body">
                   <b>{eventLabel(it.type)}</b>
-                  <span className="meta">{it.camera || 'Unknown camera'} · {timeAgo(it.time)}</span>
+                  <span className="meta">
+                    {it.camera || 'Unknown camera'} ·{' '}
+                    {(() => {
+                      const u = waitUrgency(it, now, ctx.escalation)
+                      if (!u) return timeAgo(it.time)
+                      const waited = (now - (parseTs(it.since ?? it.time)?.getTime() || now)) / 1000
+                      return <span className={`tq-wait u-${u}`}>waiting {waitLabel(waited)}</span>
+                    })()}
+                  </span>
                 </span>
+                {it.repeats?.length > 1 && (
+                  <span className="tq-count" title={`Raised ${it.repeats.length} times`} aria-label={`${it.repeats.length} times`}>×{it.repeats.length}</span>
+                )}
                 <Tag tone={SEVERITY_TONE[it.severity] || 'muted'}>{it.severity}</Tag>
               </button>
             ))}
           </div>
-          <div className="tq-keys"><kbd>J</kbd><kbd>K</kbd> move <kbd>V</kbd> confirm <kbd>D</kbd> reject</div>
+          <div className="tq-keys"><kbd>J</kbd><kbd>K</kbd> move <kbd>V</kbd> confirm <kbd>D</kbd> reject <kbd>I</kbd> incident <kbd>P</kbd> video</div>
         </Card>
 
         <Card title="Alert details" flush>
@@ -345,6 +444,7 @@ export function Triage({ ctx }) {
               key={selected.id}
               item={selected} detail={detail} mode={mode} setMode={setMode} busy={busy} canAct={canAct}
               onConfirm={confirm} onReject={reject} onDispatch={dispatch} onIncident={incident}
+              now={now} escalation={ctx.escalation} playRef={playRef}
             />
           ) : (
             <Empty icon={Icons.shield}>Select an alert to review it</Empty>

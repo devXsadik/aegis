@@ -1,7 +1,7 @@
 """Cross-camera re-identification — same person / plate across cameras."""
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -14,6 +14,7 @@ from backend.models.evidence import Evidence
 from backend.models.alert import Alert
 from backend.models.vehicle import VehicleDetection
 from backend.auth.auth import operator_or_admin
+from clock import utcnow
 
 router = APIRouter(prefix="/reid", tags=["reid"])
 
@@ -29,7 +30,7 @@ def person_tracks(
     Group detections of the same person_name across cameras.
     Uses identity labels from the face recognizer (watchlist matches).
     """
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(Evidence).filter(
         Evidence.timestamp >= cutoff,
         Evidence.person_name.isnot(None),
@@ -75,7 +76,7 @@ def person_journey(
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     evidence = (
         db.query(Evidence)
         .filter(Evidence.person_name == person_name, Evidence.timestamp >= cutoff)
@@ -119,7 +120,7 @@ def vehicle_tracks(
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(VehicleDetection).filter(VehicleDetection.timestamp >= cutoff)
     if plate:
         q = q.filter(VehicleDetection.license_plate.ilike(f"%{plate}%"))

@@ -8,10 +8,10 @@ import { cameraForDevice, slug } from '../lib/cameras'
 
 // Status comes only from what the system really knows: the pipeline heartbeat and the enabled flag.
 function healthOf(cam, live, unplugged) {
-  if (!cam.active) return { label: 'Paused', tone: 'danger' }
-  if (live) return { label: 'Streaming', tone: 'ok' }
-  if (unplugged) return { label: 'Not connected', tone: 'warn' }
-  return { label: 'No signal', tone: 'warn' }
+  if (!cam.active) return { label: 'Paused', tone: 'muted' }
+  if (live) return { label: 'Live', tone: 'ok' }
+  if (unplugged) return { label: 'Offline', tone: 'warn' }        // webcam unplugged
+  return { label: 'No video', tone: 'warn' }
 }
 
 const EMPTY_FORM = { camera_id: '', name: '', location: '', lat: '', lng: '', rtsp_url: '' }
@@ -195,7 +195,7 @@ export function Cameras({ ctx }) {
       <div className="grid grid-4 mb">
         <Stat label="Cameras" value={rows.length} delta="Registered in the system" accent="primary" icon={Icons.camera} />
         <Stat label="Streaming" value={streaming} delta="Sending video to detection now" accent="ok" icon={Icons.live} />
-        <Stat label="No signal" value={enabled - streaming} delta="In use but not sending video" accent={enabled - streaming ? 'warn' : 'ok'} icon={Icons.alert} />
+        <Stat label="No video" value={enabled - streaming} delta="In use but not sending video" accent={enabled - streaming ? 'warn' : 'ok'} icon={Icons.alert} />
         <Stat label="Paused" value={rows.length - enabled} delta="Not monitored" accent={rows.length - enabled ? 'danger' : 'ok'} icon={Icons.eye} />
       </div>
 

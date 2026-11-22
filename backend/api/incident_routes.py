@@ -16,6 +16,7 @@ from backend.auth.auth import operator_or_admin
 from backend.services.incident_service import (
     create_incident_from_alert, add_event, _next_ticket_id,
 )
+from clock import utcnow
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -197,9 +198,9 @@ def update_incident(
             add_event(db, inc, "STATUS", f"{inc.status} → {body.status}", user.username)
             inc.status = body.status
             if body.status == "resolved":
-                inc.resolved_at = datetime.utcnow()
+                inc.resolved_at = utcnow()
             if body.status == "closed":
-                inc.closed_at = datetime.utcnow()
+                inc.closed_at = utcnow()
 
     if body.priority is not None:
         if body.priority not in VALID_PRIORITY:

@@ -159,10 +159,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 const modalStack = []   // only the top-most dialog reacts to Esc/Tab
 
-/** Accessible dialog: role/aria, Esc to close, Tab stays inside, focus returns to the opener. */
-export function Modal({ title, onClose, children, footer, className = '' }) {
-  const ref = useRef(null)
-  const titleId = useId()
+/** Dialog behaviour for any overlay (modal, drawer, palette): Esc closes, Tab stays inside,
+    the first field gets focus, and focus returns to the opener on close. */
+export function useDialog(ref, onClose) {
   const closeRef = useRef(onClose)
   useEffect(() => { closeRef.current = onClose }, [onClose])
   // Runs once per open: re-running on a new onClose would steal focus and make the dialog jump
@@ -188,7 +187,14 @@ export function Modal({ title, onClose, children, footer, className = '' }) {
       modalStack.splice(modalStack.indexOf(node), 1)
       opener?.focus?.()
     }
-  }, [])
+  }, [ref])
+}
+
+/** Accessible dialog: role/aria, Esc to close, Tab stays inside, focus returns to the opener. */
+export function Modal({ title, onClose, children, footer, className = '' }) {
+  const ref = useRef(null)
+  const titleId = useId()
+  useDialog(ref, onClose)
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className={`modal ${className}`} ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>

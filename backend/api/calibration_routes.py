@@ -1,6 +1,7 @@
 """Model calibration — ground-truth labels + false-alarm metrics."""
 
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -15,7 +16,9 @@ from backend.models.calibration import DetectionLabel
 from backend.models.alert import Alert
 from backend.auth.auth import operator_or_admin
 from paths import RESULTS_DIR
+from clock import utcnow
 
+logger = logging.getLogger("HumanAnalysis")
 router = APIRouter(prefix="/calibration", tags=["calibration"])
 
 VALID_TRUTH = {
@@ -92,7 +95,7 @@ def list_labels(
 @router.get("/metrics")
 def metrics(hours: int = 168, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
     """Confusion-matrix style metrics from operator labels + proxy from dismissals."""
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     labels = db.query(DetectionLabel).filter(DetectionLabel.created_at >= cutoff).all()
 
     counts = {"true_positive": 0, "false_positive": 0, "true_negative": 0, "false_negative": 0}
@@ -121,8 +124,8 @@ def metrics(hours: int = 168, db: Session = Depends(get_db), user: User = Depend
     if eval_path.exists():
         try:
             eval_report = json.loads(eval_path.read_text())
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            logger.warning(f"Ignoring unreadable {eval_path}: {e}")
 
     return {
         "period_hours": hours,

@@ -1,0 +1,27 @@
+# Labels for scripts/evaluate_accuracy.py. Copy to manifest.yaml (same folder) and edit.
+# Clip files go next to this file. Times are seconds from the start of the clip.
+#
+# Label what SHOULD raise an alert, from the moment it becomes visible until it stops:
+#   CRIMINAL_DETECTED  person: <name in the Face Registry>, from when the face is visible
+#   WEAPON_DETECTED    while the weapon is in view
+#   FALL_SUSPECTED     from the fall until the person gets up / clip ends
+#   SUSPICIOUS_BEHAVIOR, FIRE_SMOKE_DETECTED, PERSON_TRACKED, ... any alert type works
+#
+# A good first set (10–20 clips, 10–60 s each, filmed with the real cameras):
+#   - each watchlist person walking in, facing the camera and at an angle
+#   - people NOT on the watchlist (catches wrong-identity matches)
+#   - a phone, umbrella, tool held like a weapon (weapon false positives)
+#   - a staged fall, and sitting down quickly (fall false positives)
+#   - empty scene, busy scene, low light (false alerts per hour)
+
+clips:
+  - file: gate_sadik_walks_in.mp4
+    events:
+      - {type: CRIMINAL_DETECTED, person: Sadik, start: 2.0, end: 9.5}
+
+  - file: corridor_stranger.mp4
+    events: []          # nobody on the watchlist, nothing dangerous: every alert is false
+
+  - file: lab_fall.mp4
+    events:
+      - {type: FALL_SUSPECTED, start: 6.0, end: 14.0}

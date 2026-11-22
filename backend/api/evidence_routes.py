@@ -10,7 +10,7 @@ from backend.db.database import get_db
 from backend.models.evidence import Evidence
 from backend.models.user import User
 from backend.auth.auth import operator_or_admin, admin_only
-from backend.auth.guards import viewer_user
+from backend.auth.guards import viewer_dep
 from backend.services.audit import log_audit
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -54,11 +54,10 @@ def list_evidence(
 def get_evidence_image(
     evidence_id: int,
     kind: str = Query(default="frame", pattern="^(frame|roi)$"),
-    token: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
+    viewer: User = Depends(viewer_dep),
 ):
     """Serve the stored JPEG snapshot (full frame or subject crop)."""
-    viewer = viewer_user(token, db)
     ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
     if not ev:
         raise HTTPException(status_code=404, detail="Evidence not found")

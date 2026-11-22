@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import { Icons } from './ui'
+import { useRef, useState } from 'react'
+import { Icons, useDialog } from './ui'
 
 export function CommandPalette({ pages, actions = [], onNavigate, onClose }) {
   const [query, setQuery] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef(null)
-
-  useEffect(() => { inputRef.current?.focus() }, [])
+  const ref = useRef(null)
+  useDialog(ref, onClose)
 
   const items = [
     ...pages.map((p) => ({ id: p.id, label: p.label, icon: p.icon, hint: 'Go to page', run: () => onNavigate(p.id) })),
@@ -17,15 +17,15 @@ export function CommandPalette({ pages, actions = [], onNavigate, onClose }) {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, items.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)) }
     else if (e.key === 'Enter' && items[sel]) { items[sel].run(); onClose() }
-    else if (e.key === 'Escape') onClose()
   }
 
   return (
     <div className="palette-overlay" onClick={onClose}>
-      <div className="palette" onClick={(e) => e.stopPropagation()}>
+      <div className="palette" ref={ref} role="dialog" aria-modal="true" aria-label="Search pages and actions" onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           placeholder="Search pages and commands…"
+          aria-label="Search pages and commands"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setSel(0) }}
           onKeyDown={handleKey}

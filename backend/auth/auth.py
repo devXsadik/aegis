@@ -1,6 +1,6 @@
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -9,6 +9,7 @@ import bcrypt
 from sqlalchemy.orm import Session
 from backend.db.database import get_db
 from backend.models.user import User
+from clock import utcnow
 
 # No built-in fallback: with SECRET_KEY unset, a random per-process key is used, so tokens
 # cannot be forged with a value read from the source (they just stop working on restart).
@@ -17,6 +18,31 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
 security = HTTPBearer(auto_error=False)
+
+# The dashboard's session lives in an httpOnly cookie: page scripts (and so an XSS) cannot read
+# it, and <img>/<video>/WebSocket requests carry it without a token in the URL. SameSite=Strict
+# keeps other sites from riding on it. Scripts and API clients keep using a Bearer header.
+SESSION_COOKIE = "aegis_session"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}   # true behind HTTPS
+
+
+def request_token(conn) -> Optional[str]:
+    """Bearer header if present, else the session cookie. `conn`: a Request or WebSocket."""
+    auth = conn.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return conn.cookies.get(SESSION_COOKIE)
+
+
+def set_session_cookie(response, token: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE, token, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/",
+        httponly=True, samesite="strict", secure=COOKIE_SECURE,
+    )
+
+
+def clear_session_cookie(response) -> None:
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict", secure=COOKIE_SECURE)
 
 
 def _to_bytes(password: str) -> bytes:
@@ -37,7 +63,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -76,7 +102,7 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    user = user_from_token(credentials.credentials if credentials else request.query_params.get("token"), db)
+    user = user_from_token(credentials.credentials if credentials else request.cookies.get(SESSION_COOKIE), db)
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")   # applies to every role guard
     return user

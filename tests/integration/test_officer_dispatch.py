@@ -3,6 +3,7 @@ import asyncio
 import os
 import sys
 import types
+from clock import utcnow
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_officer.db"
 os.environ["USE_SQLITE"] = "false"
@@ -96,7 +97,7 @@ def test_retry_helper_retries_then_succeeds_and_reports_failure():
 
 
 def test_dedupe_then_escalation_pages_backup_once(monkeypatch):
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from backend.services import escalation
     monkeypatch.setenv("ALERTS_ENABLED", "true")
@@ -140,10 +141,10 @@ def test_dedupe_then_escalation_pages_backup_once(monkeypatch):
         posted.clear()
         db = SessionLocal()
         assert loop.run_until_complete(escalation.escalate_unacknowledged(db, 120)) == 0          # too early
-        later = datetime.utcnow() + timedelta(seconds=300)
+        later = utcnow() + timedelta(seconds=300)
         assert loop.run_until_complete(escalation.escalate_unacknowledged(db, 120, now=later)) == 1
         assert [p["officer"] for p in posted] == ["p2"] and "ESCALATION" in posted[0]["message"]
-        assert db.query(Alert).get(first["alert_id"]).escalated_at is not None
+        assert db.get(Alert, first["alert_id"]).escalated_at is not None
         assert loop.run_until_complete(escalation.escalate_unacknowledged(db, 120, now=later)) == 0  # only once
         db.close()
     Base.metadata.drop_all(bind=engine)

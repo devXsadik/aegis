@@ -52,6 +52,7 @@ class FrameContext:
 
     # --- Behavior & Anomaly ---
     suspicious_tracks: dict = field(default_factory=dict)   # track_id → reasons
+    poses: dict = field(default_factory=dict)               # track_id → {"bbox", "kpts": {name: (x, y, conf)}}
     anomalies: list = field(default_factory=list)           # anomaly dicts
 
     # --- Analytics ---

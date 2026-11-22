@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta
+from datetime import timedelta
 from backend.db.database import get_db
 from backend.models.user import User
 from backend.models.evidence import Evidence
 from backend.models.alert import Alert
 from backend.auth.auth import operator_or_admin
+from clock import utcnow
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 @router.get("/summary")
 def analytics_summary(hours: int = 24, db: Session = Depends(get_db),
                       user: User = Depends(operator_or_admin)):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     total_events = db.query(Evidence).filter(Evidence.timestamp >= cutoff).count()
     criminals = db.query(Evidence).filter(Evidence.timestamp >= cutoff, Evidence.is_criminal == True).count()
     weapons = db.query(Evidence).filter(Evidence.timestamp >= cutoff, Evidence.weapon_present == True).count()
@@ -45,7 +46,7 @@ def analytics_summary(hours: int = 24, db: Session = Depends(get_db),
 @router.get("/trends")
 def analytics_trends(days: int = 7, db: Session = Depends(get_db),
                      user: User = Depends(operator_or_admin)):
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     day = func.date(Evidence.timestamp)   # portable: CAST(.. AS DATE) breaks on SQLite
     results = (
         db.query(
@@ -63,7 +64,7 @@ def analytics_trends(days: int = 7, db: Session = Depends(get_db),
 @router.get("/locations")
 def analytics_locations(hours: int = 24, db: Session = Depends(get_db),
                         user: User = Depends(operator_or_admin)):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     results = (
         db.query(
             Evidence.camera_location,

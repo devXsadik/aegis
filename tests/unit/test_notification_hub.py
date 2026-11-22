@@ -37,3 +37,12 @@ class TestNotificationHub:
             assert kwargs["severity"] == "critical"
             assert kwargs["camera_id"] == "gate_1"
             assert kwargs["person_name"] == "CRIMINAL_001_Sadik"
+
+    def test_weapon_message_says_whether_it_was_in_hand(self):
+        with patch("utils.alerts.notification_hub.dispatch_alert") as mock_dispatch:
+            for held, cam in ((True, "a"), (False, "b"), (None, "c")):
+                NotificationHub().weapon_detected("Gate", cam, 1, time.time(), held=held)
+            msgs = [c[1]["message"] for c in mock_dispatch.call_args_list]
+            assert "(in hand)" in msgs[0]
+            assert "not in hand" in msgs[1]
+            assert "hand" not in msgs[2]

@@ -23,7 +23,9 @@ from backend.services import ptz as ptz_svc
 from paths import RECORDINGS_DIR, ROOT
 from utils.media.dvr import purge_old_recordings
 
+from backend.services.playable import browser_playable
 from backend.auth.guards import safe_media_path, verify_internal_key
+from clock import utcnow
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -156,7 +158,7 @@ def ingest_segment(
     retention = float(os.getenv("DVR_RETENTION_HOURS", "48"))
     removed = purge_old_recordings(RECORDINGS_DIR, retention)
     if removed:
-        cutoff = datetime.utcnow() - timedelta(hours=retention)
+        cutoff = utcnow() - timedelta(hours=retention)
         db.query(RecordingClip).filter(RecordingClip.started_at < cutoff).delete()
         db.commit()
 
@@ -167,7 +169,7 @@ def ingest_segment(
 def purge(db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     retention = float(os.getenv("DVR_RETENTION_HOURS", "48"))
     removed = purge_old_recordings(RECORDINGS_DIR, retention)
-    cutoff = datetime.utcnow() - timedelta(hours=retention)
+    cutoff = utcnow() - timedelta(hours=retention)
     db_removed = db.query(RecordingClip).filter(RecordingClip.started_at < cutoff).delete()
     db.commit()
     return {"purged_files": removed, "purged_rows": db_removed, "retention_hours": retention}
@@ -185,7 +187,7 @@ def timeline(
     db: Session = Depends(get_db),
     user: User = Depends(operator_or_admin),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = utcnow() - timedelta(hours=hours)
     q = db.query(RecordingClip).filter(RecordingClip.started_at >= cutoff)
     if camera_id:
         q = q.filter(RecordingClip.camera_id == camera_id)
@@ -264,6 +266,7 @@ def playback_at(
     path = safe_media_path(clip.file_path, RECORDINGS_DIR, ROOT)
     if not path.exists():
         raise HTTPException(404, "Recording file missing on disk")
+    path = browser_playable(path)        # the DVR's mp4v does not play in browsers: H.264 copy
 
     media = "video/mp4" if path.suffix.lower() == ".mp4" else (
         "video/x-msvideo" if path.suffix.lower() == ".avi" else "image/jpeg"
