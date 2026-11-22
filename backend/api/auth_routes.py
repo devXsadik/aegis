@@ -7,9 +7,10 @@ from pydantic import BaseModel, field_validator
 from backend.models.audit_log import AuditLog
 from backend.db.database import get_db
 from backend.models.user import User
+from backend.auth import totp
 from backend.auth.auth import (
     hash_password, verify_password, issue_token, revoke_tokens,
-    get_current_user, admin_only, operator_or_admin, VALID_ROLES, ROLES_OPS,
+    get_current_user, admin_only, operator_or_admin, VALID_ROLES, ROLES_OPS, ROLES_COMMAND,
     set_session_cookie, clear_session_cookie,
 )
 
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     username: str
     password: str
+    code: Optional[str] = None              # two-factor code, when the account has it on
 
 
 class LoginResponse(BaseModel):
@@ -70,6 +72,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     phone: Optional[str] = None
+    totp_enabled: bool = False
 
     class Config:
         from_attributes = True
@@ -84,19 +87,32 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
         if until > now:
             mins = int((until - now).total_seconds() // 60) + 1
             raise HTTPException(status_code=429, detail=f"Account locked after repeated failures. Try again in {mins} min.")
-    if not user or not verify_password(req.password, user.hashed_password):
+    def fail(why: str, detail):
         if user:
             user.failed_attempts = (user.failed_attempts or 0) + 1
             if user.failed_attempts >= MAX_FAILED_LOGINS:
                 user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
                 user.failed_attempts = 0
-        _audit(db, "LOGIN_FAILED", user, req.username, "invalid credentials", request)
+        _audit(db, "LOGIN_FAILED", user, req.username, why, request)
         db.commit()
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail=detail)
+
+    if not user or not verify_password(req.password, user.hashed_password):
+        fail("invalid credentials", "Invalid credentials")
     if not user.is_active:
         _audit(db, "LOGIN_DENIED", user, user.username, "account disabled", request)
         db.commit()
         raise HTTPException(status_code=403, detail="Account disabled")
+    if user.totp_enabled:
+        # Password was right; the code is asked for (no failure counted) or checked (failure counted).
+        if not (req.code or "").strip():
+            raise HTTPException(status_code=401, detail={"message": "Enter the 6-digit code from your authenticator app",
+                                                         "totp_required": True})
+        step = totp.matching_step(totp.open_secret(user.totp_secret), req.code)
+        if step is None or (user.totp_last_step is not None and step <= user.totp_last_step):
+            fail("invalid two-factor code", {"message": "That code is not valid. Enter the current code from your app.",
+                                             "totp_required": True})
+        user.totp_last_step = step              # a code works once
     user.failed_attempts = 0
     user.locked_until = None
     _audit(db, "LOGIN", user, user.username, "ok", request)
@@ -180,6 +196,7 @@ class UserPatch(BaseModel):
     is_active: Optional[bool] = None
     phone: Optional[str] = None
     new_password: Optional[str] = None
+    reset_2fa: Optional[bool] = None        # lost phone: turn two-factor off so they can set it up again
 
     @field_validator("new_password")
     @classmethod
@@ -211,6 +228,9 @@ def update_user(user_id: int, body: UserPatch, request: Request, db: Session = D
         target.phone = (changes["phone"] or "").strip() or None
     if changes.get("new_password"):
         target.hashed_password = hash_password(changes["new_password"])
+    if changes.get("reset_2fa"):
+        target.totp_enabled, target.totp_secret, target.totp_last_step = False, None, None
+        revoke_tokens(target)
     shown = {k: ("***" if k == "new_password" else v) for k, v in changes.items()}
     _audit(db, "USER_UPDATE", admin, target.username, str(shown), request)
     db.commit()
@@ -234,6 +254,63 @@ def refresh_token(request: Request, response: Response, user: User = Depends(get
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+# --- Two-factor sign-in ------------------------------------------------------------------------
+TWO_FACTOR_ROLES = ROLES_COMMAND        # prompted to turn it on (admins, supervisors)
+
+
+class CodeBody(BaseModel):
+    code: str
+
+
+class DisableBody(BaseModel):
+    password: str
+    code: str
+
+
+@router.get("/2fa")
+def two_factor_status(user: User = Depends(get_current_user)):
+    return {"enabled": bool(user.totp_enabled), "recommended": user.role in TWO_FACTOR_ROLES}
+
+
+@router.post("/2fa/setup")
+def two_factor_setup(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """A new secret for the authenticator app (shown once as a QR code). Not active until confirmed."""
+    if user.totp_enabled:
+        raise HTTPException(409, "Two-factor sign-in is already on")
+    secret = totp.new_secret()
+    user.totp_secret, user.totp_last_step = totp.seal_secret(secret), None
+    db.commit()
+    return {"secret": secret, "otpauth_uri": totp.provisioning_uri(secret, user.username)}
+
+
+@router.post("/2fa/enable")
+def two_factor_enable(body: CodeBody, request: Request, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    if not user.totp_secret:
+        raise HTTPException(400, "Start the setup first")
+    step = totp.matching_step(totp.open_secret(user.totp_secret), body.code)
+    if step is None:
+        raise HTTPException(400, "That code does not match. Check the time on your phone and try the current code.")
+    user.totp_enabled, user.totp_last_step = True, step
+    _audit(db, "2FA_ENABLED", user, user.username, "", request)
+    db.commit()
+    return {"enabled": True}
+
+
+@router.post("/2fa/disable")
+def two_factor_disable(body: DisableBody, request: Request, db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    if not user.totp_enabled:
+        return {"enabled": False}
+    if not verify_password(body.password, user.hashed_password) or \
+            totp.matching_step(totp.open_secret(user.totp_secret), body.code) is None:
+        raise HTTPException(400, "Password or code is not right")
+    user.totp_enabled, user.totp_secret, user.totp_last_step = False, None, None
+    _audit(db, "2FA_DISABLED", user, user.username, "", request)
+    db.commit()
+    return {"enabled": False}
 
 
 class Assignee(BaseModel):

@@ -68,3 +68,26 @@ documented tool: setup, seed, evaluate, benchmark, deploy, retention).
 17. **Two-factor sign-in for admins and supervisors.**
 18. **HTTPS deployment guide** (reverse proxy + `COOKIE_SECURE=true`).
 19. **Floor plans** on the map for indoor sites, with cameras placed on them.
+
+## Status (2026-11-23)
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Migration check | Done: 0009 (officer index, named FK); `alembic check` clean through 0013 |
+| 2–3 | Retention, backups | Done: nightly maintenance in the API (`backend/services/maintenance.py`, `backup.py`); Settings → Backups and clean-up; restore steps in `docs/OPERATIONS.md` |
+| 4 | Silent detection failure | Done: health watch → `CAMERA_OFFLINE` / `DETECTION_DOWN` (+ restored) |
+| 5 | Encryption at rest | Done: evidence, capture and enrolment images (AES-GCM); `scripts/encrypt_existing.py` for older rows. Before this, **none** of them were encrypted |
+| 6 | Detector models | Action and re-ID models exported/downloaded; **weapon model still missing** (custom-trained, not public) |
+| 7 | Viewer role | Done: read-only wall display (Home, Live, Map, Alerts; no faces, evidence, media) |
+| 8 | Measure accuracy | **Open: needs your labelled clips** (`data/eval/clips/`) |
+| 9 | False-alert feedback | Done: Analytics → false-alert rate per type with a one-click threshold change |
+| 10 | Test coverage | Done: 352 tests, 76 % (CI gate 75 %) |
+| 11 | Split `App.jsx` | Done: 808 → 372 lines, 7 hooks |
+| 12 | Split `index.css` | Done: `src/styles/01-…09-*.css`, same cascade (build output checked) |
+| 13 | `presentation/` | Moved to `../aegis-presentation` (untracked here, still in git history) |
+| 14 | PostgreSQL locally | Done: `make db-up`, `make db-copy` (`scripts/copy_database.py`) |
+| 15 | Fight detection | Pose heuristic `core/analysis/fight.py`, **off** (`fight.enabled: false`) until measured (item 8) |
+| 16 | Responder push | Done: Web Push, "Turn on phone alerts" on Responders; pushes carry no alert data |
+| 17 | Two-factor sign-in | Done: TOTP (authenticator app), Home prompt for admins/supervisors, admin reset |
+| 18 | HTTPS guide | Done: `docs/OPERATIONS.md` |
+| 19 | Floor plans | Done: Map → Floor plans (admin upload, drag corners to fit); no rotation yet |

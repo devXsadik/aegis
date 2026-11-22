@@ -15,6 +15,10 @@ class User(Base):
     locked_until = Column(DateTime(timezone=True), nullable=True)
     token_version = Column(Integer, nullable=False, default=0, server_default="0")   # bump = revoke all tokens
     phone = Column(String(30), nullable=True)   # officer SMS number (E.164, e.g. +8801XXXXXXXXX)
+    # Two-factor sign-in (backend/auth/totp.py): encrypted secret, on/off, last accepted time step
+    totp_secret = Column(String(255), nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    totp_last_step = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -39,7 +39,7 @@ export function useSession({ reloadTick, onProfileError }) {
 
   return {
     authed, me, notice,
-    signIn: async (u, p) => { await login(u, p); setNotice(''); setAuthed(true) },
+    signIn: async (u, p, code) => { await login(u, p, code); setNotice(''); setAuthed(true) },
     signOut: () => { apiSignOut(); setMe(null); setAuthed(false) },
   }
 }

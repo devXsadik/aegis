@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 // Older versions kept the token in localStorage; drop any copy left behind.
 try { localStorage.removeItem('ai_sss_token') } catch { /* ignore */ }
 
-async function apiFetch(path, options = {}) {
+export async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
@@ -19,7 +19,9 @@ async function apiFetch(path, options = {}) {
     }
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     const d = err.detail;
-    throw new Error((typeof d === 'object' && d ? d.message : d) || 'Request failed');
+    // `detail` carries structured answers, e.g. { totp_required: true } when a sign-in needs a code.
+    throw Object.assign(new Error((typeof d === 'object' && d ? d.message : d) || 'Request failed'),
+      { status: res.status, detail: typeof d === 'object' ? d : null });
   }
   // DELETE and some PUT routes answer with no body.
   if (res.status === 204) return null;
@@ -32,11 +34,25 @@ async function apiFetch(path, options = {}) {
   }
 }
 
-export async function login(username, password) {
+export async function login(username, password, code) {
   return apiFetch('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, code: code || null }),
   });
+}
+
+/* ---- Two-factor sign-in ---- */
+export async function fetchTwoFactor() {
+  return apiFetch('/auth/2fa');
+}
+export async function startTwoFactor() {
+  return apiFetch('/auth/2fa/setup', { method: 'POST' });
+}
+export async function enableTwoFactor(code) {
+  return apiFetch('/auth/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) });
+}
+export async function disableTwoFactor(password, code) {
+  return apiFetch('/auth/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) });
 }
 
 /** The signed-in user, or null. For start-up: a missing session is not "expired". */
@@ -499,6 +515,26 @@ export async function verifyEvidencePackage(file) {
   const fd = new FormData();
   fd.append('file', file);
   return apiFetch('/incidents/package/verify', { method: 'POST', body: fd });
+}
+
+/* ---- Floor plans on the map ---- */
+export async function fetchFloorPlans() {
+  return apiFetch('/map/floorplans');
+}
+export function floorPlanImageUrl(plan) {
+  return `${API_BASE}/map/floorplans/${plan.id}/image?v=${plan.version}`;
+}
+export async function addFloorPlan(name, file, [[south, west], [north, east]]) {
+  const fd = new FormData();
+  Object.entries({ name, south, west, north, east }).forEach(([k, v]) => fd.append(k, String(v)));
+  fd.append('file', file);
+  return apiFetch('/map/floorplans', { method: 'POST', body: fd });
+}
+export async function updateFloorPlan(id, changes) {
+  return apiFetch(`/map/floorplans/${id}`, { method: 'PUT', body: JSON.stringify(changes) });
+}
+export async function deleteFloorPlan(id) {
+  return apiFetch(`/map/floorplans/${id}`, { method: 'DELETE' });
 }
 
 /* ---- Responder view ---- */

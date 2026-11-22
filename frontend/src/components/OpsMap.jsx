@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { fovPolygon } from '../lib/mapGeo'
+import { floorPlanImageUrl } from '../services/api'
 
 // Self-hosted tiles can be set at build time: VITE_MAP_TILES=https://tiles.example/{z}/{x}/{y}.png
 const TILE_URL = import.meta.env.VITE_MAP_TILES || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -22,15 +23,16 @@ const alertIcon = (g, fresh) => L.divIcon({
 export function OpsMap({
   cameras, statusOf, groups, layers, selectedId, focus, editId, placingId,
   onSelectCamera, onSelectGroup, onMoveCamera, onPlace, fitKey,
+  plans = [], planEditId = null, onPlanBounds, viewRef,
 }) {
   const hostRef = useRef(null)
   const mapRef = useRef(null)
-  const layerRef = useRef({ cams: null, alerts: null, heat: null, fov: null })
+  const layerRef = useRef({ cams: null, alerts: null, heat: null, fov: null, plans: null, planEdit: null })
   const cbRef = useRef({})
   const tiles = useRef({ ok: 0, err: 0 })
   const [offline, setOffline] = useState(false)
 
-  useEffect(() => { cbRef.current = { onSelectCamera, onSelectGroup, onMoveCamera, onPlace } })
+  useEffect(() => { cbRef.current = { onSelectCamera, onSelectGroup, onMoveCamera, onPlace, onPlanBounds } })
 
   // create the map once
   useEffect(() => {
@@ -39,14 +41,49 @@ export function OpsMap({
     tl.on('tileload', () => { tiles.current.ok += 1; setOffline(false) })
     tl.on('tileerror', () => { tiles.current.err += 1; if (tiles.current.ok === 0 && tiles.current.err >= 3) setOffline(true) })
     const lr = layerRef.current
+    lr.plans = L.layerGroup().addTo(map)          // under everything else: plans are the backdrop
+    lr.planEdit = L.layerGroup().addTo(map)
     lr.heat = L.layerGroup().addTo(map)
     lr.fov = L.layerGroup().addTo(map)
     lr.cams = L.layerGroup().addTo(map)
     lr.alerts = L.layerGroup().addTo(map)
     map.on('click', (e) => cbRef.current.onPlace?.(e.latlng.lat, e.latlng.lng))
     mapRef.current = map
+    if (viewRef) viewRef.current = { bounds: () => map.getBounds() }
     return () => { map.remove(); mapRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // floor plans; the one being adjusted gets corner handles (stretch) and a centre handle (move)
+  useEffect(() => {
+    const lr = layerRef.current
+    lr.plans.clearLayers(); lr.planEdit.clearLayers()
+    plans.forEach((p) => {
+      const overlay = L.imageOverlay(floorPlanImageUrl(p), p.bounds, { opacity: p.opacity, interactive: false, className: 'floor-plan' }).addTo(lr.plans)
+      if (p.id !== planEditId) return
+      let [[s, w], [n, e]] = p.bounds
+      const handle = (cls) => L.divIcon({ className: `plan-handle ${cls}`, iconSize: [16, 16] })
+      const sw = L.marker([s, w], { draggable: true, icon: handle('corner'), zIndexOffset: 900 })
+      const ne = L.marker([n, e], { draggable: true, icon: handle('corner'), zIndexOffset: 900 })
+      const mid = L.marker([(s + n) / 2, (w + e) / 2], { draggable: true, icon: handle('move'), zIndexOffset: 900 })
+      const outline = L.rectangle(p.bounds, { color: '#3b82f6', weight: 1.5, dashArray: '4 4', fill: false, interactive: false })
+      const apply = () => {
+        const b = [[Math.min(s, n), Math.min(w, e)], [Math.max(s, n), Math.max(w, e)]]
+        overlay.setBounds(L.latLngBounds(b)); outline.setBounds(b)
+        return b
+      }
+      sw.on('drag', () => { ({ lat: s, lng: w } = sw.getLatLng()); mid.setLatLng([(s + n) / 2, (w + e) / 2]); apply() })
+      ne.on('drag', () => { ({ lat: n, lng: e } = ne.getLatLng()); mid.setLatLng([(s + n) / 2, (w + e) / 2]); apply() })
+      mid.on('drag', () => {
+        const c = mid.getLatLng(); const dy = c.lat - (s + n) / 2; const dx = c.lng - (w + e) / 2
+        s += dy; n += dy; w += dx; e += dx
+        sw.setLatLng([s, w]); ne.setLatLng([n, e]); apply()
+      })
+      const done = () => cbRef.current.onPlanBounds?.(p.id, apply())
+      ;[sw, ne, mid].forEach((m) => { m.on('dragend', done); m.addTo(lr.planEdit) })
+      outline.addTo(lr.planEdit)
+    })
+  }, [plans, planEditId])
 
   // cameras + coverage cones
   useEffect(() => {

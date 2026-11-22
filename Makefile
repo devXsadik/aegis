@@ -1,4 +1,4 @@
-.PHONY: webcam-bridge webcam-bridge-bg webcam-bridge-stop setup demo test backend pipeline frontend ingest run all stop docker-build docker-up docker-down docker-logs docker-admin
+.PHONY: webcam-bridge webcam-bridge-bg webcam-bridge-stop setup demo test backend pipeline frontend ingest run all stop docker-build docker-up docker-down docker-logs docker-admin db-up db-down db-copy
 
 setup:
 	./scripts/setup.sh
@@ -62,4 +62,15 @@ webcam-bridge-bg:
 webcam-bridge-stop:
 	@lsof -tiTCP:8090 -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
 	@[ ! -f logs/webcam_bridge.pid ] || { kill $$(cat logs/webcam_bridge.pid) 2>/dev/null; rm -f logs/webcam_bridge.pid; }
+
+# PostgreSQL for local runs (needs Docker): see docker/compose.local-db.yml for the .env lines.
+db-up:
+	docker compose -f docker-compose.yml -f docker/compose.local-db.yml up -d db
+
+db-down:
+	docker compose -f docker-compose.yml -f docker/compose.local-db.yml stop db
+
+# Copy the local SQLite data into the database in DATABASE_URL (once, after db-up).
+db-copy:
+	.venv/bin/python scripts/copy_database.py --to "$$DATABASE_URL"
 

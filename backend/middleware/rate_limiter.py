@@ -40,6 +40,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     _PROTECTED = (
         "/api/v1/auth/login",
         "/api/v1/auth/users",
+        "/api/v1/auth/2fa",            # 6-digit codes: no fast guessing
         "/api/v1/events/internal",
         "/api/v1/alerts/dispatch",
     )

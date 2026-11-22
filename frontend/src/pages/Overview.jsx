@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchPendingHandover } from '../services/api'
+import { fetchPendingHandover, fetchTwoFactor } from '../services/api'
 import { Card, Stat, Icons, Tag, SEVERITY_TONE, timeAgo, Empty, Pill } from '../components/ui'
 import { canViewPage } from '../lib/permissions'
 import { AreaChart, BarList, Donut } from '../components/charts'
@@ -100,7 +100,13 @@ export function Overview({ ctx }) {
     if (!seesShift) return
     fetchPendingHandover().then(setHandover).catch(() => {})
   }, [seesShift])
+  // Admins and supervisors are asked to turn on two-factor sign-in until they do.
+  const [twoFactor, setTwoFactor] = useState(null)
+  useEffect(() => { fetchTwoFactor().then(setTwoFactor).catch(() => {}) }, [])
   const attention = attentionItems(ctx, camList)
+  if (twoFactor?.recommended && !twoFactor.enabled) {
+    attention.push({ tone: 'warn', text: 'Turn on two-factor sign-in for your account: a stolen password alone should not open this system', action: 'Set up', run: ctx.openProfile })
+  }
   if (handover && handover.username !== ctx.me?.username) {
     attention.unshift({ tone: 'warn', text: `Shift handover from ${handover.username} is waiting for you`, action: 'Read', page: 'shift' })
   }
@@ -116,7 +122,7 @@ export function Overview({ ctx }) {
         {attention.map((a) => (
           <div className={`attn-row tone-${a.tone}`} key={a.text}>
             <span>{a.text}</span>
-            <button type="button" className="btn btn-sm" onClick={() => ctx.setPage(a.page)}>{a.action}</button>
+            <button type="button" className="btn btn-sm" onClick={() => (a.run ? a.run() : ctx.setPage(a.page))}>{a.action}</button>
           </div>
         ))}
       </section>

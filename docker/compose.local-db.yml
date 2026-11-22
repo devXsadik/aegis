@@ -1,0 +1,9 @@
+# PostgreSQL for local (non-Docker) runs: `make db-up`. Only the database, reachable from this
+# machine only (127.0.0.1). Then in .env:
+#   USE_SQLITE=false
+#   DATABASE_URL=postgresql://aegis:<POSTGRES_PASSWORD>@localhost:5432/aegis
+# and copy existing data once: python scripts/copy_database.py --to "$DATABASE_URL"
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

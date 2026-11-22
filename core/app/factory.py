@@ -152,6 +152,11 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
             logger.warning("Action recognition DISABLED: run scripts/export_action_model.py")
             action_recognizer = None
 
+    from core.analysis.fight import FightDetector
+    fight_detector = FightDetector.from_config(cfg.get("fight")) if pose_analyzer is not None else None
+    if fight_detector:
+        logger.info("Fight heuristic: ENABLED (unverified; see core/analysis/fight.py)")
+
     fire_detector = None
     fire_path = model_path(base_dir, model_dir, "fire_detector", "fire_smoke_yolo.pt")
     if os.path.exists(fire_path):
@@ -215,6 +220,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         anpr=anpr,
         plate_db=plate_db,
         action_recognizer=action_recognizer,
+        fight_detector=fight_detector,
         pose_every_n=pose_cfg.get("every_n_frames", 2),
         anpr_every_n=anpr_cfg.get("every_n_frames", 3),
     ))

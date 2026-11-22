@@ -13,13 +13,21 @@ export function LoginForm({ onLogin, theme, setTheme, notice }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(notice || '')
   const [loading, setLoading] = useState(false)
+  const [needCode, setNeedCode] = useState(false)     // the account has two-factor sign-in on
+  const [code, setCode] = useState('')
 
-  const signIn = async (user, pass) => {
+  const signIn = async (user, pass, otp) => {
     setLoading(true); setError('')
     try {
-      await onLogin(user, pass)
+      await onLogin(user, pass, otp)
     } catch (err) {
-      setError(err.message || 'Login failed')
+      if (err.detail?.totp_required) {
+        setNeedCode(true)
+        setCode('')
+        if (otp) setError(err.message)                  // a wrong code; a first ask needs no error
+      } else {
+        setError(err.message || 'Login failed')
+      }
     } finally {
       setLoading(false)
     }
@@ -27,7 +35,7 @@ export function LoginForm({ onLogin, theme, setTheme, notice }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    signIn(username, password)
+    signIn(username, password, needCode ? code : undefined)
   }
 
   return (
@@ -50,7 +58,15 @@ export function LoginForm({ onLogin, theme, setTheme, notice }) {
         {error && <div className="login-error" role="alert">{error}</div>}
         <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
-        <button type="submit" className="btn btn-primary" disabled={loading || !username || !password}>{loading ? 'Signing in…' : 'Sign in'}</button>
+        {needCode && (
+          <label>Code from your authenticator app
+            <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ''))} inputMode="numeric"
+              autoComplete="one-time-code" maxLength={7} placeholder="123 456" autoFocus required />
+          </label>
+        )}
+        <button type="submit" className="btn btn-primary" disabled={loading || !username || !password || (needCode && code.replace(/\s/g, '').length !== 6)}>
+          {loading ? 'Signing in…' : needCode ? 'Verify and sign in' : 'Sign in'}
+        </button>
         {DEMO_LOGIN && (
           <button type="button" className="btn login-demo-btn" disabled={loading} onClick={() => signIn(DEMO_LOGIN.username, DEMO_LOGIN.password)}>Use the demo account</button>
         )}

@@ -191,6 +191,7 @@ function App() {
     plates, vehicleDetections, auditLogs, reloadVehicles,
     me, streamingCams, reloadCameras, setPage, mapFocus, liveFocus, unplugged: devices.unplugged, power, setPower,
     reviewPending, refreshReviewCount, captureEvent, openCamera, camList, escalation, pinned, pinCamera,
+    openProfile: () => setShowProfile(true),
     showOnMap: (c) => { setMapFocus({ cameraId: c.camera_id, lat: c.lat, lng: c.lng, t: Date.now() }); setPage('map') },
     theme, setTheme,
   }

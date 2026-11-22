@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, Empty, Icons, Seg, Tag, timeAgo, SEVERITY_TONE, useConfirm } from '../components/ui'
 import { OpsMap } from '../components/OpsMap'
+import { FloorPlansCard } from '../components/FloorPlansCard'
 import { groupEvents, spreadCameras } from '../lib/mapGeo'
 import { eventGroup, eventLabel, GROUPS } from '../lib/events'
 import { parseTs } from '../lib/time'
 import { can } from '../lib/permissions'
 import { useToast } from '../components/Toast'
-import { fetchMapCameras, fetchMapEvents, fetchCameraOfficerMap, updateCamera } from '../services/api'
+import { fetchMapCameras, fetchMapEvents, fetchCameraOfficerMap, fetchFloorPlans, updateCamera, updateFloorPlan } from '../services/api'
 
 const RANGES = [
   { value: 1, label: '1h' },
@@ -27,7 +28,16 @@ export function MapPage({ ctx }) {
   const [loadError, setLoadError] = useState('')
   const [hours, setHours] = useState(24)
   const [groupsOn, setGroupsOn] = useState(() => new Set(MAP_GROUPS.map((g) => g.id).concat('other')))
-  const [layers, setLayers] = useState({ alerts: true, heat: false, coverage: true })
+  const [layers, setLayers] = useState({ alerts: true, heat: false, coverage: true, plans: true })
+  const [plans, setPlans] = useState([])
+  const [planEditId, setPlanEditId] = useState(null)
+  const viewRef = useRef(null)
+  const loadPlans = useCallback(() => fetchFloorPlans().then(setPlans).catch(() => {}), [])
+  useEffect(() => { loadPlans() }, [loadPlans])
+  const onPlanBounds = async (id, bounds) => {
+    try { await updateFloorPlan(id, { bounds: bounds.map((p) => p.map((v) => Number(v.toFixed(7)))) }); loadPlans() }
+    catch (e) { toast(e.message || 'Could not save the floor plan position', 'danger'); loadPlans() }
+  }
   const [replay, setReplay] = useState(false)
   const [replayPct, setReplayPct] = useState(100)
   const [selectedCam, setSelectedCam] = useState(mapFocus?.cameraId || null)
@@ -158,6 +168,7 @@ export function MapPage({ ctx }) {
               <button type="button" className={`chip ${layers.alerts ? 'on' : ''}`} aria-pressed={layers.alerts} onClick={() => toggleLayer('alerts')}>Alerts</button>
               <button type="button" className={`chip ${layers.heat ? 'on' : ''}`} aria-pressed={layers.heat} onClick={() => toggleLayer('heat')}>Heat</button>
               <button type="button" className={`chip ${layers.coverage ? 'on' : ''}`} aria-pressed={layers.coverage} onClick={() => toggleLayer('coverage')}>Coverage</button>
+              {plans.length > 0 && <button type="button" className={`chip ${layers.plans ? 'on' : ''}`} aria-pressed={layers.plans} onClick={() => toggleLayer('plans')}>Floor plans</button>}
               <button type="button" className={`chip ${replay ? 'on' : ''}`} aria-pressed={replay} onClick={() => { setReplay((r) => !r); setReplayPct(100) }}>Replay</button>
               <button type="button" className="chip" onClick={() => setFitKick((k) => k + 1)}>Fit all</button>
             </div>
@@ -169,11 +180,13 @@ export function MapPage({ ctx }) {
             </label>
           )}
           {placingId && <div className="ops-hint" role="status">Click the map to place <b>{cameras.find((c) => c.camera_id === placingId)?.name}</b>. <button className="link-btn" onClick={() => setPlacingId(null)}>Cancel</button></div>}
+          {planEditId && <div className="ops-hint" role="status">Drag the square corners onto the building, or the round centre to move the plan. Each drag is saved. <button className="link-btn" onClick={() => setPlanEditId(null)}>Done</button></div>}
           {editId && <div className="ops-hint" role="status">Drag the highlighted camera marker to its real position. <button className="link-btn" onClick={() => setEditId(null)}>Done</button></div>}
           <OpsMap
             cameras={located} statusOf={statusOf} groups={groups} layers={layers}
             selectedId={selectedCam} focus={focus} editId={editId} placingId={placingId} fitKey={fitKey}
             onSelectCamera={pickCamera} onSelectGroup={pickGroup} onMoveCamera={onMove} onPlace={onPlace}
+            plans={layers.plans ? plans : []} planEditId={planEditId} onPlanBounds={onPlanBounds} viewRef={viewRef}
           />
           <div className="map-legend" style={{ marginTop: 10 }}>
             <span className="key"><span className="swatch" style={{ background: 'var(--ok)' }} /> Streaming</span>
@@ -237,6 +250,11 @@ export function MapPage({ ctx }) {
               ))}
             </div>
           </Card>
+
+          {isAdmin && (
+            <FloorPlansCard plans={plans} editId={planEditId} setEditId={(id) => { setPlanEditId(id); if (id) setLayers((l) => ({ ...l, plans: true })) }}
+              viewRef={viewRef} reload={loadPlans} toast={toast} />
+          )}
 
           <Card title="Latest alerts" sub={`last ${hours === 168 ? '7 days' : `${hours}h`}`}>
             {visible.length === 0 && <Empty icon={Icons.eye}>No alerts in this window</Empty>}

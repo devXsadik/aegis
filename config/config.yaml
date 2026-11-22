@@ -48,6 +48,16 @@ action:
 # --- Detection Thresholds ---
 confidence_threshold: 0.4         # 0.5 dropped people who were partly hidden or far away
 weapon_conf_threshold: 0.4
+# Possible fight (core/analysis/fight.py): two people close together, both moving their arms fast,
+# sustained over several pose passes. A heuristic, OFF until scripts/evaluate_accuracy.py on your
+# own clips shows an acceptable false-alert rate (staged and real fights are both needed).
+fight:
+  enabled: false
+  near: 1.3                        # how close: box centres within this many box-widths
+  arm_speed: 1.6                   # wrist speed, in body-heights per second, for both people
+  window: 6                        # pose passes looked at ...
+  min_hits: 4                      # ... and how many of them must show it
+
 # Camera tamper alerts (core/analysis/tamper.py): covered, blurred, moved, frozen picture.
 # Checked once a second on the raw frames. Tested on ~97 min of the dev webcams: no false alerts.
 tamper:

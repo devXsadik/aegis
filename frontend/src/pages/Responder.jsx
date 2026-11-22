@@ -4,6 +4,34 @@ import { useToast } from '../components/Toast'
 import { captureImageUrl, fetchResponderAlerts, setResponderStatus } from '../services/api'
 import { eventLabel, waitLabel } from '../lib/events'
 import { parseTs } from '../lib/time'
+import { currentSubscription, pushSupported, turnOffPush, turnOnPush } from '../lib/push'
+
+/** "Phone alerts": this device buzzes on a new alert even with the screen off (Web Push). */
+function PhoneAlerts({ toast }) {
+  const [on, setOn] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { currentSubscription().then((s) => setOn(!!s)).catch(() => setOn(false)) }, [])
+  if (!pushSupported()) {
+    return <span className="meta rsp-push">Phone alerts need the dashboard over HTTPS (or localhost)</span>
+  }
+  const toggle = async () => {
+    setBusy(true)
+    try {
+      if (on) { await turnOffPush(); setOn(false); toast('Phone alerts off on this device', 'ok') }
+      else { await turnOnPush(); setOn(true); toast('Phone alerts on: this device will buzz on a new alert', 'ok') }
+    } catch (e) {
+      toast(e.message || 'Could not change phone alerts', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" className={`btn btn-sm rsp-push ${on ? 'on' : ''}`} disabled={busy || on === null} onClick={toggle}
+      aria-pressed={!!on} title="Notifications on this device for new alerts, even when Aegis is closed">
+      <Icons.bell /> {on ? 'Phone alerts on' : 'Turn on phone alerts'}
+    </button>
+  )
+}
 
 // Each step offers the next one; resolved is the end.
 const NEXT = { null: ['en_route', 'On my way'], en_route: ['on_scene', 'On scene'], on_scene: ['resolved', 'Resolved'] }
@@ -94,7 +122,10 @@ export function Responder({ ctx }) {
         <span className="meta">
           {data?.assigned_cameras?.length ? `Your cameras: ${data.assigned_cameras.length}` : 'All cameras (none assigned to you)'} · last 24 hours
         </span>
-        <Seg value={show} onChange={setShow} options={[{ value: 'open', label: 'To do' }, { value: 'done', label: 'Resolved' }]} />
+        <div className="rsp-tools">
+          <PhoneAlerts toast={toast} />
+          <Seg value={show} onChange={setShow} options={[{ value: 'open', label: 'To do' }, { value: 'done', label: 'Resolved' }]} />
+        </div>
       </div>
       {data && alerts.length === 0 && (
         <Empty icon={Icons.check}>{show === 'open' ? 'Nothing to respond to right now.' : 'Nothing resolved in the last 24 hours.'}</Empty>

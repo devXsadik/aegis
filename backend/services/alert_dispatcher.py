@@ -278,6 +278,11 @@ async def dispatch_alert(
         payload["auto_dispatched"] = True
 
         await manager.broadcast(payload, "status")
+        try:
+            from backend.services import web_push
+            web_push.notify_later(camera_id, severity)       # responders' phones (no alert data in the push)
+        except Exception as pe:  # noqa: BLE001
+            logger.warning(f"Web push not sent: {pe}")
 
         logger.info(
             f"AUTO ALERT: {alert_type} @ {camera_location} ({camera_id}) "

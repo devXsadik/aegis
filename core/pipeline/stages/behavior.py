@@ -21,7 +21,7 @@ class BehaviorStage(PipelineStage):
 
     def __init__(self, pose_analyzer=None, anomaly_detector=None,
                  anpr=None, plate_db=None, fall_detector=None, action_recognizer=None,
-                 pose_every_n: int = 2, anpr_every_n: int = 3, enabled: bool = True):
+                 pose_every_n: int = 2, anpr_every_n: int = 3, enabled: bool = True, fight_detector=None):
         super().__init__(name="behavior", enabled=enabled)
         self.pose_analyzer = pose_analyzer
         self.anomaly_detector = anomaly_detector
@@ -29,6 +29,8 @@ class BehaviorStage(PipelineStage):
         self.plate_db = plate_db
         self.fall_detector = fall_detector if fall_detector is not None else FallDetector()
         self.action_recognizer = action_recognizer
+        self.fight_detector = fight_detector          # core/analysis/fight.py; off unless configured
+        self._fighting = set()
         self._actions = {}                   # track id → (reason, NTU label, probability)
         self.pose_every_n = max(1, pose_every_n)   # pose is the costliest per-frame step
         self._frames = 0
@@ -62,6 +64,8 @@ class BehaviorStage(PipelineStage):
                     self._last_poses = {}
                 if self.action_recognizer is not None:     # fed once per fresh pose pass
                     self._actions = self.action_recognizer.update(now, ctx.frame.shape, self._last_poses)
+                if self.fight_detector is not None:
+                    self._fighting = self.fight_detector.update(now, self._last_poses)
         poses = {k: v for k, v in self._last_poses.items() if k in live}
         ctx.poses = poses          # the output stage checks whether a weapon is in someone's hand
         self.fall_detector.prune(live)
@@ -103,6 +107,10 @@ class BehaviorStage(PipelineStage):
                 ctx.fall_tracks[track_id] = {"bbox": (x1, y1, x2, y2)}
             elif action and action[0] not in reasons:
                 reasons.append(action[0])
+                is_suspicious = True
+
+            if track_id in self._fighting:
+                reasons.append("possible fight (unverified)")
                 is_suspicious = True
 
             if is_suspicious:

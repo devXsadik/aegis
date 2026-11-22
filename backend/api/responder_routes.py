@@ -36,6 +36,10 @@ EVENT = {k: f"RESPONDER_{k.upper()}" for k in STEPS}
 ACTION_ROLES = {"police", "operator", "supervisor", "admin"}
 
 
+class PushBody(BaseModel):
+    endpoint: str = Field(max_length=2000, pattern="^https://")
+
+
 class StatusBody(BaseModel):
     status: str = Field(pattern="^(en_route|on_scene|resolved)$")
     note: Optional[str] = Field(default=None, max_length=300)
@@ -80,6 +84,39 @@ def my_alerts(hours: int = 24, db: Session = Depends(get_db), user: User = Depen
             "status": steps[-1]["status"] if steps else None,
         })
     return {"assigned_cameras": mine, "alerts": out}
+
+
+# --- Phone notifications (Web Push, backend/services/web_push.py) ----------------------------------
+@router.get("/push")
+def push_info(request: Request, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    from backend.models.push_subscription import PushSubscription
+    from backend.services import web_push
+    return {"public_key": web_push.public_key(),
+            "devices": db.query(PushSubscription).filter(PushSubscription.user_id == user.id).count()}
+
+
+@router.post("/push")
+def push_subscribe(body: PushBody, request: Request, db: Session = Depends(get_db),
+                   user: User = Depends(operator_or_admin)):
+    from backend.models.push_subscription import PushSubscription
+    sub = db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint).first()
+    if sub is None:
+        sub = PushSubscription(endpoint=body.endpoint)
+        db.add(sub)
+    sub.user_id, sub.user_agent = user.id, (request.headers.get("user-agent") or "")[:200]
+    log_audit(db, user, "PUSH_SUBSCRIBE", "push", "", "phone notifications on", request)
+    db.commit()
+    return {"subscribed": True}
+
+
+@router.delete("/push")
+def push_unsubscribe(body: PushBody, request: Request, db: Session = Depends(get_db),
+                     user: User = Depends(operator_or_admin)):
+    from backend.models.push_subscription import PushSubscription
+    n = (db.query(PushSubscription)
+         .filter(PushSubscription.endpoint == body.endpoint, PushSubscription.user_id == user.id).delete())
+    db.commit()
+    return {"subscribed": False, "removed": n}
 
 
 @router.post("/alerts/{alert_id}/status")

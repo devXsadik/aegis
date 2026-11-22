@@ -21,6 +21,7 @@ archive/
 frontend/node_modules/
 data/recordings/
 data/backups/
+data/push/
 *.DS_Store
 .DS_Store
 frontend/dist/

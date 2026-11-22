@@ -297,3 +297,36 @@
 .fa-table td.tone-danger { color: var(--danger); font-weight: 600; }
 .fa-suggest { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
 .fa-suggest > span { font-size: 0.86rem; }
+
+/* Two-factor sign-in (My account) */
+.tf { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+.tf-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tf .meta { margin: 0; font-size: 0.84rem; }
+.tf > .btn { align-self: flex-start; }
+.tf-setup { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.tf-qr { width: 164px; height: 164px; flex: none; background: #fff; border-radius: 10px; padding: 4px; display: block; }
+.tf-qr svg { width: 100%; height: 100%; display: block; }
+.tf-steps { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.tf-steps ol { margin: 0; padding-left: 18px; font-size: 0.86rem; display: grid; gap: 4px; }
+.tf-key { font-family: var(--font-mono); font-size: 0.82rem; word-break: break-all; }
+.tf-off { display: flex; gap: 8px; flex-wrap: wrap; }
+.tf-off .input { flex: 1; min-width: 120px; }
+.tf-rec { margin: 0; font-size: 0.84rem; color: var(--warn); }
+
+/* Responder: phone alerts switch */
+.rsp-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rsp-push { display: inline-flex; align-items: center; gap: 6px; }
+.rsp-push.on { color: var(--ok); }
+
+/* Floor plans on the operations map */
+.leaflet-image-layer.floor-plan { filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.35)); }
+.plan-handle { border: 2px solid #fff; background: #3b82f6; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: grab; }
+.plan-handle.corner { border-radius: 3px; }
+.plan-handle.move { border-radius: 50%; background: #f59e0b; }
+.fp-list { display: flex; flex-direction: column; gap: 6px; }
+.fp-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; }
+.fp-row.on { background: var(--surface-2); }
+.fp-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-opacity input { width: 100%; }
+.fp-add { display: grid; gap: 8px; margin-top: 10px; }
+.fp-add .btn { justify-self: start; }

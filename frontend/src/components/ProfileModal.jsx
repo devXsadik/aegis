@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Modal } from './ui'
 import { changePassword } from '../services/api'
+import { TwoFactor } from './TwoFactor'
 
 /** Self-service password change. Rules mirror the backend: 10+ characters, not only letters or only digits. */
 export function ProfileModal({ me, onClose }) {
@@ -43,6 +44,8 @@ export function ProfileModal({ me, onClose }) {
     >
       <div style={{ display: 'grid', gap: 10 }}>
         <div className="meta">Signed in as <b>{me?.username}</b> · {me?.role}</div>
+        <TwoFactor />
+        <div className="section-label" style={{ marginTop: 6 }}><span>Change password</span></div>
         {done ? (
           <div className="tag tag-ok" style={{ padding: '8px 12px' }}>Password changed. Use it next time you sign in.</div>
         ) : (
