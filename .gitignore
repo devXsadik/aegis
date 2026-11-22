@@ -34,6 +34,7 @@ data/watchlist/*/
 # Local agent skills / editor settings — keep out of this repo (~43MB skills)
 .agents/
 .claude/
+skills-lock.json
 *.mcp.local.json
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).

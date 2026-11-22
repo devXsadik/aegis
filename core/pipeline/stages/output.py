@@ -277,7 +277,7 @@ class OutputStage(PipelineStage):
                 camera_lng=ctx.camera_lng,
                 zone=anomaly.get("zone"),
                 track_id=anomaly.get("track_id"),
-                anomaly_type="INTRUSION" if anomaly.get("type") == "intrusion" else "ANOMALY_DETECTED",
+                anomaly_type={"intrusion": "INTRUSION", "occupancy": "OCCUPANCY_LIMIT"}.get(anomaly.get("type"), "ANOMALY_DETECTED"),
             )
 
         ctx.threat_score = min(

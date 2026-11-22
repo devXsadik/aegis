@@ -4,13 +4,21 @@ Normalized coordinates keep zone definitions valid across resolutions.
 cameras.yaml example:
 
     zones:
-      - {name: door, type: restricted, polygon: [[0.1,0.2],[0.4,0.2],[0.4,0.9],[0.1,0.9]]}
-      - {name: lobby, type: monitor, polygon: [[0.4,0.1],[0.9,0.1],[0.9,0.9],[0.4,0.9]]}
+      - {name: door, type: restricted, polygon: [[0.1,0.2],[0.4,0.2],[0.4,0.9],[0.1,0.9]],
+         schedule: {days: [0,1,2,3,4], start: "19:00", end: "07:00"}}   # armed weeknights only
+      - {name: lobby, type: monitor, polygon: [[0.4,0.1],[0.9,0.1],[0.9,0.9],[0.4,0.9]],
+         max_people: 12}                                                 # occupancy limit
+
+`schedule` (optional): when the zone raises alerts — days 0=Monday..6=Sunday, local time of
+the pipeline computer, `end` before `start` runs past midnight (the night belongs to the day it
+started). Without it the zone is always armed. People are counted either way.
     lines:
       - {name: entrance, p1: [0.5,0.0], p2: [0.5,1.0]}
 """
 
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
@@ -57,14 +65,38 @@ def crossed(prev: Point, cur: Point, a: Point, b: Point) -> int:
     return 1 if s1 > 0 else -1
 
 
+def _minutes(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def schedule_active(schedule: Optional[dict], when: datetime) -> bool:
+    """Is `when` (local time) inside the schedule? No schedule = always."""
+    if not schedule:
+        return True
+    days = set(schedule.get("days", range(7)))
+    start, end = _minutes(schedule["start"]), _minutes(schedule["end"])
+    now = when.hour * 60 + when.minute
+    today = when.weekday()
+    if start < end:                                   # same-day window, e.g. 09:00-17:00
+        return today in days and start <= now < end
+    # Overnight, e.g. 19:00-07:00: the evening part belongs to today, the morning to yesterday.
+    return (today in days and now >= start) or ((today - 1) % 7 in days and now < end)
+
+
 @dataclass
 class Zone:
     name: str
     type: str = "monitor"            # monitor | restricted
     polygon: List[Point] = field(default_factory=list)
+    schedule: Optional[dict] = None  # when the zone raises alerts (see module docstring)
+    max_people: Optional[int] = None # occupancy limit: an alert when more people are inside
 
     def contains(self, nx: float, ny: float) -> bool:
         return point_in_polygon(nx, ny, self.polygon)
+
+    def armed(self, ts: float) -> bool:
+        return schedule_active(self.schedule, datetime.fromtimestamp(ts))
 
 
 @dataclass
@@ -79,7 +111,8 @@ def parse_zones(raw: Optional[list]) -> List[Zone]:
     for z in raw or []:
         poly = [tuple(map(float, p)) for p in z.get("polygon", [])]
         if len(poly) >= 3:
-            out.append(Zone(str(z["name"]), z.get("type", "monitor"), poly))
+            out.append(Zone(str(z["name"]), z.get("type", "monitor"), poly,
+                            z.get("schedule") or None, z.get("max_people") or None))
     return out
 
 
@@ -115,6 +148,23 @@ def _polygon_area(poly) -> float:
     return abs(a) / 2
 
 
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _schedule(raw, name: str) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{name}: schedule must have days, start and end")
+    days = raw.get("days")
+    if not isinstance(days, list) or not days or any(not isinstance(d, int) or not 0 <= d <= 6 for d in days):
+        raise ValueError(f"{name}: pick at least one day for the active hours")
+    start, end = str(raw.get("start", "")), str(raw.get("end", ""))
+    if not (_HHMM.match(start) and _HHMM.match(end)):
+        raise ValueError(f"{name}: active hours must be times like 19:00")
+    if start == end:
+        raise ValueError(f"{name}: active hours start and end at the same time")
+    return {"days": sorted(set(days)), "start": start, "end": end}
+
+
 def validate_geometry(zones, lines) -> dict:
     """Return a cleaned {zones, lines} dict or raise ValueError with a readable message."""
     zones = zones or []
@@ -142,7 +192,18 @@ def validate_geometry(zones, lines) -> dict:
         poly = [_point(p, name) for p in pts]
         if _polygon_area(poly) < 0.0005:
             raise ValueError(f"{name}: zone is too small or its points are in a straight line")
-        out_zones.append({"name": name, "type": ztype, "polygon": poly})
+        zone = {"name": name, "type": ztype, "polygon": poly}
+        if z.get("schedule"):
+            zone["schedule"] = _schedule(z["schedule"], name)
+        if z.get("max_people") not in (None, "", 0):
+            try:
+                limit = int(z["max_people"])
+            except (TypeError, ValueError):
+                raise ValueError(f"{name}: max people must be a whole number")
+            if not 1 <= limit <= 500:
+                raise ValueError(f"{name}: max people must be between 1 and 500")
+            zone["max_people"] = limit
+        out_zones.append(zone)
 
     out_lines = []
     for l in lines:

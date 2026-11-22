@@ -12,6 +12,8 @@ export const EVENT_META = {
   FIRE_SMOKE_DETECTED: { label: 'Fire / smoke', group: 'fire', icon: 'fire' },
   FALL_SUSPECTED: { label: 'Possible fall', group: 'fall', icon: 'users' },
   CAMERA_TAMPER: { label: 'Camera tampered', group: 'camera', icon: 'camera' },
+  OCCUPANCY_LIMIT: { label: 'Too many people', group: 'behavior', icon: 'users' },
+  RESPONDER_UPDATE: { label: 'Responder update', group: 'other', icon: 'dispatch' },
 }
 
 export const GROUPS = [
@@ -123,6 +125,7 @@ export const EXPLAIN = {
   PERSON_TRACKED: 'This person looks like someone who raised a watchlist or weapon alert earlier, here or on another camera. The match is on clothing and build, not the face, so similar clothes can match — compare the captures before acting.',
   WEAPON_DETECTED: 'A weapon-like object was seen on the same person in at least 3 of the last 5 processed frames. Tiny detections are ignored, and one that is not in a hand needs a higher score; the details say whether it was in hand. Check the snapshot: tools, phones and umbrellas are common false positives.',
   FIRE_SMOKE_DETECTED: 'Fire or smoke was seen in at least 5 of the last 8 frames. Steam, fog and bright lights can look similar.',
+  OCCUPANCY_LIMIT: 'More people are in this zone than its limit allows (set under Zones). One alert each time the count goes over; it can fire again once the count has dropped back.',
   CAMERA_TAMPER: 'The camera picture changed in a way people do not cause: it went dark or uniform (covered), lost its sharpness (smeared or knocked out of focus), now shows a different steady view (turned or knocked), or stopped changing (frozen). Check the camera itself, and the recording just before, for who did it.',
   FALL_SUSPECTED: 'A person was upright, then stayed horizontal for 2 seconds or more. They may be resting or exercising — check the camera.',
   INTRUSION: "A person's feet entered a zone marked restricted for this camera.",

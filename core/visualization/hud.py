@@ -7,7 +7,6 @@ Provides individual drawing functions and a high-level `render_hud()`.
 
 import cv2
 import math
-import numpy as np
 from core.pipeline.base import FrameContext
 
 
@@ -211,17 +210,6 @@ def draw_radar(frame, tracks, frame_w, frame_h, time_elapsed, criminal_ids):
 
         cv2.circle(frame, (dot_x, dot_y), 3, color, -1)
 
-    return frame
-
-
-def draw_flash_effect(frame, flash_time, current_time):
-    """White flash fading out over 0.5 seconds."""
-    if flash_time > 0:
-        elapsed = current_time - flash_time
-        if elapsed < 0.5:
-            alpha = max(0, 1.0 - (elapsed / 0.5))
-            overlay = np.full_like(frame, 255)
-            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
     return frame
 
 

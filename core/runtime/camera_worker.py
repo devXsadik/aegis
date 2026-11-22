@@ -10,6 +10,7 @@ from typing import Callable, Optional
 import cv2
 
 from core.analysis.tamper import MESSAGES as TAMPER_MESSAGES
+from core.analysis.zones import QUADRANT_ZONES
 from core.runtime.runtime_config import RuntimeConfigSync
 from core.visualization.hud import render_full_hud
 from core.visualization.stream_overlay import StreamOverlay
@@ -19,6 +20,7 @@ from utils.system import FrameSkipper, ResourceMonitor
 from paths import RECORDINGS_DIR
 
 logger = logging.getLogger("HumanAnalysis")
+DEFAULT_ZONE_NAMES = {z["name"] for z in QUADRANT_ZONES}      # used when a camera has no drawn zones
 
 
 class _Failures:
@@ -294,6 +296,15 @@ def run_camera_loop(
                             "traffic_flow": a.get_traffic_flow(),
                             "heatmap": a.get_heatmap_grid(),
                             "track_count": len(ctx.tracks) if ctx is not None and hasattr(ctx, "tracks") else 0,
+                        }
+                    # People per zone, its limit and whether it is armed now: "Lobby 7 / 12" on the dashboard.
+                    behavior = next((s for s in pipeline.stages if s.name == "behavior"), None)
+                    zones_det = getattr(behavior, "anomaly_detector", None)
+                    if zones_det is not None and analytics_snapshot is not None:
+                        analytics_snapshot["occupancy"] = {
+                            z.name: {"count": zones_det.zone_counts.get(z.name, 0), "limit": z.max_people,
+                                     "armed": z.armed(now), "type": z.type}
+                            for z in zones_det.zones if z.name not in DEFAULT_ZONE_NAMES     # drawn zones only
                         }
                 except Exception as e:
                     logger.debug(f"[{camera_id}] analytics snapshot skipped: {e}")

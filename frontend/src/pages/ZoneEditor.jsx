@@ -10,6 +10,53 @@ const TOOL_HINT = {
   line: 'Click the start, then the end. Crossings are recorded with a direction (+ or −).',
 }
 
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const NIGHTS = { days: [0, 1, 2, 3, 4], start: '19:00', end: '07:00' }
+
+/** When a zone raises alerts, and how many people it may hold. Counting always goes on. */
+function ZoneRules({ zone, canEdit, onChange }) {
+  const sch = zone.schedule
+  const setSch = (patch) => onChange({ schedule: { ...sch, ...patch } })
+  const toggleDay = (d) => {
+    const days = sch.days.includes(d) ? sch.days.filter((x) => x !== d) : [...sch.days, d].sort()
+    setSch({ days })
+  }
+  return (
+    <>
+      <div className="field">
+        <span>Active hours</span>
+        <Seg value={sch ? 'set' : 'always'} onChange={(v) => canEdit && onChange({ schedule: v === 'set' ? NIGHTS : undefined })}
+          options={[{ value: 'always', label: 'Always' }, { value: 'set', label: 'Set hours' }]} />
+      </div>
+      {sch && (
+        <>
+          <div className="chip-row ze-days" role="group" aria-label="Days">
+            {DAYS.map((d, i) => (
+              <button key={d} type="button" className={`chip ${sch.days.includes(i) ? 'on' : ''}`} aria-pressed={sch.days.includes(i)}
+                disabled={!canEdit} onClick={() => toggleDay(i)}>{d}</button>
+            ))}
+          </div>
+          <div className="ze-hours">
+            <label className="field"><span>From</span>
+              <input type="time" value={sch.start} disabled={!canEdit} onChange={(e) => setSch({ start: e.target.value })} /></label>
+            <label className="field"><span>Until</span>
+              <input type="time" value={sch.end} disabled={!canEdit} onChange={(e) => setSch({ end: e.target.value })} /></label>
+          </div>
+          <p className="muted ze-hint">
+            {sch.end < sch.start ? 'Runs past midnight into the next morning. ' : ''}
+            Outside these hours people are still counted, but this zone raises no alerts.
+          </p>
+        </>
+      )}
+      <label className="field">
+        <span>Max people (optional)</span>
+        <input type="number" min="1" max="500" placeholder="No limit" value={zone.max_people ?? ''} disabled={!canEdit}
+          onChange={(e) => onChange({ max_people: e.target.value === '' ? undefined : Number(e.target.value) })} />
+      </label>
+    </>
+  )
+}
+
 export function ZoneEditor({ ctx }) {
   const { cameras = [], streamingCams = [], me } = ctx
   const { push: toast } = useToast()
@@ -282,6 +329,8 @@ export function ZoneEditor({ ctx }) {
               <button key={`zi${i}`} type="button" className={`ze-item ${sel?.kind === 'zone' && sel.i === i ? 'on' : ''}`}
                 onClick={() => { setSel({ kind: 'zone', i }); setTool('select') }}>
                 <span className={`ze-swatch ${z.type}`} /> <b>{z.name}</b>
+                {z.schedule && <Tag tone="muted" title="Has active hours">{z.schedule.start}–{z.schedule.end}</Tag>}
+                {z.max_people && <Tag tone="muted" title="Occupancy limit">max {z.max_people}</Tag>}
                 <Tag tone={z.type === 'restricted' ? 'danger' : 'info'}>{z.type}</Tag>
               </button>
             ))}
@@ -308,6 +357,10 @@ export function ZoneEditor({ ctx }) {
                     <option value="restricted">Restricted — alert when anyone enters</option>
                   </select>
                 </label>
+              )}
+              {sel.kind === 'zone' && (
+                <ZoneRules zone={selShape} canEdit={canEdit}
+                  onChange={(patch) => setZones((z) => z.map((s, i) => (i === sel.i ? { ...s, ...patch } : s)))} />
               )}
               {nameError && <p className="login-error" role="alert">{nameError}</p>}
               {canEdit && <button type="button" className="btn btn-sm" onClick={() => remove(sel)}><Icons.close /> Delete <kbd>Del</kbd></button>}

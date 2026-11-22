@@ -34,6 +34,7 @@ class AnomalyDetector:
         self.zone_counts.clear()
         self._entered = {z.name: {} for z in self.zones}      # zone → {tid: entry_ts}
         self._reported = {z.name: set() for z in self.zones}  # (dwell/intrusion) once per entry
+        self._over_limit = set()                              # zones above max_people right now
         self._last_pos = {}                                   # tid → (nx, ny)
 
     def update(self, tracks, frame_shape, now: Optional[float] = None):
@@ -61,7 +62,23 @@ class AnomalyDetector:
             for tid in inside:
                 entered.setdefault(tid, now)
 
-            if len(inside) >= self.crowd_threshold:
+            # Outside its active hours a zone still counts people, but raises nothing.
+            if not zone.armed(now):
+                self._over_limit.discard(zone.name)
+                continue
+
+            if zone.max_people:
+                # Occupancy limit: one alert when the count goes over, again only after it fell back.
+                if len(inside) > zone.max_people and zone.name not in self._over_limit:
+                    self._over_limit.add(zone.name)
+                    anomalies.append({
+                        "type": "occupancy", "zone": zone.name, "count": len(inside), "limit": zone.max_people,
+                        "severity": "high",
+                        "message": f"{len(inside)} people in {zone.name} (limit {zone.max_people})",
+                    })
+                elif len(inside) <= zone.max_people:
+                    self._over_limit.discard(zone.name)
+            elif len(inside) >= self.crowd_threshold:
                 anomalies.append({
                     "type": "crowd", "zone": zone.name, "count": len(inside),
                     "severity": "high" if len(inside) >= self.crowd_threshold * 2 else "medium",

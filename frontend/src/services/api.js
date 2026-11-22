@@ -182,10 +182,6 @@ export async function verifyEvidence(evidenceId) {
   return apiFetch(`/faces/verify-evidence/${evidenceId}`, { method: 'POST' });
 }
 
-export async function fetchFaceEncodings() {
-  return apiFetch('/faces/');
-}
-
 export async function fetchEvidence(limit = 30) {
   return apiFetch(`/evidence/?limit=${limit}`);
 }
@@ -345,9 +341,6 @@ export async function fetchIncidents({ status, priority, limit = 50 } = {}) {
 export async function fetchIncidentStats() {
   return apiFetch('/incidents/stats');
 }
-export async function fetchIncident(id) {
-  return apiFetch(`/incidents/${id}`);
-}
 export async function updateIncident(id, patch) {
   return apiFetch(`/incidents/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
 }
@@ -370,29 +363,10 @@ export async function verifyCustody(evidenceId) {
 }
 
 /* ---- Recordings / timeline ---- */
-export async function fetchRecordings({ cameraId, hours = 24 } = {}) {
-  const qs = new URLSearchParams({ hours: String(hours) });
-  if (cameraId) qs.set('camera_id', cameraId);
-  return apiFetch(`/recordings/?${qs}`);
-}
-export async function fetchTimeline({ cameraId, hours = 24 } = {}) {
-  const qs = new URLSearchParams({ hours: String(hours) });
-  if (cameraId) qs.set('camera_id', cameraId);
-  return apiFetch(`/recordings/timeline?${qs}`);
-}
-/** The clip is fetched and handed back as a blob URL (one request, then seekable locally). */
-export async function openRecordingFile(clipId) {
-  const res = await fetch(`${API_BASE}/recordings/${clipId}/file`, { credentials: 'include' });
-  if (!res.ok) throw new Error(res.status === 404 ? 'Clip file is missing' : 'Could not open the clip');
-  return URL.createObjectURL(await res.blob());
-}
 
 /* ---- Re-ID ---- */
 export async function fetchReidPersons(hours = 24) {
   return apiFetch(`/reid/persons?hours=${hours}`);
-}
-export async function fetchReidVehicles(hours = 24) {
-  return apiFetch(`/reid/vehicles?hours=${hours}`);
 }
 
 /* ---- Integrations ---- */
@@ -415,9 +389,6 @@ export async function addCalibrationLabel(payload) {
 }
 
 /* ---- Professional VMS ---- */
-export async function fetchVmsStatus() {
-  return apiFetch('/vms/status');
-}
 export async function fetchVmsTimeline({ cameraId, hours = 24, trigger } = {}) {
   const qs = new URLSearchParams({ hours: String(hours) });
   if (cameraId) qs.set('camera_id', cameraId);
@@ -468,9 +439,6 @@ export function wsUrl(channel = 'alerts') {
   return `${base}/api/v1/ws/${channel}`;
 }
 
-
-
-
 export async function fetchConfigThresholds() {
   return apiFetch('/config/thresholds/all');
 }
@@ -494,6 +462,49 @@ export async function fetchLiveAnalytics() {
   return apiFetch('/analytics/live');
 }
 
-export async function fetchEvidenceBundle(evidenceIds = []) {
-  return apiFetch(`/reports/evidence-bundle?ids=${encodeURIComponent(evidenceIds.join(','))}`);
+/* ---- Shift log and handover ---- */
+export async function fetchShiftLog(hours = 48) {
+  return apiFetch(`/shift/log?hours=${hours}`);
+}
+export async function addShiftNote(text, cameraId) {
+  return apiFetch('/shift/notes', { method: 'POST', body: JSON.stringify({ text, camera_id: cameraId || null }) });
+}
+export async function fetchShiftSummary() {
+  return apiFetch('/shift/summary');
+}
+export async function fetchPendingHandover() {
+  return apiFetch('/shift/pending');
+}
+export async function handOverShift(notes) {
+  return apiFetch('/shift/handover', { method: 'POST', body: JSON.stringify({ notes }) });
+}
+export async function acceptHandover(id) {
+  return apiFetch(`/shift/handover/${id}/accept`, { method: 'POST' });
+}
+
+export async function fetchPersonJourney(name, hours = 72) {
+  return apiFetch(`/reid/persons/${encodeURIComponent(name)}?hours=${hours}`);
+}
+
+/** Evidence package ZIP for an incident. The browser downloads it straight from the API (the
+    session cookie authenticates; recordings can make it large, so no copy is held in the page). */
+export function downloadEvidencePackage(incidentId) {
+  const a = Object.assign(document.createElement('a'), { href: `${API_BASE}/incidents/${incidentId}/package`, download: '' });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export async function verifyEvidencePackage(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return apiFetch('/incidents/package/verify', { method: 'POST', body: fd });
+}
+
+/* ---- Responder view ---- */
+export async function fetchResponderAlerts(hours = 24) {
+  return apiFetch(`/responder/alerts?hours=${hours}`);
+}
+export async function setResponderStatus(alertId, status, note) {
+  return apiFetch(`/responder/alerts/${alertId}/status`, { method: 'POST', body: JSON.stringify({ status, note: note || null }) });
 }

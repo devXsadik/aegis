@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
@@ -16,6 +16,7 @@ from backend.auth.auth import operator_or_admin
 from backend.services.incident_service import (
     create_incident_from_alert, add_event, _next_ticket_id,
 )
+from backend.services.audit import log_audit
 from clock import utcnow
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -128,6 +129,31 @@ def incident_stats(db: Session = Depends(get_db), user: User = Depends(operator_
     for r in rows:
         by_status[r.status] = by_status.get(r.status, 0) + 1
     return {"total": len(rows), "by_status": by_status}
+
+
+@router.get("/{incident_id}/package")
+def evidence_package(incident_id: int, request: Request, db: Session = Depends(get_db),
+                     user: User = Depends(operator_or_admin)):
+    """ZIP with the case, its stills (and custody chains), captures and recordings, plus a signed manifest."""
+    from backend.services.evidence_package import build_package
+    try:
+        name, data = build_package(db, incident_id, user)
+    except LookupError:
+        raise HTTPException(404, "Incident not found")
+    log_audit(db, user, "EVIDENCE_PACKAGE", "incident", str(incident_id), name, request)
+    db.commit()
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.post("/package/verify")
+async def verify_evidence_package(file: UploadFile = File(...), user: User = Depends(operator_or_admin)):
+    """Was this package exported by this system, and is every file in it unchanged?"""
+    from backend.services.evidence_package import verify_package
+    data = await file.read()
+    if len(data) > 500 * 1024 * 1024:
+        raise HTTPException(413, "Package too large to check here")
+    return verify_package(data)
 
 
 @router.get("/{incident_id}", response_model=IncidentOut)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Icons, Tag, Empty, Stat, timeAgo } from '../components/ui'
 import { fetchReidPersons, personImageUrl } from '../services/api'
+import { PersonJourney } from '../components/PersonJourney'
 
 // The recogniser reports a person's ID (e.g. P-1A2B3C4D); older records may hold the name.
 const isPerson = (p, label) => !!label && (label === p.person_id || label === p.name)
@@ -10,6 +11,7 @@ const THREAT_TONE = (lvl) => (lvl >= 4 ? 'danger' : lvl >= 2 ? 'warn' : 'ok')
 export function Watchlist({ ctx }) {
   const { knownPersons, events, evidence, setPage } = ctx
   const [reid, setReid] = useState([])
+  const [journeyFor, setJourneyFor] = useState(null)
 
   useEffect(() => {
     fetchReidPersons(72).then((r) => setReid(r.persons || [])).catch(() => {})
@@ -86,10 +88,14 @@ export function Watchlist({ ctx }) {
               <b>{t.person_name}</b>
               <div className="meta">{t.sightings} sightings · {t.cameras.join(' → ')}</div>
             </div>
-            <Tag tone={t.cross_camera ? 'info' : 'muted'}>{t.cross_camera ? 'Several cameras' : 'One camera'}</Tag>
+            <span className="row" style={{ gap: 8 }}>
+              <Tag tone={t.cross_camera ? 'info' : 'muted'}>{t.cross_camera ? 'Several cameras' : 'One camera'}</Tag>
+              <button type="button" className="btn btn-sm" onClick={() => setJourneyFor(t.person_name)}><Icons.map /> Where seen</button>
+            </span>
           </div>
         ))}
       </Card>
+      {journeyFor && <PersonJourney name={journeyFor} onClose={() => setJourneyFor(null)} onShowOnMap={ctx.showOnMap} />}
     </>
   )
 }

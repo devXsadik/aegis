@@ -27,6 +27,8 @@ from backend.api.vms_routes import router as vms_router
 from backend.api.config_routes import router as config_router
 from backend.api.metrics_routes import router as metrics_router
 from backend.api.capture_routes import router as capture_router
+from backend.api.shift_routes import router as shift_router
+from backend.api.responder_routes import router as responder_router
 from backend.middleware.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger("HumanAnalysis")
@@ -172,6 +174,8 @@ app.include_router(vms_router, prefix=API_V1)
 app.include_router(config_router, prefix=API_V1)
 app.include_router(metrics_router, prefix=API_V1)
 app.include_router(capture_router, prefix=API_V1)
+app.include_router(shift_router, prefix=API_V1)
+app.include_router(responder_router, prefix=API_V1)
 
 
 @app.get("/health")

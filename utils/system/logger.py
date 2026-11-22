@@ -8,8 +8,10 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Ensure log directory exists
-_log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+from paths import LOGS_DIR
+
+# The project's logs/ folder (this used to resolve to utils/logs/ by mistake).
+_log_dir = str(LOGS_DIR)
 os.makedirs(_log_dir, exist_ok=True)
 
 logger = logging.getLogger("HumanAnalysis")

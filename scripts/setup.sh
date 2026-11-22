@@ -71,11 +71,11 @@ PYTHON=".venv/bin/python"
 
 echo ""
 echo "4. Initializing database schema..."
-$PYTHON -m backend.init_db
+$PYTHON scripts/db_upgrade.py          # same as Docker: create tables, stamp/upgrade Alembic
 
 echo ""
 echo "5. Ingesting known persons (face encodings)..."
-$PYTHON -m backend.migrate 2>/dev/null || $PYTHON scripts/ingest_watchlist.py 2>/dev/null || echo "   Run: .venv/bin/python scripts/ingest_watchlist.py"
+$PYTHON scripts/ingest_watchlist.py 2>/dev/null || echo "   Run: .venv/bin/python scripts/ingest_watchlist.py"
 
 echo ""
 echo "6. Creating admin user (password is printed below; save it)..."

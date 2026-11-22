@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Card, Icons, Tag, Empty } from '../components/ui'
 import { personImageUrl } from '../services/api'
 import { EnrollModal, EvidenceCheck, ManagePersonModal, VerifyPanel } from '../components/FaceRegistry'
+import { PersonJourney } from '../components/PersonJourney'
 
 const THREAT_TONE = (lvl) => (lvl >= 4 ? 'danger' : lvl >= 2 ? 'warn' : 'ok')
 
@@ -9,6 +10,7 @@ export function FaceRegistryPage({ ctx }) {
   const { knownPersons, reloadKnownPersons, me, evidence = [] } = ctx
   const [enrolling, setEnrolling] = useState(false)
   const [managing, setManaging] = useState(null)
+  const [journeyFor, setJourneyFor] = useState(null)
   const [query, setQuery] = useState('')
   const canEdit = me?.role === 'admin' || me?.role === 'supervisor'
   const canDelete = me?.role === 'admin'
@@ -75,14 +77,16 @@ export function FaceRegistryPage({ ctx }) {
                 <dt>Risk Level</dt><dd><Tag tone={THREAT_TONE(p.threat_level)}>Level {p.threat_level}</Tag></dd>
                 <dt>Photos</dt><dd>{p.image_count} · {p.encoding_count} embeddings</dd>
               </dl>
-              <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setManaging(p)}>
-                {canEdit ? 'Manage' : 'View'}
-              </button>
+              <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                <button className="btn btn-sm" onClick={() => setManaging(p)}>{canEdit ? 'Manage' : 'View'}</button>
+                <button className="btn btn-sm" onClick={() => setJourneyFor(p.name)}><Icons.map /> Where seen</button>
+              </div>
             </Card>
           ))}
         </div>
       )}
 
+      {journeyFor && <PersonJourney name={journeyFor} onClose={() => setJourneyFor(null)} onShowOnMap={ctx.showOnMap} />}
       {enrolling && <EnrollModal onClose={() => setEnrolling(false)} onDone={reloadKnownPersons} />}
       {managing && (
         <ManagePersonModal person={managing} canEdit={canEdit} canDelete={canDelete}

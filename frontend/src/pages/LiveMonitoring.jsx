@@ -32,6 +32,12 @@ const Chevron = ({ dir }) => (
   </svg>
 )
 
+const PinIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 17v5M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6z" />
+  </svg>
+)
+
 const PowerIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3v9M6.3 7.2a8 8 0 1 0 11.4 0" />
@@ -221,6 +227,8 @@ const WALL_LAYOUTS = [
   { value: '9', label: '3×3' },
 ]
 
+const TOUR_SECONDS = 10
+
 function readWallLayout() {
   try { return localStorage.getItem('aegis_wall') || 'auto' } catch { return 'auto' }
 }
@@ -280,12 +288,32 @@ export function LiveMonitoring({ ctx }) {
     setLayoutState(v)
     try { localStorage.setItem('aegis_wall', v) } catch { /* ignore */ }
   }
-  // The camera with a threat in view goes first, so it is on the wall whatever the layout.
-  const wallOrder = [...camList].sort((a, b) => (b.camera_id === alertingId) - (a.camera_id === alertingId))
-  const slots = layout === 'auto' ? wallOrder.length : Number(layout)
-  const wall = layout === '1'
-    ? [camList.find((c) => c.camera_id === (alertingId || activeCam))].filter(Boolean)
-    : wallOrder.slice(0, slots)
+  // Camera tour: with more cameras than tiles, step through them every TOUR_SECONDS.
+  const [tour, setTourState] = useState(() => { try { return localStorage.getItem('aegis_tour') === '1' } catch { return false } })
+  const setTour = (on) => {
+    setTourState(on)
+    try { localStorage.setItem('aegis_tour', on ? '1' : '0') } catch { /* ignore */ }
+  }
+  const [tourStep, setTourStep] = useState(0)
+  const slots = layout === 'auto' ? camList.length : Number(layout)
+  const pages = Math.max(1, Math.ceil(camList.length / Math.max(1, slots)))
+  const touring = tour && layout !== 'auto' && pages > 1
+  useEffect(() => {
+    if (!touring) return undefined
+    const t = setInterval(() => setTourStep((n) => n + 1), TOUR_SECONDS * 1000)
+    return () => clearInterval(t)
+  }, [touring])
+  const pageNo = touring ? tourStep % pages : 0
+
+  // The camera with a threat in view is always on the wall, whatever the layout or tour page.
+  const alerting = camList.find((c) => c.camera_id === alertingId)
+  let wall
+  if (layout === '1') {
+    wall = [alerting || (touring ? camList[pageNo] : camList.find((c) => c.camera_id === activeCam))].filter(Boolean)
+  } else {
+    wall = camList.slice(pageNo * slots, pageNo * slots + slots)
+    if (alerting && !wall.includes(alerting)) wall = [alerting, ...wall.slice(0, slots - 1)]
+  }
   const n = layout === 'auto' ? wall.length : slots
   const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4
 
@@ -328,6 +356,12 @@ export function LiveMonitoring({ ctx }) {
           {!detecting && camList.length > 0 && <span className="muted"> · detection is off</span>}
         </span>
         <span className="spacer" />
+        {layout !== 'auto' && pages > 1 && (
+          <button type="button" className={`btn btn-sm ${tour ? 'btn-primary' : ''}`} aria-pressed={tour}
+            title={`Show every camera in turn, ${TOUR_SECONDS} s each page`} onClick={() => setTour(!tour)}>
+            {tour ? `Tour · page ${pageNo + 1} of ${pages}` : 'Tour cameras'}
+          </button>
+        )}
         <Seg value={layout} onChange={setLayout} options={WALL_LAYOUTS} />
       </div>
 
@@ -347,6 +381,12 @@ export function LiveMonitoring({ ctx }) {
               <button type="button" className="cam-expand" title="Full screen" aria-label={`${c.name} full screen`}
                 onClick={(e) => { e.stopPropagation(); setFullscreenId(c.camera_id) }}>
                 <ExpandIcon />
+              </button>
+              <button type="button" className={`cam-expand cam-pin ${ctx.pinned === c.camera_id ? 'on' : ''}`}
+                title={ctx.pinned === c.camera_id ? 'Unpin' : 'Keep this camera in view on other pages'}
+                aria-label={ctx.pinned === c.camera_id ? `Unpin ${c.name}` : `Pin ${c.name}`} aria-pressed={ctx.pinned === c.camera_id}
+                onClick={(e) => { e.stopPropagation(); ctx.pinCamera?.(ctx.pinned === c.camera_id ? null : c.camera_id) }}>
+                <PinIcon />
               </button>
               {canPower && c.camera_id in power && c.status !== 'off' && (
                 <button type="button" className="cam-expand cam-stop" title="Pause camera" aria-label={`Pause ${c.name}`}

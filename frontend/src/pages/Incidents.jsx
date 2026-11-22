@@ -1,13 +1,51 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { can } from '../lib/permissions'
 import { Card, Icons, Tag, Empty, Stat, timeAgo, SEVERITY_TONE, Modal } from '../components/ui'
 import {
   fetchIncidents, fetchIncidentStats, updateIncident, addIncidentNote, createIncident, fetchAssignees,
+  downloadEvidencePackage, verifyEvidencePackage,
 } from '../services/api'
 import { useToast } from '../components/Toast'
 const STATUSES = ['open', 'investigating', 'resolved', 'closed']
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
 const STATUS_TONE = { open: 'danger', investigating: 'warn', resolved: 'ok', closed: 'muted' }
+
+/** Upload a package to check it came from this system and nothing in it changed. */
+function PackageCheck() {
+  const ref = useRef(null)
+  const [result, setResult] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const check = async (file) => {
+    if (!file) return
+    setBusy(true); setResult(null)
+    try { setResult({ name: file.name, ...(await verifyEvidencePackage(file)) }) } catch (e) { setResult({ name: file.name, ok: false, error: e.message }) } finally { setBusy(false); ref.current.value = '' }
+  }
+  return (
+    <>
+      <input ref={ref} type="file" accept=".zip" hidden onChange={(e) => check(e.target.files[0])} />
+      <button type="button" className="btn btn-sm" disabled={busy} onClick={() => ref.current.click()}>
+        <Icons.shield /> {busy ? 'Checking…' : 'Check a package'}
+      </button>
+      {result && (
+        <Modal title="Evidence package check" onClose={() => setResult(null)}>
+          <p className={result.ok ? 'pkg-ok' : 'pkg-bad'}>
+            {result.ok
+              ? `${result.name}: intact. All ${result.files_checked} files match the manifest, and the signature is this system's.`
+              : `${result.name}: NOT intact.`}
+          </p>
+          {!result.ok && (
+            <ul className="pkg-problems">
+              {result.error && <li>{result.error}</li>}
+              {result.signature_valid === false && <li>The signature does not match: not exported by this system, or the manifest was edited.</li>}
+              {result.changed_or_missing?.map((n) => <li key={n}>Changed or missing: <code>{n}</code></li>)}
+              {result.unlisted_files?.map((n) => <li key={n}>Added after export: <code>{n}</code></li>)}
+            </ul>
+          )}
+        </Modal>
+      )}
+    </>
+  )
+}
 
 export function Incidents({ ctx }) {
   const { push: toast } = useToast()
@@ -119,6 +157,7 @@ export function Incidents({ ctx }) {
               <option value="all">All statuses</option>
               {STATUSES.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
             </select>
+            <PackageCheck />
             {canEdit && <button className="btn btn-sm btn-primary" onClick={() => setShowNew(true)}><Icons.incident /> New</button>}
           </div>
         }
@@ -188,6 +227,9 @@ export function Incidents({ ctx }) {
           footer={
             <>
               <button className="btn" onClick={() => window.print()}><Icons.report /> Print</button>
+              <button className="btn" onClick={() => { downloadEvidencePackage(selected.id); toast('Building the evidence package: the download starts in a moment', 'ok') }}>
+                <Icons.download /> Evidence package
+              </button>
               {canEdit && !['resolved', 'closed'].includes(selected.status) && (
                 <button className="btn btn-primary" onClick={() => patch(selected.id, { status: 'resolved' })}>
                   <Icons.check /> Mark as resolved

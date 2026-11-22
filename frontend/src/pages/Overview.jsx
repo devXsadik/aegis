@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fetchPendingHandover } from '../services/api'
 import { Card, Stat, Icons, Tag, SEVERITY_TONE, timeAgo, Empty, Pill } from '../components/ui'
 import { canViewPage } from '../lib/permissions'
 import { AreaChart, BarList, Donut } from '../components/charts'
@@ -92,7 +93,17 @@ export function Overview({ ctx }) {
   })
   const mapAlert = criticalEvents.find((e) => e.lat != null)
 
+  // A handover written by someone else and not yet accepted: the first thing the next operator sees.
+  const [handover, setHandover] = useState(null)
+  const seesShift = canViewPage(ctx.me?.role, 'shift')
+  useEffect(() => {
+    if (!seesShift) return
+    fetchPendingHandover().then(setHandover).catch(() => {})
+  }, [seesShift])
   const attention = attentionItems(ctx, camList)
+  if (handover && handover.username !== ctx.me?.username) {
+    attention.unshift({ tone: 'warn', text: `Shift handover from ${handover.username} is waiting for you`, action: 'Read', page: 'shift' })
+  }
   const threatAccent = { critical: 'danger', high: 'warn', low: 'ok' }[threatLevel] || 'ok'
 
   return (

@@ -164,6 +164,34 @@ stat-card trim on Analytics/Cameras/Users.
   webcams' real recordings: 0 false alerts; the 4 alerts it raised were real (camera turned
   three times, carried once). Settings under `tamper:` in `config.yaml`.
 
+## Remaining features — done 2026-11-23
+
+All checked in headless Chrome on a copy of the database (two users at once where it matters).
+
+- **Zone schedules and occupancy limits** (4, 8): per zone "Active hours" (days + from/until,
+  overnight allowed; local time of the pipeline computer) and "Max people". Off hours a zone
+  counts but raises nothing; over the limit raises `OCCUPANCY_LIMIT` once per crossing. Live
+  counts ("Lobby 7 / 12", "off hours") on Analytics. Stored in the camera's geometry JSON.
+- **Camera tour** (2): 1 / 2×2 / 3×3 layouts step through every camera every 10 s; the alerting
+  camera stays on screen.
+- **Shift log and handover** (6): new page with notes (optionally per camera), a live shift
+  summary, "Hand over the shift" (notes + summary snapshot) and "Accept handover" by the next
+  operator (not the author). Home shows a waiting handover first. Table `shift_entries`,
+  migration 0008.
+- **Where was this person?** (7): face matches, look-alike tracking and capture stills merged
+  into visits per camera in time order, with the gap between them and a map jump. Opens from
+  alert details, Watchlist sightings and People cards.
+- **Evidence package** (9): ZIP per incident (case + timeline, alert, decrypted stills with
+  custody chains, captures, original recordings), SHA-256 manifest, HMAC signature
+  (`EVIDENCE_SIGNING_KEY`, else derived from `SECRET_KEY`), EXPORTED custody record.
+  "Check a package" verifies it. Checked with curl + `shasum -c` (headless Chrome blocks downloads).
+- **Responder view** (10): police (and operators) get "Responders": serious alerts for their
+  assigned cameras (all if none), still, directions, and On my way → On scene → Resolved.
+  Each step goes on the incident timeline and to the control room's notifications live;
+  Resolved resolves the incident and acknowledges the alert. Police phones open on it.
+- **Pinned camera**: pin a tile on the Live wall; a small live picture follows you on every
+  other page (smaller / open / unpin), remembered on this device, hidden on phones.
+
 ## Suggested order
 
 1. **Layout** (sidebar, remove side/top panels, compact headers, one alert number, four

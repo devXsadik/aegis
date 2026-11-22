@@ -52,6 +52,12 @@ function LiveCamera({ cam }) {
         {lines.map(([name, c]) => (
           <span key={name} style={{ display: 'contents' }}><dt>Line {name}</dt><dd>{c.in} in · {c.out} out</dd></span>
         ))}
+        {Object.entries(cam.occupancy || {}).map(([zone, o]) => (
+          <span key={`occ-${zone}`} style={{ display: 'contents' }}>
+            <dt>In {zone}{o.armed ? '' : ' (off hours)'}</dt>
+            <dd className={o.limit && o.count > o.limit ? 'tone-danger' : ''}>{o.count}{o.limit ? ` / ${o.limit}` : ''}</dd>
+          </span>
+        ))}
         {dwell.map(([zone, d]) => (
           <span key={zone} style={{ display: 'contents' }}><dt>Dwell {zone}</dt><dd>{d.count} · avg {fmtDuration(d.avg_duration)}</dd></span>
         ))}

@@ -7,6 +7,7 @@ import {
 import { useToast } from '../components/Toast'
 import { can } from '../lib/permissions'
 import { useConfirm } from '../components/ui'
+import { PersonJourney } from '../components/PersonJourney'
 import {
   eventLabel, eventIconKey, fromAlertRow, groupRepeats, waitLabel, waitUrgency, EXPLAIN, REJECT_REASONS, REVIEW_LABEL,
 } from '../lib/events'
@@ -92,7 +93,9 @@ function Fact({ label, value }) {
   return (<><dt>{label}</dt><dd>{value}</dd></>)
 }
 
-function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident, now, escalation, playRef }) {
+const JOURNEY_TYPES = new Set(['CRIMINAL_DETECTED', 'PERSON_TRACKED'])
+
+function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onReject, onDispatch, onIncident, now, escalation, playRef, onJourney }) {
   const [evIdx, setEvIdx] = useState(0)
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
@@ -166,6 +169,12 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
       )}
 
       <AlertVideo item={item} playRef={playRef} />
+
+      {onJourney && JOURNEY_TYPES.has(item.type) && item.personName && item.personName !== 'Unknown' && (
+        <button type="button" className="btn btn-sm tq-journey" onClick={() => onJourney(item.personName)}>
+          <Icons.map /> Where else was {item.personName} seen?
+        </button>
+      )}
 
       <p className="tq-why">{EXPLAIN[String(item.type).toUpperCase()] || item.msg}</p>
 
@@ -266,6 +275,7 @@ export function Triage({ ctx }) {
     return () => clearInterval(t)
   }, [])
   const playRef = useRef(null)
+  const [journeyFor, setJourneyFor] = useState(null)
 
   const selected = items.find((i) => i.id === selectedId) || items[0] || null
 
@@ -444,7 +454,7 @@ export function Triage({ ctx }) {
               key={selected.id}
               item={selected} detail={detail} mode={mode} setMode={setMode} busy={busy} canAct={canAct}
               onConfirm={confirm} onReject={reject} onDispatch={dispatch} onIncident={incident}
-              now={now} escalation={ctx.escalation} playRef={playRef}
+              now={now} escalation={ctx.escalation} playRef={playRef} onJourney={setJourneyFor}
             />
           ) : (
             <Empty icon={Icons.shield}>Select an alert to review it</Empty>
@@ -452,6 +462,7 @@ export function Triage({ ctx }) {
         </Card>
       </div>
       {confirmDialog}
+      {journeyFor && <PersonJourney name={journeyFor} onClose={() => setJourneyFor(null)} onShowOnMap={ctx.showOnMap} />}
     </>
   )
 }

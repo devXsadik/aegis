@@ -20,6 +20,7 @@ import { NotificationDrawer } from './components/NotificationDrawer'
 import { Copilot } from './components/Copilot'
 import { AccountMenu, AskBar, Clock } from './components/Workspace'
 import { Sidebar } from './components/Sidebar'
+import { PinnedCamera } from './components/PinnedCamera'
 import { CriticalAlertBanner } from './components/CriticalAlertBanner'
 import { SystemStatus } from './components/SystemStatus'
 import { Overview } from './pages/Overview'
@@ -38,6 +39,8 @@ const Watchlist = lazyPage(() => import('./pages/Watchlist'), 'Watchlist')
 const FaceRegistryPage = lazyPage(() => import('./pages/FaceRegistryPage'), 'FaceRegistryPage')
 const Vehicles = lazyPage(() => import('./pages/Vehicles'), 'Vehicles')
 const Reports = lazyPage(() => import('./pages/Reports'), 'Reports')
+const Responder = lazyPage(() => import('./pages/Responder'), 'Responder')
+const ShiftLog = lazyPage(() => import('./pages/ShiftLog'), 'ShiftLog')
 const Users = lazyPage(() => import('./pages/Users'), 'Users')
 const Settings = lazyPage(() => import('./pages/Settings'), 'Settings')
 const ZoneEditor = lazyPage(() => import('./pages/ZoneEditor'), 'ZoneEditor')
@@ -56,8 +59,10 @@ const NAV = [
     group: 'Respond',
     pages: [
       { id: 'alerts', label: 'Alerts', desc: 'Go through alerts one at a time and decide what happens next.', icon: Icons.alert },
+      { id: 'respond', label: 'Responders', desc: 'Alerts to go to: directions, and on my way / on scene / resolved.', icon: Icons.dispatch },
       { id: 'incidents', label: 'Incidents', desc: 'Cases opened from alerts, and where each one stands.', icon: Icons.incident },
       { id: 'evidence', label: 'Evidence', desc: 'Snapshots and clips saved from detections.', icon: Icons.evidence },
+      { id: 'shift', label: 'Shift log', desc: 'Notes during the shift, and the handover to the next one.', icon: Icons.clock },
     ],
   },
   {
@@ -82,6 +87,8 @@ const NAV = [
 const ALL_PAGES = NAV.flatMap((g) => g.pages)
 // The pages used every shift: the phone's bottom tab bar (the sidebar has them all).
 const TAB_PAGES = ['overview', 'live', 'alerts', 'map'].map((id) => ALL_PAGES.find((p) => p.id === id))
+// Officers on the move start from their responder list.
+const POLICE_TABS = ['respond', 'alerts', 'map', 'overview'].map((id) => ALL_PAGES.find((p) => p.id === id))
 // Views inside a page (PAGE_VIEWS). An old link (#/watchlist, #/detection) opens its view.
 const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history' }
 // Views the search palette lists by their old names, so "watchlist" still finds them.
@@ -134,7 +141,7 @@ function applyTheme(t) {
 
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage,
-  alerts: Triage, incidents: Incidents, evidence: EvidencePage,
+  alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage, shift: ShiftLog,
   vehicles: Vehicles, reports: Reports,
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
 }
@@ -279,6 +286,12 @@ function App() {
   const [askQuery, setAskQuery] = useState('')        // question typed in the Home ask bar
   const [showAccount, setShowAccount] = useState(false)
   const [showSystem, setShowSystem] = useState(false)
+  // One camera kept on screen across pages (pinned from the Live wall).
+  const [pinned, setPinnedState] = useState(() => { try { return localStorage.getItem('aegis_pin') || null } catch { return null } })
+  const pinCamera = (id) => {
+    setPinnedState(id)
+    try { if (id) localStorage.setItem('aegis_pin', id); else localStorage.removeItem('aegis_pin') } catch { /* ignore */ }
+  }
   const [liveFocus, setLiveFocus] = useState(null)    // {cameraId, t}: camera to open on the Live page
   // Sidebar: folded to icons on narrow screens unless the operator chose otherwise; set-up group folded.
   const [nav, setNav] = useState(() => {
@@ -604,7 +617,7 @@ function App() {
   const alertCount = reviewPending
   const allowed = !me || canViewPage(me.role, page)
   // While the profile loads (role unknown) show no pages instead of flashing the admin set.
-  const tabPages = TAB_PAGES.filter((p) => canViewPage(me?.role, p.id))
+  const tabPages = (me?.role === 'police' ? POLICE_TABS : TAB_PAGES).filter((p) => canViewPage(me?.role, p.id))
   const navGroups = NAV.map((g) => ({ ...g, pages: g.pages.filter((p) => canViewPage(me?.role, p.id)) })).filter((g) => g.pages.length)
 
   const ctx = {
@@ -613,12 +626,13 @@ function App() {
     report, summary, trends, locations,
     plates, vehicleDetections, auditLogs, reloadVehicles,
     me, streamingCams, reloadCameras, setPage, mapFocus, liveFocus, unplugged: devices.unplugged, power, setPower,
-    reviewPending, refreshReviewCount, captureEvent, openCamera, camList, escalation,
+    reviewPending, refreshReviewCount, captureEvent, openCamera, camList, escalation, pinned, pinCamera,
+    showOnMap: (c) => { setMapFocus({ cameraId: c.camera_id, lat: c.lat, lng: c.lng, t: Date.now() }); setPage('map') },
     theme, setTheme,
   }
 
   return (
-    <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''}`}>
+    <div className={`shell ${threatLevel === 'critical' ? 'threat-critical' : ''} ${pinned && page !== 'live' && camList.some((c) => c.camera_id === pinned) ? 'has-pip' : ''}`}>
       {criticalAlerts.length > 0 && (
         <div className="critical-stack">
           {criticalAlerts.map((a, i) => (
@@ -758,6 +772,11 @@ function App() {
           </nav>
       </main>
       </div>
+
+      {(() => {
+        const cam = pinned && page !== 'live' && camList.find((c) => c.camera_id === pinned)
+        return cam ? <PinnedCamera cam={cam} onOpen={() => openCamera(cam.camera_id)} onClose={() => pinCamera(null)} /> : null
+      })()}
 
       {showPalette && (
         <CommandPalette

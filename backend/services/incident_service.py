@@ -81,10 +81,3 @@ def create_incident_from_alert(
     add_event(db, inc, "CREATED", f"Incident opened from alert #{alert.id}", created_by_name)
     add_event(db, inc, "ALERT", f"{alert.alert_type}: {alert.message}", "SYSTEM")
     return inc
-
-
-def ensure_incident_for_dispatch(db: Session, alert_id: int, **kwargs) -> Optional[Incident]:
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    if not alert:
-        return None
-    return create_incident_from_alert(db, alert, **kwargs)
