@@ -27,3 +27,18 @@ frontend/dist/
 
 # Local credentials (never commit)
 docs/CREDENTIALS.local.md
+
+# Watchlist face photos are personal data — keep local, never commit
+data/watchlist/*/
+
+# Local agent/editor settings
+.claude/settings.local.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Presentation videos/zips are too large for GitHub HTTPS push (cause 408 timeouts)
+presentation/*.mp4
+presentation/*.zip
+presentation/*.mov
+presentation/*.webm

@@ -1,8 +1,11 @@
 import { can } from '../lib/permissions'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, Icons, Seg, Pill, Stat, Tag, Empty, timeAgo } from '../components/ui'
+import { buildCamList } from '../lib/cameras'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useToast } from '../components/Toast'
+import { CaptureBasket } from '../components/CaptureBasket'
+import { Card, Icons, Seg, Pill, Stat, Tag, Empty, timeAgo, useConfirm } from '../components/ui'
 import {
-  liveStreamUrl,
+  liveStreamUrl, setCameraPower,
   fetchVmsTimeline, fetchPtz, ptzMove, ptzStop, ptzHome, ptzSetMode,
   ptzSavePreset, ptzGotoPreset, openVmsPlayback,
 } from '../services/api'
@@ -11,9 +14,13 @@ const STATUS = {
   live: { label: 'LIVE', tone: 'ok' },
   online: { label: 'NO VIDEO', tone: 'warn' },
   offline: { label: 'OFFLINE', tone: 'muted' },
+  off: { label: 'OFF', tone: 'muted' },
 }
 
-const ExpandIcon = () => (
+// Red alerts in view right now, as reported by the camera itself.
+const FLAG = { CRIMINAL_DETECTED: 'WATCHLIST', WEAPON_DETECTED: 'ARMED', PERSON_TRACKED: 'TRACKING' }
+
+export const ExpandIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
   </svg>
@@ -25,13 +32,19 @@ const Chevron = ({ dir }) => (
   </svg>
 )
 
+const PowerIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3v9M6.3 7.2a8 8 0 1 0 11.4 0" />
+  </svg>
+)
+
 const HomeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 11l9-8 9 8M5 10v10h14V10" />
   </svg>
 )
 
-function CamFeed({ cam, objectFit = 'cover' }) {
+function CamFeed({ cam, objectFit = 'cover', starting = false, onPower }) {
   const [failed, setFailed] = useState(false)
   const showVideo = cam.status === 'live' && !failed
   const st = STATUS[showVideo ? 'live' : (cam.status === 'live' ? 'online' : cam.status)]
@@ -45,7 +58,18 @@ function CamFeed({ cam, objectFit = 'cover' }) {
       {!showVideo && (
         <div className="cam-offline">
           <Icons.camera />
-          <b>{st.label === 'NO VIDEO' ? 'Connected, waiting for video' : 'No signal'}</b>
+          <b>
+            {cam.status === 'off' ? 'Camera is off'
+              : starting ? 'Starting camera…'
+                : st.label === 'NO VIDEO' ? 'Connected, waiting for video' : 'No signal'}
+          </b>
+          {starting && cam.status !== 'off' && <span>This can take up to half a minute</span>}
+          {cam.status === 'off' && onPower && (
+            <button type="button" className="btn btn-sm btn-primary cam-start"
+              onClick={(e) => { e.stopPropagation(); onPower(true) }}>
+              <PowerIcon /> Start camera
+            </button>
+          )}
         </div>
       )}
       <div className="cam-top">
@@ -57,6 +81,18 @@ function CamFeed({ cam, objectFit = 'cover' }) {
         {showVideo && cam.fps != null && <span className="cam-chip">{cam.fps} FPS</span>}
         {cam.threat_score > 0 && <span className={`cam-chip ${cam.threat_score >= 40 ? 'danger' : 'warn'}`}>THREAT {cam.threat_score}</span>}
       </div>
+      {showVideo && cam.flags.length > 0 && (
+        <div className="cam-flags" role="status">
+          {cam.flags.map((f) => (
+            <span key={`${f.type}:${f.label}`} className="cam-flag">
+              <span className="dot" />
+              <b>{FLAG[f.type] || 'ALERT'}</b>
+              {f.label && f.type !== 'WEAPON_DETECTED' && <span>{f.label}</span>}
+              {f.origin && <span className="cam-flag-from">from {f.origin}</span>}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="cam-bottom">
         <div className="cam-name">{cam.name}</div>
         {cam.location && cam.location !== cam.name && <div className="cam-loc">{cam.location}</div>}
@@ -65,30 +101,7 @@ function CamFeed({ cam, objectFit = 'cover' }) {
   )
 }
 
-function CamTile({ cam, selected, alerting, onSelect, onExpand }) {
-  if (!cam) {
-    return <div className="cam-tile empty"><span>Empty slot</span></div>
-  }
-  return (
-    <div
-      className={`cam-tile ${cam.status} ${alerting ? 'alerting' : ''} ${selected ? 'selected' : ''}`}
-      onClick={onSelect}
-      onDoubleClick={onExpand}
-      role="button"
-      tabIndex={0}
-      aria-label={`${cam.name}, ${STATUS[cam.status].label}`}
-      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(); if (e.key === 'f') onExpand() }}
-    >
-      <CamFeed cam={cam} />
-      <button type="button" className="cam-expand" title="Full screen (double-click)" aria-label="Full screen"
-        onClick={(e) => { e.stopPropagation(); onExpand() }}>
-        <ExpandIcon />
-      </button>
-    </div>
-  )
-}
-
-function CamFullscreen({ cam, alerting, onClose }) {
+export function CamFullscreen({ cam, alerting, onClose }) {
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -121,20 +134,35 @@ function CamFullscreen({ cam, alerting, onClose }) {
 function PtzPad({ cameraId }) {
   const [state, setState] = useState(null)
   const [presetName, setPresetName] = useState('Gate')
+  const { push: toast } = useToast()
+  const moving = useRef(false)
+
+  // Run a PTZ command and show its result; a failure is reported instead of being dropped.
+  const run = async (call, failText) => {
+    try {
+      setState(await call())
+    } catch (e) {
+      toast(`${failText}: ${e.message || 'request failed'}`, 'danger')
+    }
+  }
 
   useEffect(() => {
     if (!cameraId) return
     fetchPtz(cameraId).then(setState).catch(() => {})
   }, [cameraId])
 
-  const move = async (pan, tilt, zoom = 0) => {
-    try {
-      setState(await ptzMove(cameraId, { pan, tilt, zoom }))
-    } catch { /* offline */ }
+  const move = (pan, tilt, zoom = 0) => {
+    moving.current = true
+    return run(() => ptzMove(cameraId, { pan, tilt, zoom }), 'Could not move the camera')
   }
-  const stop = async () => { try { setState(await ptzStop(cameraId)) } catch { /* */ } }
+  // Pointer-leave also fires when nothing is held, so only send a stop after a move.
+  const stop = async () => {
+    if (!moving.current) return
+    moving.current = false
+    try { setState(await ptzStop(cameraId)) } catch { /* the next move reports the problem */ }
+  }
 
-  if (!cameraId) return <Empty icon={Icons.camera}>Select a camera tile</Empty>
+  if (!cameraId) return <Empty icon={Icons.camera}>Select a camera to control it</Empty>
 
   const mode = state?.mode || 'digital'
   const dig = state?.digital || { pan: 0, tilt: 0, zoom: 1 }
@@ -144,55 +172,56 @@ function PtzPad({ cameraId }) {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <Seg
           value={mode}
-          onChange={async (m) => setState(await ptzSetMode(cameraId, m))}
-          options={[{ value: 'digital', label: 'Digital PTZ' }, { value: 'onvif', label: 'ONVIF' }]}
+          onChange={(m) => run(() => ptzSetMode(cameraId, m), 'Could not switch mode')}
+          options={[{ value: 'digital', label: 'Digital' }, { value: 'onvif', label: 'Camera motor' }]}
         />
         <Tag tone={state?.onvif?.configured ? 'ok' : 'muted'}>
-          {state?.onvif?.configured ? `ONVIF ${state.onvif.host}` : 'ONVIF simulator'}
+          {state?.onvif?.configured ? `ONVIF ${state.onvif.host}` : 'No motorised camera set up'}
         </Tag>
       </div>
 
       <div className="ptz-pad">
-        <button className="ptz-btn" onMouseDown={() => move(0, 1)} onMouseUp={stop} onMouseLeave={stop} aria-label="Tilt up"><Chevron dir="up" /></button>
+        <button type="button" className="ptz-btn" onPointerDown={() => move(0, 1)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Tilt up"><Chevron dir="up" /></button>
         <div className="ptz-mid">
-          <button className="ptz-btn" onMouseDown={() => move(-1, 0)} onMouseUp={stop} onMouseLeave={stop} aria-label="Pan left"><Chevron dir="left" /></button>
-          <button className="ptz-btn ptz-home" onClick={async () => setState(await ptzHome(cameraId))} aria-label="Home" title="Home"><HomeIcon /></button>
-          <button className="ptz-btn" onMouseDown={() => move(1, 0)} onMouseUp={stop} onMouseLeave={stop} aria-label="Pan right"><Chevron dir="right" /></button>
+          <button type="button" className="ptz-btn" onPointerDown={() => move(-1, 0)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Pan left"><Chevron dir="left" /></button>
+          <button type="button" className="ptz-btn ptz-home" onClick={() => run(() => ptzHome(cameraId), 'Could not return to the home position')} aria-label="Return to home position" title="Home position"><HomeIcon /></button>
+          <button type="button" className="ptz-btn" onPointerDown={() => move(1, 0)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Pan right"><Chevron dir="right" /></button>
         </div>
-        <button className="ptz-btn" onMouseDown={() => move(0, -1)} onMouseUp={stop} onMouseLeave={stop} aria-label="Tilt down"><Chevron dir="down" /></button>
+        <button type="button" className="ptz-btn" onPointerDown={() => move(0, -1)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Tilt down"><Chevron dir="down" /></button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
         <span className="muted" style={{ fontSize: '0.75rem' }}>Zoom</span>
-        <button className="btn btn-sm" onMouseDown={() => move(0, 0, -0.5)} onMouseUp={stop}>−</button>
-        <input
-          type="range" min="1" max="8" step="0.1" value={dig.zoom}
-          readOnly
-          style={{ flex: 1 }}
-        />
-        <button className="btn btn-sm" onMouseDown={() => move(0, 0, 0.5)} onMouseUp={stop}>+</button>
+        <button type="button" className="btn btn-sm" onPointerDown={() => move(0, 0, -0.5)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Zoom out">−</button>
+        <progress max="7" value={Number(dig.zoom) - 1} style={{ flex: 1 }} aria-label="Zoom level" />
+        <button type="button" className="btn btn-sm" onPointerDown={() => move(0, 0, 0.5)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Zoom in">+</button>
         <b style={{ fontSize: '0.8rem', width: 36 }}>{Number(dig.zoom).toFixed(1)}×</b>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
-        <input className="input" style={{ width: 100, padding: '4px 8px' }} value={presetName} onChange={(e) => setPresetName(e.target.value)} />
-        <button className="btn btn-sm" onClick={async () => setState(await ptzSavePreset(cameraId, presetName || 'Preset'))}>Save preset</button>
+        <input className="input" style={{ width: 100, padding: '4px 8px' }} value={presetName} maxLength={30} aria-label="Preset name" onChange={(e) => setPresetName(e.target.value)} />
+        <button type="button" className="btn btn-sm" onClick={() => run(() => ptzSavePreset(cameraId, presetName.trim() || 'Preset'), 'Could not save the preset')}>Save position</button>
         {(state?.presets || []).map((p) => (
-          <button key={p} className="btn btn-sm btn-primary" onClick={async () => setState(await ptzGotoPreset(cameraId, p))}>{p}</button>
+          <button type="button" key={p} className="btn btn-sm btn-primary" title={`Go to ${p}`} onClick={() => run(() => ptzGotoPreset(cameraId, p), `Could not go to ${p}`)}>{p}</button>
         ))}
       </div>
-      {state?.last_error && <p className="muted" style={{ fontSize: '0.72rem', marginTop: 8, color: 'var(--warn)' }}>ONVIF: {state.last_error} (simulator active)</p>}
+      {state?.last_error && <p className="muted" style={{ fontSize: '0.72rem', marginTop: 8, color: 'var(--warn)' }}>Camera motor: {state.last_error}. Commands are being simulated.</p>}
       <p className="muted" style={{ fontSize: '0.72rem', marginTop: 8 }}>
-        Digital PTZ crops the live stream; ONVIF drives a physical camera.
+        Digital zooms and pans inside the picture. Camera motor moves a motorised (ONVIF) camera. Hold a button to keep moving.
       </p>
     </div>
   )
 }
 
 export function LiveMonitoring({ ctx }) {
-  const { systemStatus, cameras, threatLevel, streamingCams = [], me } = ctx
-  const [layout, setLayout] = useState('auto')
-  const [selectedId, setSelectedId] = useState(null)
+  const { systemStatus, cameras, threatLevel, streamingCams = [], me, captureEvent, liveFocus, power = {}, setPower } = ctx
+  const [selectedId, setSelectedId] = useState(liveFocus?.cameraId || null)
+  // A camera picked in the cameras panel while this page is already open.
+  const [seenFocus, setSeenFocus] = useState(liveFocus || null)
+  if (liveFocus !== seenFocus) {
+    setSeenFocus(liveFocus)
+    if (liveFocus?.cameraId) setSelectedId(liveFocus.cameraId)
+  }
   const [fullscreenId, setFullscreenId] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [coverageHrs, setCoverageHrs] = useState(0)
@@ -200,45 +229,34 @@ export function LiveMonitoring({ ctx }) {
   const [replayUrl, setReplayUrl] = useState(null)
   const [replayBusy, setReplayBusy] = useState(false)
   const [replayError, setReplayError] = useState('')
+  const replayRef = useRef(null)
+  useEffect(() => () => { if (replayRef.current) URL.revokeObjectURL(replayRef.current) }, [])
+
+  // Cameras stay off until someone starts them here; `power` says which ones are switched on.
+  const { push: toast } = useToast()
+  const [ask, confirmDialog] = useConfirm()
+  const [starting, setStarting] = useState(() => new Set())
+  const canPower = can(me?.role, 'camera.power')
+
+  const switchCamera = async (cam, on) => {
+    if (!on && !(await ask({ title: 'Stop camera', message: `Stop "${cam.name}"? Detection and recording on it stop until it is started again.`, confirmLabel: 'Stop', danger: true }))) return
+    try {
+      setPower(await setCameraPower(cam.camera_id, on))
+      setStarting((prev) => { const next = new Set(prev); if (on) next.add(cam.camera_id); else next.delete(cam.camera_id); return next })
+      if (on) setTimeout(() => setStarting((prev) => { const next = new Set(prev); next.delete(cam.camera_id); return next }), 45000)
+    } catch (e) {
+      toast(`Could not ${on ? 'start' : 'stop'} the camera: ${e.message || 'request failed'}`, 'danger')
+    }
+  }
 
   // One list: registered cameras, overlaid with live heartbeat + stream state.
-  const camList = useMemo(() => {
-    const streaming = new Set(streamingCams)
-    const beats = systemStatus?.cameras || {}
-    const byId = new Map()
-    // cam_0 / video_0 are placeholder identities for single-camera runs: only show them when active.
-    const placeholder = (id) => id === 'cam_0' || id === 'video_0'
-    cameras.forEach((c) => {
-      const reporting = streaming.has(c.camera_id) || beats[c.camera_id]
-      if (reporting || (c.active && !placeholder(c.camera_id))) {
-        byId.set(c.camera_id, { camera_id: c.camera_id, name: c.name || c.location || c.camera_id, location: c.location })
-      }
-    })
-    Object.keys(beats).forEach((id) => {
-      if (!byId.has(id)) byId.set(id, { camera_id: id, name: beats[id].camera_location || id, location: beats[id].camera_location })
-    })
-    return [...byId.values()].map((c) => {
-      const beat = beats[c.camera_id]
-      return {
-        ...c,
-        status: streaming.has(c.camera_id) ? 'live' : beat ? 'online' : 'offline',
-        fps: beat?.fps ?? null,
-        threat_score: beat?.threat_score ?? 0,
-        dvr: Boolean(beat?.recording),   // only claim REC when the pipeline reports it
-      }
-    }).sort((x, y) => (y.status === 'live') - (x.status === 'live') || x.name.localeCompare(y.name))
-  }, [cameras, systemStatus, streamingCams])
+  const camList = useMemo(() => buildCamList(cameras, systemStatus, streamingCams, power, ctx.unplugged),
+    [cameras, systemStatus, streamingCams, power, ctx.unplugged])
 
   const counts = {
     live: camList.filter((c) => c.status === 'live').length,
-    online: camList.filter((c) => c.status !== 'offline').length,
+    online: camList.filter((c) => c.status === 'live' || c.status === 'online').length,
   }
-
-  const slots = layout === 'auto' ? camList.length : Number(layout)
-  const cols = layout === 'auto'
-    ? (slots <= 1 ? 1 : slots <= 4 ? 2 : slots <= 9 ? 3 : 4)
-    : ({ 1: 1, 4: 2, 9: 3, 16: 4 }[slots])
-  const tiles = Array.from({ length: Math.max(slots, 0) }, (_, i) => camList[i] || null)
 
   const activeCam = camList.find((c) => c.camera_id === selectedId)?.camera_id || camList[0]?.camera_id
   const activeInfo = camList.find((c) => c.camera_id === activeCam)
@@ -262,7 +280,8 @@ export function LiveMonitoring({ ctx }) {
       const idx = Math.min(timeline.length - 1, Math.floor((scrub / 100) * timeline.length))
       const t = timeline[idx]?.start || new Date().toISOString()
       const { blobUrl } = await openVmsPlayback(activeCam, t)
-      if (replayUrl) URL.revokeObjectURL(replayUrl)
+      if (replayRef.current) URL.revokeObjectURL(replayRef.current)
+      replayRef.current = blobUrl
       setReplayUrl(blobUrl)
     } catch (e) {
       setReplayError(e.message || 'No recording at this time')
@@ -277,48 +296,51 @@ export function LiveMonitoring({ ctx }) {
     <>
       <div className="grid grid-4 live-stats">
         <Stat label="Live streams" value={`${counts.live}/${camList.length}`} accent={counts.live ? 'ok' : 'warn'}
-          delta={counts.live ? 'receiving video' : 'no video received'} />
-        <Stat label="Cameras reporting" value={counts.online} accent="primary" delta="heartbeat or video" />
-        <Stat label="Threat level" value={(threatLevel || 'low').toUpperCase()}
-          accent={threatLevel === 'critical' ? 'danger' : threatLevel === 'high' ? 'warn' : 'ok'} delta="last 15 minutes" />
-        <Stat label="DVR coverage" value={`${coverageHrs.toFixed(1)} h`} accent="primary" delta="selected camera · 24 h" />
+          delta={counts.live ? 'Receiving video' : 'No video received'} icon={Icons.live} />
+        <Stat label="Cameras reporting" value={counts.online} accent="primary" delta="Connected to the system" icon={Icons.camera} />
+        <Stat label="Threat level" value={(threatLevel || 'low').replace(/^./, (c) => c.toUpperCase())} icon={Icons.shield}
+          accent={threatLevel === 'critical' ? 'danger' : threatLevel === 'high' ? 'warn' : 'ok'} delta="Last 15 minutes" />
+        <Stat label="Recorded video" value={`${coverageHrs.toFixed(1)} h`} accent="primary" delta="Selected camera · last 24 hours" icon={Icons.clock} />
       </div>
 
+      {/* The video itself is in the strip above every page; this page is controls and recordings. */}
       <div className="live-layout">
         <div className="live-main">
-        <Card
-          title="Live view"
-          sub={activeInfo ? `selected: ${activeInfo.name}` : undefined}
-          actions={
-            <div className="cam-controls">
-              <Seg value={layout} onChange={setLayout}
-                options={[{ value: 'auto', label: 'Auto' }, { value: 1, label: '1' }, { value: 4, label: '2×2' }, { value: 9, label: '3×3' }]} />
-              <Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{pipelineLabel}</Pill>
+          <Card title="Cameras" sub={activeInfo ? `Selected: ${activeInfo.name}` : `${camList.length}`} flush
+            actions={<Pill tone={systemStatus?.online ? 'ok' : 'warn'}>{pipelineLabel}</Pill>}>
+            <div className="cam-list">
+              {camList.map((c) => {
+                const isStarting = starting.has(c.camera_id) && c.status !== 'live'
+                return (
+                  <div key={c.camera_id} className="side-cam">
+                    <button type="button" className={`cam-row ${c.camera_id === activeCam ? 'active' : ''}`}
+                      onClick={() => setSelectedId(c.camera_id)}>
+                      <span className={`status-dot ${STATUS[c.status].tone}`} />
+                      <span className="cam-row-main">
+                        <b>{c.name}</b>
+                        <span>{isStarting ? 'Starting… this can take up to half a minute' : c.location || c.camera_id}</span>
+                      </span>
+                      <Tag tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Tag>
+                    </button>
+                    {canPower && c.camera_id in power && (
+                      c.status === 'off'
+                        ? <button type="button" className="btn btn-sm btn-primary" onClick={() => switchCamera(c, true)}><PowerIcon /> Start</button>
+                        : <button type="button" className="icon-btn" title="Stop camera" aria-label={`Stop ${c.name}`} onClick={() => switchCamera(c, false)}><PowerIcon /></button>
+                    )}
+                    <button type="button" className="icon-btn" title="Full screen" aria-label={`${c.name} full screen`} onClick={() => setFullscreenId(c.camera_id)}>
+                      <ExpandIcon />
+                    </button>
+                  </div>
+                )
+              })}
+              {camList.length === 0 && <Empty icon={Icons.camera}>No cameras yet. Add one under Cameras.</Empty>}
             </div>
-          }
-        >
-          {camList.length === 0 ? (
-            <Empty icon={Icons.camera}>No cameras configured. Add one under Camera Management.</Empty>
-          ) : (
-            <div className="cam-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-              {tiles.map((cam, i) => (
-                <CamTile
-                  key={cam?.camera_id || `empty-${i}`}
-                  cam={cam}
-                  selected={cam && cam.camera_id === activeCam && tiles.length > 1}
-                  alerting={cam && cam.camera_id === alertingId}
-                  onSelect={() => cam && setSelectedId(cam.camera_id)}
-                  onExpand={() => cam && setFullscreenId(cam.camera_id)}
-                />
-              ))}
-            </div>
-          )}
-          {!systemStatus?.online && camList.length > 0 && (
-            <p className="live-hint">The analysis pipeline is not reporting. Cameras stay offline until it is running.</p>
-          )}
-        </Card>
+            {!systemStatus?.online && camList.length > 0 && (
+              <p className="live-hint" style={{ padding: '0 14px 14px' }}>The analysis pipeline is not reporting. Cameras stay offline until it is running.</p>
+            )}
+          </Card>
 
-      <Card title="Recordings" sub={`${timeline.length} segments · 24 h · ${activeInfo?.name || '—'}`}
+      <Card title="Recordings" sub={`${timeline.length} clips · last 24 hours · ${activeInfo?.name || 'no camera selected'}`}
         actions={<button className="btn btn-sm" onClick={loadTimeline}>Refresh</button>}>
         {timeline.length === 0 ? (
           <Empty icon={Icons.clock}>No recordings for this camera yet. Segments are saved every 60 seconds while video is flowing.</Empty>
@@ -359,31 +381,16 @@ export function LiveMonitoring({ ctx }) {
         </div>
 
         <div className="live-rail">
-          <Card title="Cameras" sub={`${camList.length}`} flush>
-            <div className="cam-list">
-              {camList.map((c) => (
-                <button key={c.camera_id} type="button"
-                  className={`cam-row ${c.camera_id === activeCam ? 'active' : ''}`}
-                  onClick={() => setSelectedId(c.camera_id)}>
-                  <span className={`status-dot ${STATUS[c.status].tone}`} />
-                  <span className="cam-row-main">
-                    <b>{c.name}</b>
-                    <span>{c.location || c.camera_id}</span>
-                  </span>
-                  <Tag tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Tag>
-                </button>
-              ))}
-              {camList.length === 0 && <div className="live-hint" style={{ padding: 14 }}>None</div>}
-            </div>
-          </Card>
+          {me?.role && me.role !== 'viewer' && <CaptureBasket captureEvent={captureEvent} />}
           {can(me?.role, 'ptz') && (
-            <Card title="PTZ control" sub={activeInfo?.name || '—'}>
+            <Card title="Pan, tilt and zoom" sub={activeInfo?.name || 'No camera selected'}>
               <PtzPad cameraId={activeCam} />
             </Card>
           )}
         </div>
       </div>
 
+      {confirmDialog}
       {fullscreenCam && (
         <CamFullscreen cam={fullscreenCam} alerting={fullscreenCam.camera_id === alertingId}
           onClose={() => setFullscreenId(null)} />

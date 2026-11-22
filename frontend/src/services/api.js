@@ -30,7 +30,15 @@ async function apiFetch(path, options = {}) {
     const d = err.detail;
     throw new Error((typeof d === 'object' && d ? d.message : d) || 'Request failed');
   }
-  return res.json();
+  // DELETE and some PUT routes answer with no body.
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('The server sent a response the dashboard could not read');
+  }
 }
 
 export async function login(username, password) {
@@ -89,6 +97,21 @@ export async function fetchSystemStatus() {
 
 export async function fetchCameras() {
   return apiFetch('/cameras/');
+}
+
+export async function fetchCameraPower() {
+  return apiFetch('/cameras/power');
+}
+
+export async function setCameraPower(cameraId, on) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}/power`, {
+    method: 'POST',
+    body: JSON.stringify({ on }),
+  });
+}
+
+export async function fetchCameraDevices() {
+  return apiFetch('/cameras/devices');
 }
 
 export async function resolveIp(url) {
@@ -253,10 +276,13 @@ export async function updateUser(userId, patch) {
 }
 
 export async function changePassword(currentPassword, newPassword) {
-  return apiFetch('/auth/change-password', {
+  const res = await apiFetch('/auth/change-password', {
     method: 'POST',
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
+  // The server revokes every older token on a password change and returns a fresh one.
+  if (res?.access_token) setToken(res.access_token);
+  return res;
 }
 
 export async function fetchAssignees() {
@@ -297,6 +323,26 @@ export async function saveCameraGeometry(cameraId, { zones, lines }) {
 export function evidenceImageUrl(evidenceId, kind = 'frame') {
   const token = getToken();
   return `${API_BASE}/evidence/${evidenceId}/image?kind=${kind}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+}
+
+/* ---- Red-alert capture basket ---- */
+export async function fetchCaptures(limit = 60) {
+  return apiFetch(`/captures/?limit=${limit}`);
+}
+
+/* 'red' = red alerts only, 'suspicious' = suspicious people too */
+export async function fetchCaptureScope() {
+  return apiFetch('/captures/scope');
+}
+
+export async function setCaptureScope(scope) {
+  return apiFetch('/captures/scope', { method: 'PUT', body: JSON.stringify({ scope }) });
+}
+
+export function captureImageUrl(captureId, width) {
+  const token = getToken();
+  const q = [width ? `w=${width}` : '', token ? `token=${encodeURIComponent(token)}` : ''].filter(Boolean).join('&');
+  return `${API_BASE}/captures/${captureId}/image${q ? `?${q}` : ''}`;
 }
 
 /* ---- Incidents ---- */
@@ -344,8 +390,12 @@ export async function fetchTimeline({ cameraId, hours = 24 } = {}) {
   if (cameraId) qs.set('camera_id', cameraId);
   return apiFetch(`/recordings/timeline?${qs}`);
 }
-export function recordingFileUrl(clipId) {
-  return `${API_BASE}/recordings/${clipId}/file`;
+/** Clip download needs the Authorization header, so it is fetched and handed back as a blob URL. */
+export async function openRecordingFile(clipId) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/recordings/${clipId}/file`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(res.status === 404 ? 'Clip file is missing' : 'Could not open the clip');
+  return URL.createObjectURL(await res.blob());
 }
 
 /* ---- Re-ID ---- */
@@ -414,13 +464,6 @@ export async function ptzGotoPreset(cameraId, name) {
     method: 'POST',
   });
 }
-export function vmsPlaybackUrl(cameraId, isoTime) {
-  const token = getToken();
-  const qs = new URLSearchParams({ camera_id: cameraId, t: isoTime });
-  if (token) qs.set('token', token);
-  // playback uses Authorization header via fetch; this URL is for reference
-  return `${API_BASE}/vms/playback?camera_id=${encodeURIComponent(cameraId)}&t=${encodeURIComponent(isoTime)}`;
-}
 export async function openVmsPlayback(cameraId, isoTime) {
   const token = getToken();
   const url = `${API_BASE}/vms/playback?camera_id=${encodeURIComponent(cameraId)}&t=${encodeURIComponent(isoTime)}`;
@@ -465,6 +508,6 @@ export async function fetchLiveAnalytics() {
   return apiFetch('/analytics/live');
 }
 
-export async function fetchEvidenceBundle(hours = 24) {
-  return apiFetch(`/reports/evidence-bundle?hours=${hours}`);
+export async function fetchEvidenceBundle(evidenceIds = []) {
+  return apiFetch(`/reports/evidence-bundle?ids=${encodeURIComponent(evidenceIds.join(','))}`);
 }

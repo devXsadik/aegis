@@ -139,6 +139,11 @@ class _FrameSender(threading.Thread):
         cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
         return cls(u.hostname, u.port or (443 if u.scheme == "https" else 80), timeout=3.0)
 
+    @staticmethod
+    def _post(conn, path, jpeg, headers) -> None:
+        conn.request("POST", path, body=jpeg, headers=headers)
+        conn.getresponse().read()                   # drain so the connection can be reused
+
     def run(self) -> None:
         conn = None
         path = f"/api/v1/stream/frame/{self.camera_id}"
@@ -149,10 +154,17 @@ class _FrameSender(threading.Thread):
                     self._cv.wait()
                 jpeg, self._slot = self._slot, None
             try:
-                if conn is None:
-                    conn = self._connect()
-                conn.request("POST", path, body=jpeg, headers=headers)
-                conn.getresponse().read()           # drain so the connection can be reused
+                if conn is not None:
+                    try:
+                        self._post(conn, path, jpeg, headers)
+                        continue
+                    except Exception:  # noqa: BLE001
+                        # A camera stopped and started again finds its kept-alive connection closed
+                        # by the backend meanwhile (Broken pipe): resend once on a fresh one.
+                        conn.close()
+                        conn = None
+                conn = self._connect()
+                self._post(conn, path, jpeg, headers)
             except Exception as e:  # noqa: BLE001
                 if conn is not None:
                     conn.close()
@@ -223,6 +235,56 @@ def publish_event_clip(
     threading.Thread(target=_send, daemon=True).start()
 
 
+def publish_capture(camera_id: str, jpeg_bytes: bytes, fields: dict) -> None:
+    """Upload one red-alert capture (zoomed subject still) to the dashboard's capture basket."""
+    if not AUTO_ALERTS_ENABLED:
+        return
+
+    def _send():
+        try:
+            import httpx
+
+            data = {k: str(v) for k, v in fields.items() if v is not None and v != ""}
+            data["camera_id"] = camera_id
+            resp = httpx.post(
+                f"{BACKEND_URL}/api/v1/captures/ingest",
+                data=data,
+                files={"file": ("capture.jpg", jpeg_bytes, "image/jpeg")},
+                headers={"X-Internal-Key": INTERNAL_API_KEY},
+                timeout=8.0,
+            )
+            if resp.status_code >= 400:
+                logger.warning(f"Capture ingest returned {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Capture ingest failed: {e}")
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def publish_vehicle_detection(
+    camera_location: str,
+    track_id: int,
+    vehicle_type: str = "vehicle",
+    license_plate: Optional[str] = None,
+    plate_confidence: Optional[float] = None,
+    is_suspicious: bool = False,
+) -> None:
+    """Persist a confirmed ANPR / vehicle sighting for GET /vehicles/detections."""
+    if not EVENTS_ENABLED:
+        return
+    _post_async(
+        "/api/v1/vehicles/detections/ingest",
+        {
+            "camera_location": camera_location or "unknown",
+            "track_id": int(track_id),
+            "vehicle_type": vehicle_type or "vehicle",
+            "license_plate": license_plate,
+            "plate_confidence": plate_confidence,
+            "is_suspicious": bool(is_suspicious),
+        },
+    )
+
+
 def publish_heartbeat(
     camera_id: str,
     camera_location: str = "",
@@ -230,12 +292,14 @@ def publish_heartbeat(
     threat_score: Optional[int] = None,
     frame_number: Optional[int] = None,
     analytics: Optional[dict] = None,
+    flags: Optional[list] = None,
 ) -> None:
     if not EVENTS_ENABLED:
         return
     _post_async(
         "/api/v1/system/heartbeat",
         {
+            "flags": flags or [],
             "camera_id": camera_id,
             "camera_location": camera_location,
             "fps": fps,

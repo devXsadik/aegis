@@ -31,28 +31,63 @@ else
 fi
 
 echo ""
-echo "3. Installing Python dependencies..."
-pip3 install -r requirements.txt
+echo "3. Creating virtualenv and installing Python dependencies..."
+BOOT=""
+for cand in python3.12 python3.11 python3.10; do
+  if command -v "$cand" >/dev/null 2>&1; then BOOT="$cand"; break; fi
+done
+# Also accept Homebrew keg-only paths
+if [ -z "$BOOT" ]; then
+  for cand in /opt/homebrew/opt/python@3.12/bin/python3.12 \
+              /opt/homebrew/opt/python@3.11/bin/python3.11 \
+              /usr/local/opt/python@3.12/bin/python3.12; do
+    if [ -x "$cand" ]; then BOOT="$cand"; break; fi
+  done
+fi
+if [ -z "$BOOT" ]; then
+  echo "ERROR: Need Python 3.10–3.12 (not 3.13+)."
+  echo "  Install: brew install python@3.12"
+  exit 1
+fi
+# Recreate venv if missing or built with the wrong major.minor
+NEED_VENV=0
+if [ ! -x ".venv/bin/python" ]; then
+  NEED_VENV=1
+else
+  VENV_VER="$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")"
+  case "$VENV_VER" in
+    3.10|3.11|3.12) ;;
+    *) echo "   Existing .venv is Python $VENV_VER — recreating with $BOOT…"; NEED_VENV=1 ;;
+  esac
+fi
+if [ "$NEED_VENV" = 1 ]; then
+  rm -rf .venv
+  echo "   Creating .venv with $BOOT…"
+  "$BOOT" -m venv .venv
+  .venv/bin/pip install -q --upgrade pip
+fi
+.venv/bin/pip install -r requirements.txt
+PYTHON=".venv/bin/python"
 
 echo ""
 echo "4. Initializing database schema..."
-python3 -m backend.init_db
+$PYTHON -m backend.init_db
 
 echo ""
 echo "5. Ingesting known persons (face encodings)..."
-python3 -m backend.migrate 2>/dev/null || python3 scripts/ingest_watchlist.py 2>/dev/null || echo "   Run: python3 scripts/ingest_watchlist.py"
+$PYTHON -m backend.migrate 2>/dev/null || $PYTHON scripts/ingest_watchlist.py 2>/dev/null || echo "   Run: .venv/bin/python scripts/ingest_watchlist.py"
 
 echo ""
 echo "6. Creating admin user (password is printed below; save it)..."
-python3 scripts/seed_demo.py 2>/dev/null || true
+$PYTHON scripts/seed_demo.py 2>/dev/null || true
 
 echo ""
 echo "7. Syncing camera GPS to database..."
-python3 scripts/seed_cameras.py 2>/dev/null || true
+$PYTHON scripts/seed_cameras.py 2>/dev/null || true
 
 echo ""
 echo "8. Converting HEIC face images to JPG (if any)..."
-python3 scripts/convert_heic.py 2>/dev/null || true
+$PYTHON scripts/convert_heic.py 2>/dev/null || true
 
 echo ""
 echo "================================================"
@@ -62,8 +97,9 @@ echo ""
 echo "Next steps:"
 echo "  ./run.sh"
 echo "  OR manually:"
-echo "    uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
-echo "    python3 main.py --video data/demo/clips/sample.mp4"
+echo "    .venv/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
+echo "    .venv/bin/python main.py --video data/demo/clips/sample.mp4"
 echo "    cd frontend && npm run dev"
 echo ""
+
 

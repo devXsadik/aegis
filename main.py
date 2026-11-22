@@ -24,6 +24,7 @@ from core.runtime import run_camera_loop
 from paths import CONFIG_YAML, EVIDENCE_DIR, ROOT
 from utils.config import load_cameras_config, load_yaml, expand_env, get_camera_geo
 from utils.media import fresh_process_sees_webcam, resolve_source
+from utils.media.devices import DEVICE_PREFIX, CameraListStale, device_connected, snapshot_local_cameras
 from utils.system import logger
 
 cv2.setNumThreads(0)
@@ -50,6 +51,14 @@ def _hotplug_restart_allowed(min_gap: float = 600.0) -> bool:
     return True
 
 
+def _connected_now(source) -> bool:
+    """True if a local webcam source is plugged in right now, whatever this process believes."""
+    if isinstance(source, int):
+        return fresh_process_sees_webcam(source)
+    return (isinstance(source, str) and source.startswith(DEVICE_PREFIX)
+            and device_connected(source[len(DEVICE_PREFIX):]))
+
+
 def _resolve_camera_index(cfg):
     env_index = os.getenv("CAMERA_INDEX")
     if env_index:
@@ -58,6 +67,12 @@ def _resolve_camera_index(cfg):
         except ValueError:
             return env_index
     return expand_env(cfg.get("camera_index", 0))
+
+
+def _cameras_to_run(base_dir):
+    """Enabled cameras that are switched on. `started: false` is standby: the camera stays
+    closed until someone starts it from the dashboard's Live page."""
+    return [c for c in load_cameras_config(base_dir) if c.get("started", True)]
 
 
 def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
@@ -114,8 +129,8 @@ def _start_camera_thread(cam_cfg, cfg, base_dir, show_window):
                 )
             except Exception as e:
                 logger.error(f"[{cam_id}] camera unavailable: {e}")
-                if (sys.platform == "darwin" and isinstance(source, int)
-                        and fresh_process_sees_webcam(source) and _hotplug_restart_allowed()):
+                if isinstance(e, CameraListStale) or (
+                        sys.platform == "darwin" and _connected_now(source) and _hotplug_restart_allowed()):
                     # macOS never refreshes this process's camera list: a webcam plugged in after
                     # start stays invisible here until the pipeline restarts.
                     logger.warning(f"[{cam_id}] webcam {source} was plugged in after start — restarting pipeline")
@@ -152,11 +167,12 @@ def main():
     target_fps = cfg.get("target_fps", 30)
 
     if args.multi:
-        cameras = load_cameras_config(base_dir)
+        snapshot_local_cameras()
+        cameras = _cameras_to_run(base_dir)
         if not cameras:
             # Keep running: the hot-reload loop below starts cameras as soon as one is enabled
             # (e.g. from the dashboard). Exiting here left nothing running to pick that up.
-            logger.warning("No enabled cameras in config/cameras.yaml — waiting for one to be enabled")
+            logger.warning("No camera is switched on — waiting for one to be started from the dashboard")
         local = {}
         for c in cameras:
             if isinstance(c.get("source", 0), int):
@@ -175,7 +191,7 @@ def main():
                 if _restart_requested.is_set():
                     logging.shutdown()
                     os._exit(RESTART_EXIT_CODE)     # skip joining camera threads stuck in OpenCV
-                current_cameras = load_cameras_config(base_dir)
+                current_cameras = _cameras_to_run(base_dir)
                 active_cids = {c.get("id") for c in current_cameras if c.get("id")}
                 
                 # 1. Stop cameras that are no longer enabled

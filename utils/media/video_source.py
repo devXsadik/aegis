@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
+from .devices import DEVICE_PREFIX, bridge_url, device_index
+
 logger = logging.getLogger("HumanAnalysis")
 
 class ThreadedCamera:
@@ -40,22 +42,27 @@ class ThreadedCamera:
 
     def _update(self):
         fails = 0
-        while not self.stopped:
-            ret, frame = self.cap.read()
-            if not ret:
-                fails += 1
-                if fails >= self.MAX_CONSECUTIVE_FAILS:
-                    self.ret = False
-                    self.stopped = True
-                    self.new_frame_event.set()
-                    break
-                time.sleep(0.05)
-                continue
-            fails = 0
-            self.ret = ret
-            self.frame = frame
-            self.last_ok = time.monotonic()
-            self.new_frame_event.set()
+        try:
+            while not self.stopped:
+                ret, frame = self.cap.read()
+                if not ret:
+                    fails += 1
+                    if fails >= self.MAX_CONSECUTIVE_FAILS:
+                        self.ret = False
+                        self.stopped = True
+                        self.new_frame_event.set()
+                        break
+                    time.sleep(0.05)
+                    continue
+                fails = 0
+                self.ret = ret
+                self.frame = frame
+                self.last_ok = time.monotonic()
+                self.new_frame_event.set()
+        finally:
+            # Released here, by the thread that reads: releasing a capture while this thread is
+            # still blocked in read() (stalled network stream) segfaults the whole pipeline.
+            self.cap.release()
 
     def read(self):
         # Wait up to 2 seconds for a new frame
@@ -72,8 +79,7 @@ class ThreadedCamera:
         self.stopped = True
         self.new_frame_event.set()
         if self.thread.is_alive():
-            self.thread.join(timeout=1.0)
-        self.cap.release()
+            self.thread.join(timeout=1.0)   # the reader releases the capture when its read() returns
 
     def isOpened(self):
         return self.cap.isOpened() and not self.stopped
@@ -142,16 +148,17 @@ def is_video_file(source) -> bool:
 def resolve_source(source):
     """Expand env vars in source strings, e.g. ${RTSP_GATE_1}.
 
-    Local webcam indexes map to LOCAL_CAMERA_URL when set: containers cannot see the
-    host's camera, so Docker points that at scripts/webcam_bridge.py on the host.
+    Local webcams (an index or device:<uid>) map to LOCAL_CAMERA_URL when set: containers cannot
+    see the host's cameras, so Docker reads each one through scripts/webcam_bridge.py on the host.
     """
     if isinstance(source, str) and source.strip().isdigit():
         # The dashboard stores sources as text, so a webcam index comes back as "0": OpenCV would
         # treat that as a file called "0" instead of camera 0.
         source = int(source.strip())
+    if os.getenv("LOCAL_CAMERA_URL") and (isinstance(source, int) or str(source).startswith(DEVICE_PREFIX)):
+        return bridge_url(source)
     if not isinstance(source, str):
-        bridge = os.getenv("LOCAL_CAMERA_URL", "")
-        return bridge if bridge and isinstance(source, int) else source
+        return source
     if source.startswith("${") and source.endswith("}"):
         env_name = source[2:-1]
         return os.getenv(env_name, source)
@@ -208,6 +215,9 @@ def open_capture(source, max_retries: int = 5, retry_delay: float = 2.0):
     import cv2
 
     resolved = resolve_source(source)
+    if isinstance(resolved, str) and resolved.startswith(DEVICE_PREFIX):
+        # Looked up on every open: raises while the device is unplugged, so the caller keeps retrying.
+        resolved = device_index(resolved[len(DEVICE_PREFIX):])
     is_network = isinstance(resolved, str) and (
         resolved.startswith("rtsp://")
         or resolved.startswith("http://")

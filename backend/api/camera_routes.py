@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional, List
+import os
 import urllib.parse
 import requests
 import logging
@@ -90,14 +91,18 @@ class CameraResponse(BaseModel):
 @router.get("/", response_model=List[CameraResponse])
 def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
     # Auto-sync cameras from cameras.yaml into DB
-    yaml_path = Path(__file__).resolve().parents[2] / "config" / "cameras.yaml"   # not cwd-dependent
+    yaml_path = CAMERAS_YAML
     if yaml_path.exists():
         try:
             with open(yaml_path, "r") as f:
                 ydata = yaml.safe_load(f) or {}
             existing = {c.camera_id: c for c in db.query(Camera).all()}
             existing_ids = set(existing)
-            for cam in ydata.get("cameras", []):
+            in_yaml = {c.get("id") for c in ydata.get("cameras") or []}
+            for cam_id, row in existing.items():
+                if cam_id not in in_yaml:
+                    row.active = False      # the pipeline doesn't run it: never show it as live
+            for cam in ydata.get("cameras") or []:
                 cam_id = cam.get("id")
                 if cam_id in existing:
                     # cameras.yaml is what the pipeline actually runs: mirror its enabled flag.
@@ -124,8 +129,55 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
 import yaml
 from pathlib import Path
 
+
+@router.get("/devices")
+def list_devices(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    """Cameras connected to this machine, and the registered camera (if any) that uses each one.
+
+    A newly connected camera shows up here unused: nothing runs on it until someone adds it.
+    """
+    from utils.media.devices import DEVICE_PREFIX, list_host_cameras
+
+    devices = list_host_cameras()
+    by_source = {}
+    for cam in sorted(db.query(Camera).all(), key=lambda c: not c.active):    # a running camera wins a shared device
+        by_source.setdefault(str(cam.rtsp_url if cam.rtsp_url is not None else "").strip(), cam)
+    for d in devices:
+        bound = by_source.get(d["source"])
+        cam = bound or by_source.get(str(d["index"]))
+        d["camera_id"] = cam.camera_id if cam else None
+        d["camera_name"] = cam.name if cam else None
+        d["active"] = bool(cam and cam.active)
+        # False for a camera set up by index: that index moves when cameras are plugged in or out.
+        d["bound"] = bool(bound)
+
+    connected = {d["source"] for d in devices} | {str(d["index"]) for d in devices}
+    unplugged = [
+        cam.camera_id for source, cam in by_source.items()
+        if devices and (source.isdigit() or source.startswith(DEVICE_PREFIX)) and source not in connected
+    ]
+    return {"devices": devices, "unplugged": unplugged}
+
+
+def _forget_heartbeat(camera_id: str):
+    """A camera that was just paused must not keep showing as streaming."""
+    from backend.api.system_routes import _pipeline_status
+    _pipeline_status["cameras"].pop(camera_id, None)
+
+
+def _write_cameras_yaml(path: Path, data: dict):
+    """Replace cameras.yaml in one step: the pipeline re-reads it every 2 s, and a half-written
+    file reads as "no cameras", which stops every camera and restarts it on the next read."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(yaml.safe_dump(data, sort_keys=False))
+    os.replace(tmp, path)
+
+
+CAMERAS_YAML = Path(__file__).resolve().parents[2] / "config" / "cameras.yaml"
+
+
 def sync_camera_to_yaml(cam: Camera):
-    yaml_path = Path("config/cameras.yaml")
+    yaml_path = CAMERAS_YAML
     if not yaml_path.exists():
         return
     try:
@@ -149,7 +201,8 @@ def sync_camera_to_yaml(cam: Camera):
                 found = True
                 break
                 
-        if not found and cam.active:
+        if not found:
+            # Paused cameras are listed too: a camera missing from the file can't be resumed
             cameras.append({
                 "id": cam.camera_id,
                 "name": cam.name,
@@ -157,16 +210,66 @@ def sync_camera_to_yaml(cam: Camera):
                 "location": cam.location,
                 "lat": cam.lat,
                 "lng": cam.lng,
-                "enabled": True,
+                "enabled": bool(cam.active),
                 "fps_limit": 15,
                 "priority": "high"
             })
             
         data["cameras"] = cameras
-        with open(yaml_path, "w") as f:
-            yaml.safe_dump(data, f, sort_keys=False)
+        _write_cameras_yaml(yaml_path, data)
     except Exception as e:
         logger.error(f"Failed to sync camera to yaml: {e}")
+
+
+def remove_camera_from_yaml(camera_id: str):
+    """Drop the entry outright. Leaving it disabled brought a deleted camera back: the camera
+    list copies every cameras.yaml entry missing from the DB into the DB."""
+    if not CAMERAS_YAML.exists():
+        return
+    data = yaml.safe_load(CAMERAS_YAML.read_text()) or {}
+    data["cameras"] = [c for c in data.get("cameras") or [] if c.get("id") != camera_id]
+    _write_cameras_yaml(CAMERAS_YAML, data)
+
+
+POWER_ROLES = {"admin", "supervisor", "operator"}
+
+
+class PowerBody(BaseModel):
+    on: bool
+
+
+def _power_map(data: dict) -> dict:
+    return {c["id"]: bool(c.get("started", True)) for c in data.get("cameras") or [] if c.get("id")}
+
+
+@router.get("/power")
+def camera_power(user: User = Depends(operator_or_admin)):
+    """Which cameras are switched on. A camera that is off stays closed in the pipeline."""
+    if not CAMERAS_YAML.exists():
+        return {}
+    return _power_map(yaml.safe_load(CAMERAS_YAML.read_text()) or {})
+
+
+@router.post("/{camera_id}/power")
+def set_camera_power(camera_id: str, body: PowerBody, request: Request, db: Session = Depends(get_db),
+                     user: User = Depends(operator_or_admin)):
+    """Start or stop one camera. The pipeline re-reads cameras.yaml every 2 s and follows it."""
+    if user.role not in POWER_ROLES:
+        raise HTTPException(status_code=403, detail="Not allowed to start or stop cameras")
+    data = (yaml.safe_load(CAMERAS_YAML.read_text()) or {}) if CAMERAS_YAML.exists() else {}
+    cam = next((c for c in data.get("cameras") or [] if c.get("id") == camera_id), None)
+    if cam is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    if body.on and not cam.get("enabled", True):
+        raise HTTPException(status_code=409, detail="This camera is paused. Resume it on the Cameras page first.")
+    cam["started"] = body.on
+    _write_cameras_yaml(CAMERAS_YAML, data)
+    if not body.on:
+        _forget_heartbeat(camera_id)
+    log_audit(db, user, "CAMERA_START" if body.on else "CAMERA_STOP", "camera", camera_id, "", request)
+    db.commit()
+    return _power_map(data)
+
 
 @router.post("/", response_model=CameraResponse)
 def create_camera(cam: CameraCreate, request: Request, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
@@ -196,6 +299,8 @@ def update_camera(camera_id: str, cam: CameraCreate, request: Request, db: Sessi
     db.commit()
     db.refresh(camera)
     sync_camera_to_yaml(camera)
+    if not camera.active:
+        _forget_heartbeat(camera_id)
     return camera
 
 
@@ -204,8 +309,12 @@ def delete_camera(camera_id: str, request: Request, db: Session = Depends(get_db
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
-    camera.active = False
-    sync_camera_to_yaml(camera)
+    try:
+        remove_camera_from_yaml(camera_id)      # the pipeline stops it within ~2 s
+    except Exception as e:
+        logger.error(f"Failed to remove camera {camera_id} from yaml: {e}")
+        raise HTTPException(status_code=500, detail="Could not update cameras.yaml; camera not deleted")
+    _forget_heartbeat(camera_id)
     log_audit(db, admin, "CAMERA_DELETE", "camera", camera_id, f"name={camera.name}", request)
     db.delete(camera)
     db.commit()

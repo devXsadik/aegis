@@ -32,6 +32,7 @@ class HeartbeatPayload(BaseModel):
     threat_score: Optional[int] = None
     frame_number: Optional[int] = None
     analytics: Optional[dict] = None
+    flags: Optional[list] = None        # red alerts in view now: [{type, label, origin}]
 
 
 @router.get("/status")
@@ -42,9 +43,11 @@ def get_system_status(user: User = Depends(operator_or_admin)):
     offline = 0
     for cam_id, meta in _pipeline_status.get("cameras", {}).items():
         sla = camera_offline_sla(meta.get("last_seen"))
-        cameras[cam_id] = {**meta, "sla": sla}
         if sla == "offline":
+            # Paused, unplugged or crashed: counted, but no longer listed as a reporting camera.
             offline += 1
+            continue
+        cameras[cam_id] = {**meta, "sla": sla}
 
     from backend.services.model_health import model_status
 
@@ -75,6 +78,7 @@ async def pipeline_heartbeat(
         "fps": body.fps,
         "threat_score": body.threat_score,
         "frame_number": body.frame_number,
+        "flags": (body.flags or [])[:8],
         "last_seen": now,
     }
 

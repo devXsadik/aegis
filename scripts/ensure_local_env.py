@@ -39,8 +39,73 @@ def ensure_face_model() -> None:
         print(f"  face detector not downloaded ({e}); using slower dlib detection")
 
 
+def ensure_attribute_model() -> None:
+    """Fetch the gender/age estimator (1.3 MB) used to describe red-alert captures. Best effort:
+    without it captures simply carry no gender/age estimate."""
+    sys.path.insert(0, str(ROOT))
+    from utils.face_attributes import GENDERAGE_MODEL, GENDERAGE_URL
+
+    if GENDERAGE_MODEL.is_file():
+        return
+    try:
+        import urllib.request
+
+        GENDERAGE_MODEL.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(GENDERAGE_URL, timeout=30) as r:
+            data = r.read()
+        if len(data) < 500_000:                      # an error page, not the model
+            raise ValueError(f"unexpected download size {len(data)}")
+        GENDERAGE_MODEL.write_bytes(data)
+        print(f"Downloaded attribute model → {GENDERAGE_MODEL.relative_to(ROOT)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  attribute model not downloaded ({e}); captures will have no gender/age estimate")
+
+
+def ensure_reid_model() -> None:
+    """Fetch the person re-identification model (107 MB) used to follow a red-alert subject from
+    camera to camera. Best effort: without it subjects are only followed where their face is read."""
+    sys.path.insert(0, str(ROOT))
+    from core.tracking.cross_camera import REID_MODEL, REID_URL
+
+    if REID_MODEL.is_file():
+        return
+    try:
+        import urllib.request
+
+        REID_MODEL.parent.mkdir(parents=True, exist_ok=True)
+        print("Downloading cross-camera tracking model (107 MB)…")
+        tmp = REID_MODEL.with_suffix(".part")
+        urllib.request.urlretrieve(REID_URL, tmp)
+        if tmp.stat().st_size < 50_000_000:           # an error page, not the model
+            tmp.unlink()
+            raise ValueError("unexpected download size")
+        tmp.rename(REID_MODEL)
+        print(f"Downloaded tracking model → {REID_MODEL.relative_to(ROOT)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  tracking model not downloaded ({e}); cross-camera tracking by appearance is off")
+
+
+def ensure_action_model() -> None:
+    """Build the ST-GCN action model (12 MB) from MMAction2's pretrained checkpoint. Best effort:
+    without it behavior falls back to the rule-based checks only."""
+    sys.path.insert(0, str(ROOT))
+    from core.analysis.action import ACTION_MODEL
+
+    if ACTION_MODEL.is_file():
+        return
+    import subprocess
+
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "export_action_model.py")])
+    if result.returncode != 0:
+        print("  action model not built; fighting/pushing/falling recognition is off "
+              "(retry: python scripts/export_action_model.py)")
+
+
 def main() -> int:
     ensure_face_model()
+    ensure_attribute_model()
+    ensure_reid_model()
+    ensure_action_model()
     if not ENV_PATH.exists():
         if EXAMPLE.exists():
             ENV_PATH.write_text(EXAMPLE.read_text())

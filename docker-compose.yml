@@ -5,6 +5,7 @@ x-app: &app
   build: .
   image: aegis-app:latest
   env_file: .env
+  init: true                  # main.py has no SIGTERM handler: without an init, stop waits 10 s
   environment: &app-env
     ENVIRONMENT: production
     HEADLESS: "true"          # containers have no display; .env may say false
@@ -53,6 +54,10 @@ services:
     environment:
       <<: *app-env
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # The host's cameras, as listed by scripts/webcam_bridge.py (GET /devices).
+      LOCAL_CAMERA_URL: ${LOCAL_CAMERA_URL:-http://host.docker.internal:8090/video}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -76,8 +81,10 @@ services:
     environment:
       <<: *app-env
       # Webcam index sources (source: 0) read the host webcam through
-      # scripts/webcam_bridge.py (run `make webcam-bridge` on the host).
+      # scripts/webcam_bridge.py on the host (started by scripts/docker-up.sh / .ps1).
       LOCAL_CAMERA_URL: ${LOCAL_CAMERA_URL:-http://host.docker.internal:8090/video}
+      # Optional: process one file instead of cameras.yaml (e.g. a clip under data/demo).
+      PIPELINE_VIDEO: ${PIPELINE_VIDEO:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -87,9 +94,15 @@ services:
       - ./models:/app/models
       - ./config:/app/config
       - ./data/watchlist:/app/data/watchlist:ro
+      - ./data/demo:/app/data/demo:ro
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Optional demo button on the sign-in page (see DEMO_LOGIN_PASSWORD in .env.example).
+        VITE_DEMO_USERNAME: ${DEMO_LOGIN_USERNAME:-demo}
+        VITE_DEMO_PASSWORD: ${DEMO_LOGIN_PASSWORD:-}
     image: aegis-web:latest
     ports:
       - "${HTTP_PORT:-8080}:80"
@@ -105,3 +118,4 @@ volumes:
 networks:
   default:
     name: aegis_network
+

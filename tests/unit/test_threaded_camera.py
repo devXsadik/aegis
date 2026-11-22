@@ -50,5 +50,31 @@ def test_local_webcam_index_maps_to_bridge_url_only_when_set(monkeypatch):
     monkeypatch.delenv("LOCAL_CAMERA_URL", raising=False)
     assert resolve_source(0) == 0
     monkeypatch.setenv("LOCAL_CAMERA_URL", "http://host.docker.internal:8090/video")
-    assert resolve_source(0) == "http://host.docker.internal:8090/video"
+    # Each host camera is its own stream on the bridge, not one shared feed.
+    assert resolve_source(0) == "http://host.docker.internal:8090/video?source=0"
+    assert resolve_source("1") == "http://host.docker.internal:8090/video?source=1"
+    assert resolve_source("device:0x1A11") == "http://host.docker.internal:8090/video?source=device:0x1A11"
     assert resolve_source("rtsp://cam/1") == "rtsp://cam/1"
+
+
+def test_release_does_not_free_a_capture_that_is_blocked_in_read():
+    class HungCap(FakeCap):
+        released_mid_read = False
+
+        def read(self):
+            self.reading = self.i >= len(self.script)
+            out = super().read()
+            self.reading = False
+            return out
+
+        def release(self):
+            self.released_mid_read |= getattr(self, "reading", False)
+
+    cap = HungCap([True])
+    cam = ThreadedCamera(cap, stall_seconds=5)
+    time.sleep(0.1)                    # the reader is now stuck in read()
+    cam.release()
+    assert cap.released_mid_read is False
+    cap.gate.set()                     # the read returns: the reader frees the capture itself
+    cam.thread.join(timeout=2)
+    assert not cam.thread.is_alive()

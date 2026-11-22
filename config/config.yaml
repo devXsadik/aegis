@@ -22,18 +22,28 @@ model_dir: "models"
 human_model: "yolov8n.pt"         # Nano model for speed
 weapon_model: "weapon_yolo.pt"
 # vehicle_model uses yolov8l.pt by default (hardcoded in pipeline)
+vehicle_detection: false           # yolov8l doubles detection time per frame; enable for road/parking cameras
 
 # --- Tracking ---
 tracking:
-  appearance: histogram            # histogram (fast) | cnn (more robust to occlusion, ~100 ms/person on CPU)
+  algorithm: deepsort              # deepsort | bytetrack (motion+IoU, keeps ids through occlusion, no embedding cost)
+  appearance: histogram           # histogram (fast) | reid | cnn — reid/cnn too slow for CPU (~290 ms/frame)
 
 # --- Pose (raised arms, fall suspicion) ---
 pose:
   enabled: true
   every_n_frames: 2                # pose is the costliest per-frame step
 
+# --- Action recognition (ST-GCN on pose keypoints: falling, staggering; not fighting, see action.py) ---
+# Model: models/action_stgcn_ntu60.onnx (scripts/export_action_model.py). Needs pose enabled.
+action:
+  enabled: true
+  window_seconds: 3.0              # keypoint history classified at once
+  every_seconds: 1.0               # per person
+  min_confidence: 0.6              # softmax probability needed to raise a reason
+
 # --- Detection Thresholds ---
-confidence_threshold: 0.5
+confidence_threshold: 0.4         # 0.5 dropped people who were partly hidden or far away
 weapon_conf_threshold: 0.4
 face_tolerance: 0.45
 
@@ -50,7 +60,8 @@ auto_alerts_enabled: true          # Auto-dispatch on criminal (all cameras → 
 
 # --- Behavior Analysis ---
 behavior:
-  speed_threshold: 150             # Pixels/sec to flag as rapid movement
+  speed_threshold_mps: 3.0         # Metres/sec to flag as rapid movement (walking ~1.4, running > 3)
+  loiter_radius_m: 0.6             # Staying within this radius counts as standing still
   loiter_seconds: 15               # Seconds before flagging as loitering
   erratic_angle: 60                # Degrees of direction change to count
 

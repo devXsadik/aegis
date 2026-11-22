@@ -8,7 +8,10 @@ import threading
 from core.pipeline.base import PipelineStage, FrameContext
 from utils.data import save_evidence_db
 from utils.alerts import NotificationHub
+from utils.alerts.capture import AlertCapturer
+from utils.alerts.event_publisher import publish_vehicle_detection
 from core.analysis.weapon_confirm import UNASSIGNED, WeaponConfirmer, associate
+from core.tracking.cross_camera import shared_tracker
 
 logger = logging.getLogger("HumanAnalysis")
 
@@ -28,6 +31,9 @@ class OutputStage(PipelineStage):
             alarm_interval=alarm_interval_seconds,
         )
         self._last_saved: dict = {}
+        self._plates_published: set = set()
+        self.capturer = AlertCapturer()
+        self.cross_camera = shared_tracker()
         self.weapon_confirmer = WeaponConfirmer(window=5, min_hits=3)
         # Fire/smoke flickers more than weapons do: demand a longer persistence.
         self.fire_confirmer = WeaponConfirmer(window=8, min_hits=5)
@@ -37,6 +43,11 @@ class OutputStage(PipelineStage):
         location = ctx.camera_location or self.camera_location
         camera_id = ctx.camera_id
         fh, fw = ctx.frame.shape[:2]
+        # Red alert in view: a zoomed still of the subject goes to the capture basket every few seconds.
+        capture_meta = dict(
+            camera_id=camera_id, camera_location=location, camera_name=ctx.camera_name,
+            camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+        )
 
         # Weapon evidence must be attached to a person track and persist over frames.
         assigned = associate(ctx.weapon_detections, ctx.tracks)
@@ -52,6 +63,10 @@ class OutputStage(PipelineStage):
                 kind=best_fire.get("class_name", "fire"), confidence=best_fire["score"],
                 camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
             )
+            self.capturer.capture(
+                "fire", now, ctx.frame, best_fire.get("bbox"), alert_type="FIRE_SMOKE_DETECTED",
+                confidence=best_fire["score"], **capture_meta,
+            )
 
         for tid in ctx.fall_tracks:
             self.notifications.fall_suspected(
@@ -66,6 +81,38 @@ class OutputStage(PipelineStage):
                 camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
                 confidence=ctx.confirmed_weapons[UNASSIGNED]["score"],
             )
+            self.capturer.capture(
+                "weapon", now, ctx.frame, ctx.confirmed_weapons[UNASSIGNED].get("bbox"),
+                alert_type="WEAPON_DETECTED",
+                confidence=ctx.confirmed_weapons[UNASSIGNED]["score"], **capture_meta,
+            )
+
+        # Red-alert subjects are remembered by appearance; anyone else who looks like one of them,
+        # here or on another camera, is flagged as tracked.
+        subjects, others = [], []
+        for track in ctx.tracks:
+            if not track.is_confirmed() or getattr(track, "time_since_update", 0) > 0:
+                continue
+            tid, box = track.track_id, track.to_ltrb()
+            if tid in ctx.criminal_ids:
+                name = ctx.identities.get(tid, "Unknown")
+                subjects.append((tid, box, f"name:{name}", name, "CRIMINAL_DETECTED", name))
+            elif tid in ctx.confirmed_weapons:
+                subjects.append((tid, box, f"armed:{camera_id}:{tid}", "Armed person", "WEAPON_DETECTED", None))
+            else:
+                others.append((tid, box))
+        try:
+            ctx.tracked = self.cross_camera.step(camera_id, location, now, ctx.frame, subjects, others)
+        except Exception as e:
+            logger.warning(f"Cross-camera tracking failed: {e}")
+        flags = {}
+        for _, _, key, label, alert_type, _ in subjects:
+            origin = self.cross_camera.targets[key].origin_location if key in self.cross_camera.targets else ""
+            flags[key] = {"type": alert_type, "label": label, "origin": origin if origin != location else ""}
+        for target in ctx.tracked.values():
+            flags[target.key] = {"type": "PERSON_TRACKED", "label": target.label,
+                                 "origin": target.origin_location if target.origin_camera != camera_id else ""}
+        ctx.live_flags = list(flags.values())
 
         for track in ctx.tracks:
             if not track.is_confirmed():
@@ -111,6 +158,29 @@ class OutputStage(PipelineStage):
                     confidence=ctx.confirmed_weapons[track_id]["score"],
                 )
 
+            if is_criminal or has_weapon:
+                self.capturer.capture(
+                    f"track_{track_id}", now, ctx.frame, (x1, y1, x2, y2),
+                    alert_type="CRIMINAL_DETECTED" if is_criminal else "WEAPON_DETECTED",
+                    track_id=track_id, person_name=name if is_criminal else None,
+                    confidence=(ctx.identity_conf.get(track_id) if is_criminal
+                                else ctx.confirmed_weapons[track_id]["score"]),
+                    **capture_meta,
+                )
+
+            target = ctx.tracked.get(track_id)
+            if target is not None:
+                self.notifications.person_tracked(
+                    label=target.label, person_name=target.person_name, target_key=target.key,
+                    origin_location=target.origin_location if target.origin_camera != camera_id else "",
+                    camera_location=location, camera_id=camera_id, track_id=track_id, now=now,
+                    camera_name=ctx.camera_name, camera_lat=ctx.camera_lat, camera_lng=ctx.camera_lng,
+                )
+                self.capturer.capture(
+                    f"track_{track_id}", now, ctx.frame, (x1, y1, x2, y2), alert_type="PERSON_TRACKED",
+                    track_id=track_id, person_name=target.person_name, **capture_meta,
+                )
+
             if is_suspicious:
                 self.notifications.suspicious_behavior(
                     name=name,
@@ -122,6 +192,12 @@ class OutputStage(PipelineStage):
                     camera_lat=ctx.camera_lat,
                     camera_lng=ctx.camera_lng,
                 )
+                if self.capturer.include_suspicious and not (is_criminal or has_weapon or target):
+                    self.capturer.capture(
+                        f"track_{track_id}", now, ctx.frame, (x1, y1, x2, y2),
+                        alert_type="SUSPICIOUS_BEHAVIOR", track_id=track_id,
+                        person_name=name if name != "Unknown" else None, **capture_meta,
+                    )
 
             if alert and (now - self._last_saved.get(track_id, 0) >= self.evidence_throttle):
                 try:
@@ -138,6 +214,7 @@ class OutputStage(PipelineStage):
                 except Exception as e:
                     logger.warning(f"Evidence save failed: {e}")
 
+        watchlisted_keys = set()
         for plate in ctx.watchlisted_plates:
             vehicle_type = "unknown"
             for v in ctx.vehicle_detections:
@@ -153,6 +230,36 @@ class OutputStage(PipelineStage):
                 camera_lat=ctx.camera_lat,
                 camera_lng=ctx.camera_lng,
             )
+            key = (camera_id, plate.get("track_id"), plate["plate_number"])
+            watchlisted_keys.add(key)
+
+        # Persist non-watchlisted confirmed plates once per track (watchlisted ones land via alert dispatch).
+        for plate in ctx.plate_detections:
+            key = (camera_id, plate.get("track_id"), plate.get("plate_number"))
+            if (
+                key in self._plates_published
+                or key in watchlisted_keys
+                or not plate.get("plate_number")
+            ):
+                continue
+            vehicle_type = "vehicle"
+            for v in ctx.vehicle_detections:
+                if v.get("bbox") == plate.get("vehicle_bbox"):
+                    vehicle_type = v.get("class_name", "vehicle")
+                    break
+            publish_vehicle_detection(
+                camera_location=location or camera_id or "unknown",
+                track_id=int(plate.get("track_id") or 0),
+                vehicle_type=vehicle_type,
+                license_plate=plate["plate_number"],
+                plate_confidence=plate.get("confidence"),
+                is_suspicious=False,
+            )
+            self._plates_published.add(key)
+        live_plate_keys = {
+            (camera_id, p.get("track_id"), p.get("plate_number")) for p in ctx.plate_detections
+        }
+        self._plates_published &= live_plate_keys | watchlisted_keys
 
         for anomaly in ctx.anomalies:
             if anomaly.get("type") == "line_cross":
@@ -173,7 +280,7 @@ class OutputStage(PipelineStage):
             100,
             len(ctx.tracks) * 5
             + (50 if ctx.confirmed_weapons else 0)
-            + len(ctx.active_criminals) * 50
+            + (len(ctx.active_criminals) + len(ctx.tracked)) * 50
             + len(ctx.anomalies) * 10,
         )
 

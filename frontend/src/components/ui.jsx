@@ -88,7 +88,12 @@ export const Icons = {
     <svg viewBox="0 0 24 24" {...stroke}><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
   ),
   shield: () => (
-    <svg viewBox="0 0 24 24" {...stroke}><path d="M12 2l8 3.5V11c0 5-3.4 8.6-8 11-4.6-2.4-8-6-8-11V5.5L12 2z"/></svg>
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M12 2.5l7.5 3.2V11c0 4.7-3.2 8.1-7.5 10.3C7.7 19.1 4.5 15.7 4.5 11V5.7L12 2.5z"/>
+      <path d="M8.2 11.2a3.8 3.8 0 0 1 7.6 0" opacity="0.7"/>
+      <path d="M12 8.6l2.4 1.4v2.8L12 14.2l-2.4-1.4V10z"/>
+      <circle cx="12" cy="11.4" r="1.05"/>
+    </svg>
   ),
   eye: () => (
     <svg viewBox="0 0 24 24" {...stroke}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -98,6 +103,12 @@ export const Icons = {
   ),
   zone: () => (
     <svg viewBox="0 0 24 24" {...stroke}><path d="M4 7l6-3 9 4-2 11-9 1-4-6 0-7z"/><circle cx="4" cy="7" r="1.2"/><circle cx="10" cy="4" r="1.2"/><circle cx="19" cy="8" r="1.2"/><circle cx="17" cy="19" r="1.2"/></svg>
+  ),
+  plus: () => (
+    <svg viewBox="0 0 24 24" {...stroke}><path d="M12 5v14M5 12h14"/></svg>
+  ),
+  panel: () => (
+    <svg viewBox="0 0 24 24" {...stroke}><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
   ),
   fire: () => (
     <svg viewBox="0 0 24 24" {...stroke}><path d="M12 22c4 0 7-2.8 7-7 0-3-1.8-5-3.5-7C14 6 13 4 13 2c-3 2-5 5-5 8-1-.8-1.6-2-2-3.2C4.7 8.6 5 11 5 13c0 4.7 3 9 7 9z"/></svg>
@@ -126,7 +137,7 @@ export function Card({ title, sub, actions, children, className = '', flush = fa
     <div className={`card ${className}`} style={style}>
       {(title || actions) && (
         <div className="card-head">
-          <span>{title} {sub && <span className="sub">· {sub}</span>}</span>
+          <span className="card-title">{title}{sub && <span className="sub">{sub}</span>}</span>
           {actions}
         </div>
       )}
@@ -149,9 +160,12 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 const modalStack = []   // only the top-most dialog reacts to Esc/Tab
 
 /** Accessible dialog: role/aria, Esc to close, Tab stays inside, focus returns to the opener. */
-export function Modal({ title, onClose, children, footer }) {
+export function Modal({ title, onClose, children, footer, className = '' }) {
   const ref = useRef(null)
   const titleId = useId()
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose }, [onClose])
+  // Runs once per open: re-running on a new onClose would steal focus and make the dialog jump
   useEffect(() => {
     const opener = document.activeElement
     const node = ref.current
@@ -160,7 +174,7 @@ export function Modal({ title, onClose, children, footer }) {
     first?.focus()
     const onKey = (e) => {
       if (modalStack[modalStack.length - 1] !== node) return
-      if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); return }
+      if (e.key === 'Escape') { e.stopPropagation(); closeRef.current?.(); return }
       if (e.key !== 'Tab' || !node) return
       const items = [...node.querySelectorAll(FOCUSABLE)]
       if (!items.length) return
@@ -174,10 +188,10 @@ export function Modal({ title, onClose, children, footer }) {
       modalStack.splice(modalStack.indexOf(node), 1)
       opener?.focus?.()
     }
-  }, [onClose])
+  }, [])
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal ${className}`} ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span id={titleId}>{title}</span>
           <button className="icon-btn" onClick={onClose} aria-label="Close dialog"><Icons.close /></button>

@@ -209,6 +209,16 @@ async def dispatch_alert(
             alert_id=alert.id, message=message, zone=zone, confidence=confidence,
             commit=False,
         )
+        if plate_number:
+            from backend.models.vehicle import VehicleDetection
+            db.add(VehicleDetection(
+                camera_location=camera_location or camera_id or "unknown",
+                track_id=int(track_id or 0),
+                vehicle_type="vehicle",
+                license_plate=str(plate_number).upper()[:20],
+                plate_confidence=f"{float(confidence):.3f}" if confidence is not None else None,
+                is_suspicious=True,
+            ))
         db.commit()
         db.refresh(alert)
 

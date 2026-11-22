@@ -95,7 +95,10 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         logger.warning(f"Weapon detector DISABLED: model not found at {weapon_model_path}")
 
     vehicle_detector = None
-    if os.path.exists(vehicle_model_path):
+    if not cfg.get("vehicle_detection", True):
+        # YOLOv8l: ~2x the person model's time, on every frame of every camera
+        logger.info("Vehicle detector: OFF (vehicle_detection: false)")
+    elif os.path.exists(vehicle_model_path):
         try:
             vehicle_detector = _shared(
                 ("vehicle", vehicle_model_path),
@@ -108,8 +111,10 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         logger.warning(f"Vehicle detector DISABLED: model not found at {vehicle_model_path}")
 
     appearance = cfg.get("tracking", {}).get("appearance", "histogram")
-    human_tracker = HumanTracker(appearance)
-    vehicle_tracker = VehicleTracker(appearance)
+    algorithm = cfg.get("tracking", {}).get("algorithm", "deepsort")
+    human_tracker = HumanTracker(appearance, algorithm)
+    vehicle_tracker = VehicleTracker(appearance, algorithm)
+    logger.info(f"Tracker: {algorithm}" + ("" if algorithm == "bytetrack" else f" ({appearance})"))
     face_recognizer = _shared(
         ("face", face_tolerance),
         lambda: FaceRecognizerDB(tolerance=face_tolerance, cache_ttl=30.0,
@@ -126,6 +131,22 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         )
         if not pose_analyzer.enabled:
             logger.warning("Pose analysis DISABLED (model unavailable): no raised-arms / fall checks")
+
+    # One per pipeline (camera): it keeps that camera's keypoint history.
+    action_cfg = cfg.get("action", {})
+    action_recognizer = None
+    if pose_analyzer is not None and pose_analyzer.enabled and action_cfg.get("enabled", True):
+        from core.analysis.action import ActionRecognizer
+        action_recognizer = ActionRecognizer(
+            window_seconds=action_cfg.get("window_seconds", 3.0),
+            every_seconds=action_cfg.get("every_seconds", 1.0),
+            min_confidence=action_cfg.get("min_confidence", 0.6),
+        )
+        if action_recognizer.enabled:
+            logger.info("Action recognition (ST-GCN, NTU-60): ENABLED")
+        else:
+            logger.warning("Action recognition DISABLED: run scripts/export_action_model.py")
+            action_recognizer = None
 
     fire_detector = None
     fire_path = model_path(base_dir, model_dir, "fire_detector", "fire_smoke_yolo.pt")
@@ -188,7 +209,9 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         anomaly_detector=anomaly_detector,
         anpr=anpr,
         plate_db=plate_db,
+        action_recognizer=action_recognizer,
         pose_every_n=pose_cfg.get("every_n_frames", 2),
+        anpr_every_n=anpr_cfg.get("every_n_frames", 3),
     ))
     pipeline.add_stage(AnalyticsStage())
     pipeline.add_stage(OutputStage(

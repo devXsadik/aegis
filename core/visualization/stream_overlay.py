@@ -5,8 +5,9 @@ threat bar, stats box, banners. On the dashboard those duplicated the tile's own
 covered a quarter of the picture. This draws only what the operator needs on the video itself:
 
 * a box around every person the detector sees right now (green, orange if suspicious, red if on the
-  watchlist or armed), with corner accents so it reads at a glance;
-* a small label chip: "Person" for everyone, the watchlist name for a match.
+  watchlist, armed or followed from another camera), with corner accents so it reads at a glance;
+* a small label chip: "Person" for everyone, the watchlist name for a match, "TRACKING <who>" for a
+  red-alert subject recognised again by appearance.
 
 Boxes are eased toward each new AI result every rendered frame. AI results arrive at 5-10 Hz while
 the video runs at the camera's rate, so un-eased boxes visibly jump between results.
@@ -22,6 +23,7 @@ RED = (50, 50, 235)
 WHITE = (255, 255, 255)
 EASE = 0.45                  # share of the gap to the newest box covered per rendered frame
 DROP_AFTER = 1.0             # seconds a person may go unseen before their box is removed
+HOLD_MISSES = 1              # AI frames a person may be missed in and keep their (frozen) box
 
 
 class StreamOverlay:
@@ -49,9 +51,11 @@ class StreamOverlay:
         for tid in [k for k, ts in self._seen.items() if now - ts > DROP_AFTER]:
             self._seen.pop(tid, None)
             self._shown.pop(tid, None)
-        # Draw only people from the newest result (the AI result is stamped each time it changes).
+        # Draw people from the newest result, plus anyone the detector missed in just that one
+        # frame: their box stays where it was last seen. At 1-2 AI results/s per camera, dropping
+        # them made boxes blink off whenever a single detection fell under the threshold.
         live = {t.track_id for t in ctx.tracks
-                if t.is_confirmed() and getattr(t, "time_since_update", 0) == 0}
+                if t.is_confirmed() and getattr(t, "time_since_update", 0) <= HOLD_MISSES}
         return [(tid, box) for tid, box in self._shown.items() if tid in live]
 
     def render(self, img, ctx, scale: float, now: float):
@@ -71,6 +75,8 @@ class StreamOverlay:
             if tid in ctx.criminal_ids or tid in ctx.confirmed_weapons:
                 color = RED
                 label = f"WATCHLIST  {name}" if tid in ctx.criminal_ids else "ARMED"
+            elif tid in getattr(ctx, "tracked", ()):
+                color, label = RED, f"TRACKING  {ctx.tracked[tid].label}"
             elif tid in ctx.suspicious_tracks:
                 color, label = ORANGE, "Person  suspicious"
             else:
