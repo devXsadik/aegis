@@ -5,6 +5,7 @@ import os
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from backend.auth.auth import request_token
 from backend.auth.guards import verify_viewer_token
@@ -38,7 +39,9 @@ def _authorized(websocket: WebSocket) -> bool:
 
 
 async def _serve(websocket: WebSocket, channel: str) -> None:
-    if not _authorized(websocket):
+    # The token check reads the database: run it off the event loop. A blocking pool wait here
+    # used to stall the loop, so finished requests could not hand their connections back (deadlock).
+    if not await run_in_threadpool(_authorized, websocket):
         await websocket.close(code=1008)
         return
     await manager.connect(websocket, channel)

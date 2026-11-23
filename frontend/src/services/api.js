@@ -556,3 +556,79 @@ export async function runBackupNow() {
 export async function fetchFalseAlerts(days = 30) {
   return apiFetch(`/analytics/false-alerts?days=${days}`);
 }
+
+/* ---- Incidents v2: status machine, paging, officers ---- */
+const qs = (params) => {
+  const p = new URLSearchParams()
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return
+    p.set(k, Array.isArray(v) ? v.join(',') : String(v))
+  })
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+export async function fetchIncidentStatuses() {
+  return apiFetch('/incidents/statuses')
+}
+/** { items, total } — filters: status[], priority[], source[], camera_id, jurisdiction_id, officer_id, q, date_from, date_to, sort, skip, limit */
+export async function fetchIncidentsPage(params = {}) {
+  return apiFetch(`/incidents/${qs({ ...params, envelope: true })}`)
+}
+export async function fetchIncident(id) {
+  return apiFetch(`/incidents/${id}`)
+}
+export async function fetchEligibleOfficers(id, neighbours = false) {
+  return apiFetch(`/incidents/${id}/eligible-officers${neighbours ? '?neighbours=true' : ''}`)
+}
+export async function assignOfficers(id, userIds, { includeNeighbours = false, reason } = {}) {
+  return apiFetch(`/incidents/${id}/assignments`, {
+    method: 'POST', body: JSON.stringify({ user_ids: userIds, include_neighbours: includeNeighbours, reason: reason || null }),
+  })
+}
+export async function unassignOfficer(id, userId) {
+  return apiFetch(`/incidents/${id}/assignments/${userId}`, { method: 'DELETE' })
+}
+export async function setMyAssignmentState(id, state, note) {
+  return apiFetch(`/incidents/${id}/assignments/me`, { method: 'PUT', body: JSON.stringify({ state, note: note || null }) })
+}
+
+/* ---- Jurisdictions & officers ---- */
+export async function fetchJurisdictions(withGeo = true) {
+  return apiFetch(`/jurisdictions${withGeo ? '' : '?geo_data=false'}`)
+}
+export async function createJurisdiction(body) {
+  return apiFetch('/jurisdictions', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function updateJurisdiction(id, patch) {
+  return apiFetch(`/jurisdictions/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+}
+export async function deleteJurisdiction(id) {
+  return apiFetch(`/jurisdictions/${id}`, { method: 'DELETE' })
+}
+export async function fetchOfficers() {
+  return apiFetch('/officers')
+}
+export async function fetchMyOfficer() {
+  return apiFetch('/officers/me')
+}
+export async function updateOfficer(id, patch) {
+  return apiFetch(`/officers/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+}
+export async function uploadOfficerPhoto(id, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch(`/officers/${id}/photo`, { method: 'POST', body: fd })
+}
+export function officerPhotoUrl(id) {
+  return `${API_BASE}/officers/${id}/photo`
+}
+export async function setMyDuty(dutyStatus, pos) {
+  return apiFetch('/officers/me/duty', {
+    method: 'PUT', body: JSON.stringify({ duty_status: dutyStatus, lat: pos?.lat ?? null, lng: pos?.lng ?? null }),
+  })
+}
+export async function setCameraJurisdiction(cameraId, jurisdictionId) {
+  return apiFetch(`/cameras/${encodeURIComponent(cameraId)}/jurisdiction`, {
+    method: 'PUT', body: JSON.stringify({ jurisdiction_id: jurisdictionId }),
+  })
+}

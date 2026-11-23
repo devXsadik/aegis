@@ -5,6 +5,7 @@ import {
   Badge, DsIcons, EmptyState, ErrorState, SaveBar, SectionHeader, SettingRow, Skeleton,
 } from '../components/ds'
 import { TwoFactor } from '../components/TwoFactor'
+import { JurisdictionAdmin, OfficersAdmin } from '../components/JurisdictionAdmin'
 import {
   fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs,
   fetchBackups, runBackupNow,
@@ -24,7 +25,7 @@ const SECTIONS = [
   { id: 'profile', icon: DsIcons.user, all: true },
   { id: 'notifications', icon: Icons.bell, all: true },
   { id: 'cameras', icon: Icons.camera, phase: 'Phase 5' },
-  { id: 'jurisdictions', icon: DsIcons.map, phase: 'Phase 4' },
+  { id: 'jurisdictions', icon: DsIcons.map },
   { id: 'watchlists', icon: Icons.watchlist, phase: 'Phase 6' },
   { id: 'thresholds', icon: DsIcons.sliders, all: true },
   { id: 'vehicles', icon: Icons.vehicle, phase: 'Phase 7' },
@@ -49,6 +50,8 @@ const ROLES = [
   { id: 'operator', label: 'Command-centre operator', desc: 'Verifies matches, manages incidents and dispatch.' },
   { id: 'police', label: 'Field officer', desc: 'Alerts and incidents for their cameras; responds and uploads evidence.' },
   { id: 'investigator', label: 'Investigator', desc: 'Evidence, people and vehicle searches for cases.' },
+  { id: 'ml_engineer', label: 'ML engineer', desc: 'Datasets and model registry only; no live data.' },
+  { id: 'auditor', label: 'Auditor', desc: 'Read-only audit log and its integrity check.' },
   { id: 'viewer', label: 'Wall display', desc: 'Live picture only; cannot change anything or see personal data.' },
 ]
 
@@ -268,6 +271,8 @@ function ThresholdsSection({ ctx, drafts, setDrafts, values, setValues }) {
 
 function UsersSection({ ctx }) {
   return (
+    <>
+    <OfficersAdmin isAdmin={ctx.me?.role === 'admin'} />
     <Card title="Roles" sub="What each role may do; enforced by the server" actions={<LinkOut ctx={ctx} page="users" label="Manage users" />}>
       {ROLES.map((r) => (
         <SettingRow key={r.id} label={r.label} hint={r.desc}>
@@ -275,6 +280,7 @@ function UsersSection({ ctx }) {
         </SettingRow>
       ))}
     </Card>
+    </>
   )
 }
 
@@ -417,12 +423,7 @@ export function Settings({ ctx }) {
       case 'profile': return <ProfileSection ctx={ctx} />
       case 'notifications': return <NotificationsSection ctx={ctx} />
       case 'cameras': return <CamerasSection ctx={ctx} />
-      case 'jurisdictions': return (
-        <ComingSection ctx={ctx} icon={DsIcons.map} title="Jurisdictions arrive in Phase 4">
-          Division → district → thana boundaries on a map, and the officers covering each. Alerts and the officer
-          picker will only offer officers whose area contains the camera.
-        </ComingSection>
-      )
+      case 'jurisdictions': return <JurisdictionAdmin isAdmin={ctx.me?.role === 'admin'} />
       case 'watchlists': return (
         <ComingSection ctx={ctx} icon={Icons.watchlist} title="Watchlist governance arrives in Phase 6" link={{ page: 'faces', label: 'Open People' }}>
           Case/FIR/GD number, legal basis, second-person approval and an expiry date on every entry; expired entries

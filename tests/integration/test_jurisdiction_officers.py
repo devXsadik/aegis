@@ -116,6 +116,8 @@ def test_neighbour_override_by_supervisor_is_audited(world):
     res = client.get(f"{API}/incidents/{iid}/eligible-officers?neighbours=true", headers=world["sup"]).json()
     b = next(x for x in res["officers"] if x["id"] == o["b"][0])
     assert b["out_of_area"] is True and res["officers"][-1]["out_of_area"] is True
+    assert client.post(f"{API}/incidents/{iid}/assignments", headers=world["sup"],
+                       json={"user_ids": [o["b"][0]], "include_neighbours": True}).status_code == 400   # reason needed
     got = client.post(f"{API}/incidents/{iid}/assignments", headers=world["sup"],
                       json={"user_ids": [o["b"][0]], "include_neighbours": True, "reason": "A officers busy"}).json()
     row = next(a for a in got["assignments"] if a["user_id"] == o["b"][0])

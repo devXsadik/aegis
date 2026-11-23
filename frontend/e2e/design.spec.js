@@ -32,7 +32,7 @@ test('incidents: search empty state offers to clear filters', async ({ page }) =
   await page.goto('/#/incidents')
   await page.getByRole('searchbox', { name: 'Search' }).fill('zzz-no-such-incident')
   await expect(page.getByText('No incidents match')).toBeVisible()
-  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await page.getByRole('button', { name: 'Clear filters' }).last().click()
   await expect(page.getByRole('searchbox', { name: 'Search' })).toHaveValue('')
   await page.screenshot({ path: 'test-results/incidents.png', fullPage: true })
 })

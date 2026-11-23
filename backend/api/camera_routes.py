@@ -93,6 +93,7 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
     # Auto-sync cameras from cameras.yaml into DB
     yaml_path = CAMERAS_YAML
     if yaml_path.exists():
+        _sync_lock.acquire()   # two dashboards loading at once would both insert the same new camera
         try:
             with open(yaml_path, "r") as f:
                 ydata = yaml.safe_load(f) or {}
@@ -123,10 +124,16 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
         except Exception as e:
             logger.error(f"Failed to sync cameras from YAML: {e}")
             db.rollback()
+        finally:
+            _sync_lock.release()
     return db.query(Camera).all()
 
 
+import threading
+
 import yaml
+
+_sync_lock = threading.Lock()
 from pathlib import Path
 
 

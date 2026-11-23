@@ -517,6 +517,8 @@ def assign_officers(incident_id: int, body: AssignBody, request: Request, backgr
     bad = [uid for uid in body.user_ids if uid not in allowed]
     if bad:
         raise HTTPException(403, f"Officer(s) {bad} do not cover this camera's jurisdiction")
+    if any(allowed[uid]["out_of_area"] for uid in body.user_ids) and len((body.reason or "").strip()) < 3:
+        raise HTTPException(400, "A reason is required to assign an officer from a neighbouring jurisdiction")
     have = {a.user_id for a in inc.assignments}
     added = []
     for uid in body.user_ids:

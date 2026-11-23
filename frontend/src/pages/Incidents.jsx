@@ -1,17 +1,28 @@
-import { useEffect, useRef, useState } from 'react'
+/* Incidents: filterable, sortable, paged list with live updates, and a detail drawer
+   (snapshot, map, status selector, jurisdiction-checked officers, typed timeline, notes). */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { can } from '../lib/permissions'
-import { Card, Icons, Stat, timeAgo, Modal } from '../components/ui'
-import { AlertTypeBadge, EmptyState, ErrorState, SeverityBadge, SkeletonList, StatusBadge } from '../components/ds'
-import { useI18n } from '../hooks/useI18n'
+import { Card, Icons, Modal, Stat, timeAgo } from '../components/ui'
+import { AlertTypeBadge, EmptyState, ErrorState, SeverityBadge, SkeletonList } from '../components/ds'
+import { StatusSelector } from '../components/StatusSelector'
+import { OfficerStack } from '../components/Officers'
+import { IncidentDrawer } from '../components/IncidentDrawer'
 import {
-  fetchIncidents, fetchIncidentStats, updateIncident, addIncidentNote, createIncident, fetchAssignees,
-  downloadEvidencePackage, verifyEvidencePackage,
+  addIncidentNote, assignOfficers, createIncident, fetchAssignees, fetchIncident, fetchIncidentStats,
+  fetchIncidentStatuses, fetchIncidentsPage, fetchJurisdictions, unassignOfficer, updateIncident, verifyEvidencePackage,
 } from '../services/api'
+import { FALLBACK_SPEC, OPEN_STATUSES, statusMeta } from '../lib/incidentStatus'
 import { useToast } from '../components/Toast'
-const STATUSES = ['open', 'investigating', 'resolved', 'closed']
-const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
-const matches = (inc, q) => !q || [inc.ticket_id, inc.title, inc.camera_location, inc.person_name, inc.plate_number, inc.assigned_name]
-  .some((v) => v && String(v).toLowerCase().includes(q))
+import { useI18n } from '../hooks/useI18n'
+import { useWebSocket } from '../hooks/useWebSocket'
+
+const PAGE = 25
+const SEVERITIES = ['critical', 'high', 'medium', 'low']
+const SOURCES = [
+  { id: 'face_match', label: 'Face match' }, { id: 'vehicle_match', label: 'Vehicle match' },
+  { id: 'manual', label: 'Manual' }, { id: 'alert', label: 'Other alert' },
+]
+const EMPTY_FILTERS = { q: '', status: [], priority: [], source: '', camera_id: '', jurisdiction_id: '', officer_id: '', date_from: '', date_to: '' }
 
 /** Upload a package to check it came from this system and nothing in it changed. */
 function PackageCheck() {
@@ -50,122 +61,217 @@ function PackageCheck() {
   )
 }
 
+function NewIncident({ cams, onClose, onCreate }) {
+  const { t } = useI18n()
+  const [f, setF] = useState({ title: '', description: '', priority: 'medium', camera_id: '' })
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const cam = cams.find((c) => c.camera_id === f.camera_id)
+      await onCreate({ title: f.title.trim(), description: f.description.trim() || null, priority: f.priority,
+        incident_type: 'MANUAL', camera_id: cam?.camera_id || null, camera_location: cam?.name || null })
+    } finally { setBusy(false) }
+  }
+  return (
+    <Modal title={t('incidents.new')} onClose={onClose}
+      footer={(
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="btn" onClick={onClose}>{t('common.cancel')}</button>
+          <button type="button" className="btn btn-primary" disabled={!f.title.trim() || busy} onClick={submit}>{busy ? 'Creating…' : 'Create'}</button>
+        </div>
+      )}>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <label className="field">Title<input className="input" value={f.title} maxLength={200} onChange={(e) => setF({ ...f, title: e.target.value })} /></label>
+        <label className="field">Description<textarea className="input" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
+        <div className="settings-grid">
+          <label className="field">Severity
+            <select className="input" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
+              {SEVERITIES.map((p) => <option key={p} value={p}>{t(`severity.${p}`)}</option>)}
+            </select>
+          </label>
+          <label className="field">Camera (sets the jurisdiction)
+            <select className="input" value={f.camera_id} onChange={(e) => setF({ ...f, camera_id: e.target.value })}>
+              <option value="">None</option>
+              {cams.map((c) => <option key={c.camera_id} value={c.camera_id}>{c.name}</option>)}
+            </select>
+          </label>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function SortTh({ field, sort, setSort, children }) {
+  const active = sort.replace('-', '') === field
+  const descending = sort.startsWith('-')
+  const next = active && descending ? field : `-${field}`
+  return (
+    <th scope="col" aria-sort={active ? (descending ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" className="th-sort" onClick={() => setSort(next)}>
+        {children}
+        <svg viewBox="0 0 24 24" aria-hidden="true" style={{ opacity: active ? 1 : 0.35 }}>
+          <path d={active && !descending ? 'M7 14l5-5 5 5' : 'M7 10l5 5 5-5'} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+      </button>
+    </th>
+  )
+}
+
 export function Incidents({ ctx }) {
   const { push: toast } = useToast()
   const { t } = useI18n()
-  const canEdit = can(ctx?.me?.role, 'incident.edit')
-  const [assignees, setAssignees] = useState([])
-  const [showNew, setShowNew] = useState(false)
-  const [newForm, setNewForm] = useState({ title: '', description: '', priority: 'medium' })
-  useEffect(() => { fetchAssignees().then(setAssignees).catch(() => {}) }, [])
-  const [incidents, setIncidents] = useState([])
+  const role = ctx?.me?.role
+  const canEdit = can(role, 'incident.edit')
+  const [spec, setSpec] = useState(FALLBACK_SPEC)
   const [stats, setStats] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [note, setNote] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [loadedFilter, setLoadedFilter] = useState(null)   // which filter the list on screen belongs to
-  const loading = loadedFilter !== filter
-  const [loadError, setLoadError] = useState('')
-  const [query, setQuery] = useState('')
-  const [attempt, setAttempt] = useState(0)
+  const [areas, setAreas] = useState([])
+  const [people, setPeople] = useState([])
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [query, setQuery] = useState('')            // debounced copy of filters.q
+  const [sort, setSort] = useState('-created_at')
+  const [page, setPage] = useState(0)
+  const [data, setData] = useState(null)
+  const [loadedKey, setLoadedKey] = useState(null)
+  const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+  const [flash, setFlash] = useState(new Set())
+  const [openId, setOpenId] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [detailErr, setDetailErr] = useState('')
+  const [showNew, setShowNew] = useState(false)
+  // Whole registry (also cameras that are offline now): an incident may come from any of them.
+  const cams = useMemo(() => {
+    const byId = new Map()
+    ;(ctx?.cameras || []).forEach((c) => byId.set(c.camera_id, { camera_id: c.camera_id, name: c.name || c.location || c.camera_id, location: c.location }))
+    ;(ctx?.camList || []).forEach((c) => { if (!byId.has(c.camera_id)) byId.set(c.camera_id, c) })
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [ctx?.cameras, ctx?.camList])
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const [list, st] = await Promise.all([
-          fetchIncidents(filter === 'all' ? {} : { status: filter }),
-          fetchIncidentStats(),
-        ])
-        if (!cancelled) {
-          setIncidents(list)
-          setStats(st)
-          setLoadError('')
-        }
-      } catch (e) {
-        if (!cancelled) { setIncidents([]); setLoadError(e.message || 'Could not load incidents') }
-      } finally {
-        if (!cancelled) setLoadedFilter(filter)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [filter, attempt])
-  const retry = () => { setLoadedFilter(null); setAttempt((n) => n + 1) }
+    fetchIncidentStatuses().then(setSpec).catch(() => {})
+    fetchJurisdictions(false).then(setAreas).catch(() => {})
+    fetchAssignees().then(setPeople).catch(() => {})
+  }, [])
+  useEffect(() => {
+    const h = setTimeout(() => setQuery(filters.q.trim()), 300)
+    return () => clearTimeout(h)
+  }, [filters.q])
 
-  const reload = async () => {
-    const [list, st] = await Promise.all([
-      fetchIncidents(filter === 'all' ? {} : { status: filter }),
-      fetchIncidentStats(),
-    ])
-    setIncidents(list)
-    setStats(st)
+  const params = useMemo(() => ({
+    q: query, status: filters.status, priority: filters.priority, source: filters.source, camera_id: filters.camera_id,
+    jurisdiction_id: filters.jurisdiction_id, officer_id: filters.officer_id,
+    date_from: filters.date_from ? `${filters.date_from}T00:00:00` : '', date_to: filters.date_to ? `${filters.date_to}T23:59:59` : '',
+    sort, skip: page * PAGE, limit: PAGE,
+  }), [query, filters, sort, page])
+  const key = JSON.stringify(params)
+  const loading = loadedKey !== key && !data
+
+  useEffect(() => {
+    let off = false
+    Promise.all([fetchIncidentsPage(params), fetchIncidentStats()])
+      .then(([d, st]) => { if (!off) { setData(d); setStats(st); setError('') } })
+      .catch((e) => { if (!off) setError(e.message || t('incidents.loadError')) })
+      .finally(() => { if (!off) setLoadedKey(key) })
+    return () => { off = true }
+  }, [key, tick]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reload = useCallback(() => setTick((n) => n + 1), [])
+
+  const loadDetail = useCallback((id) => {
+    fetchIncident(id).then((d) => { setDetail(d); setDetailErr('') }).catch((e) => setDetailErr(e.message || 'Could not load incident'))
+  }, [])
+  const open = (id) => { setDetail(null); setDetailErr(''); setOpenId(id); loadDetail(id) }
+
+  // Live: another operator or the pipeline changed something.
+  const liveTimer = useRef(null)
+  const onLive = useCallback((msg) => {
+    if (msg?.event_type !== 'INCIDENT_UPDATED') return
+    clearTimeout(liveTimer.current)
+    liveTimer.current = setTimeout(reload, 400)
+    setFlash((s) => new Set(s).add(msg.incident_id))
+    setTimeout(() => setFlash((s) => { const n = new Set(s); n.delete(msg.incident_id); return n }), 2500)
+    if (msg.incident_id === openId) loadDetail(openId)
+  }, [reload, openId, loadDetail])
+  const { connected } = useWebSocket('incidents', onLive, !!ctx?.me)
+
+  const setF = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(0) }
+  const toggleIn = (k, v) => setF({ [k]: filters[k].includes(v) ? filters[k].filter((x) => x !== v) : [...filters[k], v] })
+  const active = Object.entries(filters).some(([k, v]) => (Array.isArray(v) ? v.length : v) && k !== 'q') || !!query
+
+  const applyUpdated = (inc) => {
+    setData((d) => d && { ...d, items: d.items.map((i) => (i.id === inc.id ? { ...i, ...inc } : i)) })
+    if (openId === inc.id) setDetail(inc)
+    reload()
   }
 
-  const patch = async (id, body) => {
+  const onStatus = async (inc, status, note) => {
     try {
-      const updated = await updateIncident(id, body)
-      setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)))
-      if (selected?.id === id) setSelected(updated)
-      const ticket = updated.ticket_id
-      if (body.status) toast(t('incidents.statusChanged', { ticket, status: t(`status.${body.status}`) }), 'ok')
-      else if ('assigned_to' in body) {
-        toast(updated.assigned_name ? t('incidents.assigned', { ticket, name: updated.assigned_name }) : t('incidents.unassigned', { ticket }), 'ok')
-      }
-      reload().catch(() => {})
+      const updated = await updateIncident(inc.id, { status, note })
+      applyUpdated(updated)
+      toast(t('incidents.statusChanged', { ticket: inc.ticket_id, status: t(`status.${status}`) }), 'ok')
     } catch (e) {
-      toast(e.message || 'Update failed', 'danger')
+      toast(e.message || 'Could not change status', 'danger')
     }
   }
-
-  const submitNote = async () => {
-    if (!selected || !note.trim()) return
+  const onAssign = async (inc, ids, opts) => {
     try {
-      await addIncidentNote(selected.id, note.trim())
-      setNote('')
-      const refreshed = await fetchIncidents(filter === 'all' ? {} : { status: filter })
-      const found = refreshed.find((i) => i.id === selected.id)
-      setIncidents(refreshed)
-      if (found) setSelected(found)
-      toast(t('incidents.noteSaved', { ticket: selected.ticket_id }), 'ok')
+      const updated = await assignOfficers(inc.id, ids, opts)
+      applyUpdated(updated)
+      toast(`${ids.length} officer(s) assigned to ${inc.ticket_id}`, 'ok')
+    } catch (e) {
+      toast(e.message || 'Could not assign', 'danger')
+      throw e
+    }
+  }
+  const onUnassign = async (inc, a) => {
+    try {
+      applyUpdated(await unassignOfficer(inc.id, a.user_id))
+      toast(`${a.name} removed from ${inc.ticket_id}`, 'ok')
+    } catch (e) {
+      toast(e.message || 'Could not remove officer', 'danger')
+    }
+  }
+  const onNote = async (body) => {
+    try {
+      await addIncidentNote(openId, body)
+      loadDetail(openId)
+      toast(t('incidents.noteSaved', { ticket: detail?.ticket_id }), 'ok')
+      return true
     } catch (e) {
       toast(e.message || 'Could not add note', 'danger')
+      return false
     }
   }
-
-  const createManual = async () => {
+  const onCreate = async (payload) => {
     try {
-      const inc = await createIncident({
-        title: newForm.title.trim(),
-        description: newForm.description.trim() || null,
-        priority: newForm.priority,
-        incident_type: 'MANUAL',
-      })
-      setIncidents((prev) => [inc, ...prev])
-      setSelected(inc)
+      const inc = await createIncident(payload)
       setShowNew(false)
-      setNewForm({ title: '', description: '', priority: 'medium' })
       toast(t('incidents.created', { ticket: inc.ticket_id }), 'ok')
+      reload()
+      open(inc.id)
     } catch (e) {
       toast(e.message || 'Could not create incident', 'danger')
     }
   }
 
   const by = stats?.by_status || {}
-  const q = query.trim().toLowerCase()
-  const shown = incidents.filter((i) => matches(i, q))
-  const filtered = filter !== 'all' || !!q
+  const items = data?.items || []
+  const total = data?.total || 0
+  const pages = Math.max(1, Math.ceil(total / PAGE))
+  const camName = (id) => cams.find((c) => c.camera_id === id)?.name
 
   return (
     <>
       <div className="grid grid-3 inc-stats">
-        <Stat label={t('status.open')} value={by.open || 0} delta="Waiting for someone to pick up" accent={by.open ? 'danger' : 'ok'} icon={Icons.incident} />
-        <Stat label={t('status.investigating')} value={by.investigating || 0} delta="Being worked on" accent="warn" icon={Icons.search} />
-        <Stat label="Resolved or closed" value={(by.resolved || 0) + (by.closed || 0)} delta={`${stats?.total ?? 0} incidents in total`} accent="ok" icon={Icons.check} />
+        <Stat label="Open" value={stats?.open ?? '—'} delta={`${by.new || 0} new, not yet looked at`} accent={by.new ? 'danger' : 'ok'} icon={Icons.incident} />
+        <Stat label="With officers" value={(by.officer_dispatched || 0) + (by.target_located || 0)} delta="Dispatched or target located" accent="warn" icon={Icons.dispatch} />
+        <Stat label="Finished" value={(by.resolved || 0) + (by.closed || 0) + (by.false_alarm || 0)} delta={`${by.false_alarm || 0} false alarms · ${stats?.total ?? 0} in total`} accent="ok" icon={Icons.check} />
       </div>
 
       <Card
         title={t('incidents.title')}
-        sub={t('incidents.sub')}
+        sub={<span className={`inc-live ${connected ? 'on' : ''}`}><span className="dot" />{connected ? 'Live' : 'Reconnecting…'} · {t('incidents.sub')}</span>}
         actions={
           <div className="ds-toolbar">
             <PackageCheck />
@@ -174,23 +280,55 @@ export function Incidents({ ctx }) {
         }
         flush
       >
-        <div className="ds-toolbar" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+        <div className="inc-filters" role="search">
           <label className="ds-search">
             <Icons.search />
-            <input className="input" type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+            <input className="input" type="search" value={filters.q} onChange={(e) => setF({ q: e.target.value })}
               placeholder={t('incidents.searchPh')} aria-label={t('common.search')} />
           </label>
-          <select className="input" aria-label="Filter by status" value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">All statuses</option>
-            {STATUSES.map((st) => <option key={st} value={st}>{t(`status.${st}`)}</option>)}
+          <select className="input" aria-label="Type" value={filters.source} onChange={(e) => setF({ source: e.target.value })}>
+            <option value="">All types</option>
+            {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <select className="input" aria-label="Camera" value={filters.camera_id} onChange={(e) => setF({ camera_id: e.target.value })}>
+            <option value="">All cameras</option>
+            {cams.map((c) => <option key={c.camera_id} value={c.camera_id}>{c.name}</option>)}
+          </select>
+          <select className="input" aria-label="Area" value={filters.jurisdiction_id} onChange={(e) => setF({ jurisdiction_id: e.target.value })}>
+            <option value="">All areas</option>
+            {areas.map((a) => <option key={a.id} value={a.id}>{a.level === 'thana' ? '— ' : ''}{a.name_en}</option>)}
+          </select>
+          <select className="input" aria-label="Assigned officer" value={filters.officer_id} onChange={(e) => setF({ officer_id: e.target.value })}>
+            <option value="">Any officer</option>
+            {people.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
           </select>
         </div>
-        {loading && <SkeletonList rows={5} label="Loading incidents" />}
-        {!loading && loadError && <ErrorState title={t('incidents.loadError')} message={loadError} onRetry={retry} />}
-        {!loading && !loadError && shown.length === 0 && (
-          filtered
+        <div className="inc-filters-row2">
+          <div className="inc-chipset" role="group" aria-label="Status">
+            {spec.statuses.map((s) => (
+              <button key={s.id} type="button" className="inc-chip" aria-pressed={filters.status.includes(s.id)} onClick={() => toggleIn('status', s.id)}>
+                {t(`status.${s.id}`)}{by[s.id] ? ` · ${by[s.id]}` : ''}
+              </button>
+            ))}
+            <button type="button" className="inc-chip" aria-pressed={filters.status.length === OPEN_STATUSES.length && OPEN_STATUSES.every((s) => filters.status.includes(s))}
+              onClick={() => setF({ status: OPEN_STATUSES })}>All open</button>
+          </div>
+          <div className="inc-chipset" role="group" aria-label="Severity">
+            {SEVERITIES.map((s) => (
+              <button key={s} type="button" className="inc-chip" aria-pressed={filters.priority.includes(s)} onClick={() => toggleIn('priority', s)}>{t(`severity.${s}`)}</button>
+            ))}
+          </div>
+          <label>From <input className="input" type="date" value={filters.date_from} onChange={(e) => setF({ date_from: e.target.value })} /></label>
+          <label>To <input className="input" type="date" value={filters.date_to} onChange={(e) => setF({ date_to: e.target.value })} /></label>
+          {active && <button type="button" className="link-btn" onClick={() => { setFilters(EMPTY_FILTERS); setQuery(''); setPage(0) }}>{t('incidents.clearFilters')}</button>}
+        </div>
+
+        {loading && <SkeletonList rows={6} label="Loading incidents" />}
+        {!loading && error && !data && <ErrorState title={t('incidents.loadError')} message={error} onRetry={reload} />}
+        {!loading && data && items.length === 0 && (
+          active
             ? <EmptyState icon={Icons.search} title={t('incidents.emptyFiltered')}
-                action={<button type="button" className="btn btn-sm" onClick={() => { setQuery(''); setFilter('all') }}>{t('incidents.clearFilters')}</button>}>
+                action={<button type="button" className="btn btn-sm" onClick={() => { setFilters(EMPTY_FILTERS); setQuery(''); setPage(0) }}>{t('incidents.clearFilters')}</button>}>
                 {t('incidents.emptyFilteredMsg')}
               </EmptyState>
             : <EmptyState icon={Icons.incident} title={t('incidents.empty')}
@@ -198,153 +336,78 @@ export function Incidents({ ctx }) {
                 {t('incidents.emptyMsg')}
               </EmptyState>
         )}
-        {!loading && !loadError && shown.length > 0 && (
-          <div className="table-wrap table-stack">
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Incident</th><th scope="col">Type</th><th scope="col">Severity</th><th scope="col">Camera</th>
-                <th scope="col">Officer</th><th scope="col">Status</th><th scope="col">Opened</th><th scope="col"><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((inc) => (
-                <tr key={inc.id}>
-                  <td className="cell-wide">
-                    <div className="inc-title-cell">
-                      <b>{inc.title}</b>
-                      <span className="meta mono">{inc.ticket_id}{inc.person_name ? ` · ${inc.person_name}` : ''}{inc.plate_number ? ` · ${inc.plate_number}` : ''}</span>
-                    </div>
-                  </td>
-                  <td data-label="Type"><AlertTypeBadge type={inc.incident_type} size="sm" /></td>
-                  <td data-label="Severity"><SeverityBadge level={inc.priority} size="sm" /></td>
-                  <td data-label="Camera">{inc.camera_location || '—'}</td>
-                  <td data-label="Officer">
-                    <select
-                      className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
-                      aria-label={`Assignee for ${inc.ticket_id}`}
-                      disabled={!canEdit}
-                      value={inc.assigned_to || 0}
-                      onChange={(e) => patch(inc.id, { assigned_to: Number(e.target.value) })}
-                    >
-                      <option value={0}>Unassigned</option>
-                      {assignees.map((u) => <option key={u.id} value={u.id}>{u.username} ({u.role})</option>)}
-                    </select>
-                  </td>
-                  <td data-label="Status">
-                    {canEdit ? (
-                      <select
-                        className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
-                        aria-label={`Status for ${inc.ticket_id}`}
-                        value={inc.status}
-                        onChange={(e) => patch(inc.id, { status: e.target.value })}
-                      >
-                        {STATUSES.map((st) => <option key={st} value={st}>{t(`status.${st}`)}</option>)}
-                      </select>
-                    ) : <StatusBadge status={inc.status} size="sm" />}
-                  </td>
-                  <td data-label="Opened" className="muted"><time dateTime={inc.created_at}>{timeAgo(inc.created_at)}</time></td>
-                  <td className="cell-wide"><button type="button" className="btn btn-sm" onClick={() => setSelected(inc)} aria-label={`Open ${inc.ticket_id}`}>{t('common.open')}</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
+        {data && items.length > 0 && (
+          <>
+            <div className="table-wrap table-stack" aria-busy={loadedKey !== key}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th scope="col"><span className="sr-only">Snapshot</span></th>
+                    <SortTh field="ticket_id" sort={sort} setSort={setSort}>Incident</SortTh>
+                    <th scope="col">Camera</th>
+                    <SortTh field="created_at" sort={sort} setSort={setSort}>Opened</SortTh>
+                    <SortTh field="severity" sort={sort} setSort={setSort}>Severity</SortTh>
+                    <SortTh field="status" sort={sort} setSort={setSort}>Status</SortTh>
+                    <th scope="col">Officers</th>
+                    <th scope="col"><span className="sr-only">Open</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((inc) => (
+                    <tr key={inc.id} className={`inc-row ${flash.has(inc.id) ? 'live-new' : ''}`} onClick={() => open(inc.id)}>
+                      <td data-label="">
+                        {inc.snapshot
+                          ? <img className="inc-thumb" src={`${inc.snapshot.url}${inc.snapshot.kind === 'capture' ? '?w=160' : ''}`} alt="" loading="lazy" />
+                          : <span className="inc-thumb empty"><Icons.camera /></span>}
+                      </td>
+                      <td className="cell-wide">
+                        <div className="inc-title-cell">
+                          <b>{inc.title}</b>
+                          <span className="meta">
+                            <span className="mono">{inc.ticket_id}</span>{' · '}<AlertTypeBadge type={inc.incident_type} size="sm" />
+                            {(inc.person_name || inc.plate_number) && <> · <Icons.watchlist /> {inc.person_name || <span className="mono">{inc.plate_number}</span>}</>}
+                          </span>
+                        </div>
+                      </td>
+                      <td data-label="Camera">
+                        <div className="inc-title-cell">
+                          <span>{camName(inc.camera_id) || inc.camera_location || '—'}</span>
+                          {inc.camera_location && camName(inc.camera_id) && camName(inc.camera_id) !== inc.camera_location && <span className="meta">{inc.camera_location}</span>}
+                        </div>
+                      </td>
+                      <td data-label="Opened" className="muted"><time dateTime={inc.created_at}>{timeAgo(inc.created_at)}</time></td>
+                      <td data-label="Severity"><SeverityBadge level={inc.priority} size="sm" /></td>
+                      <td data-label="Status" onClick={(e) => e.stopPropagation()}>
+                        <StatusSelector spec={spec} value={inc.status} role={role} disabled={!canEdit} size="sm"
+                          label={`Status of ${inc.ticket_id}`} onChange={(s, n) => onStatus(inc, s, n)} />
+                      </td>
+                      <td data-label="Officers"><OfficerStack assignments={inc.assignments} /></td>
+                      <td className="cell-wide">
+                        <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); open(inc.id) }}
+                          aria-label={`Open ${inc.ticket_id}: ${statusMeta(spec, inc.status).label}`}>{t('common.open')}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="inc-pager">
+              <span>{page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} of {total}</span>
+              <div className="ds-toolbar">
+                <button type="button" className="btn btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
+                <button type="button" className="btn btn-sm" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>Next</button>
+              </div>
+            </div>
+          </>
         )}
       </Card>
 
-      {selected && (
-        <Modal
-          title={`${selected.ticket_id} — ${selected.title}`}
-          onClose={() => setSelected(null)}
-          footer={
-            <>
-              <button className="btn" onClick={() => window.print()}><Icons.report /> Print</button>
-              <button className="btn" onClick={() => { downloadEvidencePackage(selected.id); toast('Building the evidence package: the download starts in a moment', 'ok') }}>
-                <Icons.download /> Evidence package
-              </button>
-              {canEdit && !['resolved', 'closed'].includes(selected.status) && (
-                <button className="btn btn-primary" onClick={() => patch(selected.id, { status: 'resolved' })}>
-                  <Icons.check /> Mark as resolved
-                </button>
-              )}
-            </>
-          }
-        >
-          <dl className="inc-detail-grid">
-            <div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
-            <div><dt>Severity</dt><dd><SeverityBadge level={selected.priority} /></dd></div>
-            <div><dt>Type</dt><dd><AlertTypeBadge type={selected.incident_type} /></dd></div>
-            <div><dt>Officer</dt><dd>{selected.assigned_name || 'Unassigned'}</dd></div>
-            <div><dt>Camera</dt><dd>{selected.camera_location || '—'}</dd></div>
-            <div><dt>Opened</dt><dd>{timeAgo(selected.created_at)}</dd></div>
-            {selected.person_name && <div><dt>Subject</dt><dd>{selected.person_name}</dd></div>}
-            {selected.lat != null && (
-              <div><dt>GPS</dt><dd className="mono">{Number(selected.lat).toFixed(5)}, {Number(selected.lng).toFixed(5)}</dd></div>
-            )}
-          </dl>
-
-          <h4 className="inc-section-title">Timeline</h4>
-          <div className="timeline" style={{ marginBottom: 18 }}>
-            {(selected.events || []).length === 0 && <EmptyState compact icon={Icons.clock}>No events yet</EmptyState>}
-            {(selected.events || []).map((ev) => (
-              <div key={ev.id} className="timeline-item">
-                <div className="t-time">{timeAgo(ev.created_at)} · {ev.actor}</div>
-                <b>{ev.event_type}</b> — {ev.message}
-              </div>
-            ))}
-          </div>
-
-          <h4 className="inc-section-title">Notes</h4>
-          {(selected.notes || []).map((n) => (
-            <div key={n.id} className="row">
-              <div>
-                <b>{n.author_name}</b>
-                <div className="meta">{n.body}</div>
-              </div>
-              <span className="muted" style={{ fontSize: '0.72rem' }}>{timeAgo(n.created_at)}</span>
-            </div>
-          ))}
-          {(selected.notes || []).length === 0 && <EmptyState compact icon={Icons.report}>No notes yet</EmptyState>}
-          {canEdit && (
-            <>
-              <label className="field" style={{ marginTop: 12 }}>
-                Add note
-                <textarea className="input" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did you find?" />
-              </label>
-              <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }} onClick={submitNote} disabled={!note.trim()}>
-                Save note
-              </button>
-            </>
-          )}
-        </Modal>
+      {openId && (
+        <IncidentDrawer incident={detail} loading={!detail && !detailErr} error={detailErr} onRetry={() => loadDetail(openId)}
+          spec={spec} me={ctx?.me} toast={toast} onClose={() => { setOpenId(null); setDetail(null) }}
+          onStatus={onStatus} onAssign={onAssign} onUnassign={onUnassign} onNote={onNote} />
       )}
-      {showNew && (
-        <Modal
-          title={t('incidents.new')}
-          onClose={() => setShowNew(false)}
-          footer={(
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn" onClick={() => setShowNew(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={!newForm.title.trim()} onClick={createManual}>Create</button>
-            </div>
-          )}
-        >
-          <div style={{ display: 'grid', gap: 10 }}>
-            <label className="field">Title
-              <input className="input" value={newForm.title} maxLength={200} onChange={(e) => setNewForm({ ...newForm, title: e.target.value })} />
-            </label>
-            <label className="field">Description
-              <textarea className="input" rows={3} value={newForm.description} onChange={(e) => setNewForm({ ...newForm, description: e.target.value })} />
-            </label>
-            <label className="field">Priority
-              <select className="input" value={newForm.priority} onChange={(e) => setNewForm({ ...newForm, priority: e.target.value })}>
-                {['low', 'medium', 'high', 'critical'].map((p) => <option key={p} value={p}>{cap(p)}</option>)}
-              </select>
-            </label>
-          </div>
-        </Modal>
-      )}
+      {showNew && <NewIncident cams={cams} onClose={() => setShowNew(false)} onCreate={onCreate} />}
     </>
   )
 }

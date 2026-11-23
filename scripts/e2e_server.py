@@ -56,7 +56,44 @@ def seed() -> None:
                  camera_id="e2e_lab", camera_location="Lab", track_id=9, message="Loitering",
                  review_status="pending", escalated_at=now))
     db.commit()
+    _seed_areas(db, hash_password)
     db.close()
+
+
+def _seed_areas(db, hash_password) -> None:
+    """One thana around the Lab camera, a neighbour, two officers inside and one next door,
+    and a supervisor (for the neighbour override)."""
+    import json
+    from backend.models.camera import Camera
+    from backend.models.jurisdiction import Jurisdiction, OfficerJurisdiction, OfficerProfile
+    from backend.models.user import User
+
+    def box(lat0, lng0, lat1, lng1):
+        return json.dumps({"type": "Polygon", "coordinates": [[[lng0, lat0], [lng1, lat0], [lng1, lat1], [lng0, lat1], [lng0, lat0]]]})
+
+    dist = Jurisdiction(code="E2E-DIST", name_en="E2E district", level="district", geojson=box(23.70, 90.35, 23.90, 90.45))
+    db.add(dist)
+    db.flush()
+    gulshan = Jurisdiction(code="E2E-GULSHAN", name_en="Gulshan", name_bn="গুলশান", level="thana", parent_id=dist.id,
+                           geojson=box(23.775, 90.405, 23.800, 90.430))
+    badda = Jurisdiction(code="E2E-BADDA", name_en="Badda", level="thana", parent_id=dist.id,
+                         geojson=box(23.775, 90.430, 23.800, 90.450))
+    db.add_all([gulshan, badda])
+    db.flush()
+    db.add(Camera(camera_id="e2e_lab", name="Lab gate", location="Lab", lat=23.79, lng=90.415, jurisdiction_id=gulshan.id))
+    db.add(Camera(camera_id="e2e_gate", name="Main gate", location="Gate", lat=23.785, lng=90.41))
+    db.add(User(username="e2e_supervisor", email="sup@example.invalid", hashed_password=hash_password(PASSWORD),
+                role="supervisor", is_active=True))
+    for name, full, area, duty in (("e2e_off_karim", "Karim Hossain", gulshan, "available"),
+                                   ("e2e_off_nasrin", "Nasrin Akter", gulshan, "busy"),
+                                   ("e2e_off_badda", "Rafiq Uddin", badda, "available")):
+        u = User(username=name, email=f"{name}@example.invalid", hashed_password=hash_password(PASSWORD), role="police",
+                 is_active=True, phone="+8801700000000")
+        db.add(u)
+        db.flush()
+        db.add(OfficerProfile(user_id=u.id, full_name=full, rank="SI", badge_no=f"E2E-{u.id}", station_id=area.id, duty_status=duty))
+        db.add(OfficerJurisdiction(user_id=u.id, jurisdiction_id=area.id))
+    db.commit()
 
 
 if __name__ == "__main__":
