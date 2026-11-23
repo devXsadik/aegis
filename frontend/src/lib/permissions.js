@@ -3,11 +3,11 @@
 
 export const ROLE_PAGES = {
   viewer: new Set(['overview', 'live', 'map', 'alerts']),
-  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings', 'search', 'command']),
+  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings', 'search', 'command', 'accuracy']),
   police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift', 'settings']),
   investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports', 'settings', 'search']),
   ml_engineer: new Set(['settings']),   // datasets / models pages arrive with the training pipeline
-  auditor: new Set(['settings']),       // audit log page arrives with governance
+  auditor: new Set(['settings', 'accuracy']),
   supervisor: null,   // null = every page
   admin: null,
 }
@@ -32,7 +32,7 @@ const ACTIONS = {
 // The view ids (watchlist, detection) keep their own entries above.
 export const PAGE_VIEWS = {
   faces: ['faces', 'watchlist'],
-  analytics: ['analytics', 'detection'],
+  analytics: ['analytics', 'detection', 'accuracy'],
 }
 
 function allows(role, id) {

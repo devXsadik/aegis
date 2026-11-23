@@ -75,11 +75,29 @@ def purge_detections() -> dict:
         db.close()
 
 
+def _apply_retention_policy() -> None:
+    """Settings → Data retention overrides the env defaults the purge steps read."""
+    try:
+        from backend.api.governance_routes import retention
+        from backend.db.database import SessionLocal
+        db = SessionLocal()
+        try:
+            p = retention(db)
+        finally:
+            db.close()
+        os.environ["DVR_RETENTION_HOURS"] = str(p["recording_hours"])
+        os.environ["CAPTURE_RETENTION_DAYS"] = str(p["capture_days"])
+        os.environ["DETECTION_RETENTION_DAYS"] = str(p["detection_days"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Retention policy not applied: {e}")
+
+
 def run_maintenance(backup: bool = True) -> dict:
     """Each step runs even if an earlier one failed; the result says what happened."""
     from backend.services.backup import run_backup
     from utils.data.retention import run_retention
 
+    _apply_retention_policy()
     steps = {"recordings": purge_recordings, "captures": purge_captures, "evidence": run_retention,
              "detections": purge_detections}
     if backup and os.getenv("BACKUP_ENABLED", "true").lower() == "true":

@@ -805,3 +805,14 @@ export async function moveFaces(faceIds, targetId) {
 export async function verifyEvidenceFace(id, decision, note) {
   return apiFetch(`/evidence-faces/${id}/verify`, { method: 'POST', body: JSON.stringify({ decision, note: note || null }) })
 }
+
+/* ---- Governance ---- */
+export async function fetchRetention() {
+  return apiFetch('/governance/retention')
+}
+export async function saveRetention(body) {
+  return apiFetch('/governance/retention', { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function fetchAccuracy(days = 30) {
+  return apiFetch(`/governance/accuracy?days=${days}`)
+}

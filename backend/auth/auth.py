@@ -105,6 +105,8 @@ def get_current_user(
     user = user_from_token(credentials.credentials if credentials else request.cookies.get(SESSION_COOKIE), db)
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")   # applies to every role guard
+    from backend.auth.policy import enforce
+    enforce(user, request)                       # MFA requirement, admin network allowlist
     return user
 
 

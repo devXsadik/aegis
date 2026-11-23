@@ -73,6 +73,7 @@ class UserResponse(BaseModel):
     is_active: bool
     phone: Optional[str] = None
     totp_enabled: bool = False
+    mfa_setup_required: bool = False
 
     class Config:
         from_attributes = True
@@ -253,7 +254,10 @@ def refresh_token(request: Request, response: Response, user: User = Depends(get
 
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(get_current_user)):
-    return user
+    from backend.auth.policy import mfa_setup_needed
+    out = UserResponse.model_validate(user)
+    out.mfa_setup_required = mfa_setup_needed(user)
+    return out
 
 
 # --- Two-factor sign-in ------------------------------------------------------------------------

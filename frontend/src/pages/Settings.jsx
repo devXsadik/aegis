@@ -8,6 +8,7 @@ import { TwoFactor } from '../components/TwoFactor'
 import { JurisdictionAdmin, OfficersAdmin } from '../components/JurisdictionAdmin'
 import { WatchlistAdmin } from '../components/WatchlistAdmin'
 import { VehicleSettings } from '../components/VehicleSettings'
+import { RetentionEditor } from '../components/Governance'
 import {
   fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs,
   fetchBackups, runBackupNow,
@@ -317,12 +318,7 @@ function RetentionSection({ ctx }) {
   const last = info?.backups?.[0]
   return (
     <>
-      <Card title="What is kept, and for how long">
-        <SettingRow label="Recordings" hint="DVR_RETENTION_HOURS on the server"><Badge tone="muted" icon={Icons.clock}>Rolling</Badge></SettingRow>
-        <SettingRow label="Evidence in open incidents" hint="Never removed while the case is open"><Badge tone="ok" icon={DsIcons.lock}>Kept whole</Badge></SettingRow>
-        <SettingRow label="Evidence images after the window" hint="Record and custody chain stay; the image is removed"><Badge tone="muted">Scheduled</Badge></SettingRow>
-        <SettingRow label="Non-matched detections & plate reads" hint="Editable policy per data type in Phase 14"><Badge tone="warn">{'Coming'}</Badge></SettingRow>
-      </Card>
+      <RetentionEditor isAdmin={isAdmin} />
       <Card title="Backups and clean-up" sub={`Every night at ${String(info?.maintenance_hour ?? 3).padStart(2, '0')}:00`}
         actions={isAdmin && <button type="button" className="btn btn-sm" disabled={busy} onClick={now}>{busy ? 'Backing up…' : 'Back up now'}</button>}>
         {!isAdmin && <p className="ds-setting-hint">Only an admin can see and run backups.</p>}

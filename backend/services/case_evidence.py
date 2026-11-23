@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional, Tuple
@@ -77,19 +78,43 @@ def read(item: EvidenceItem) -> bytes:
     return data
 
 
-def custody(db: Session, item: EvidenceItem, action: str, user: Optional[User], details: str = "",
-            ip: Optional[str] = None) -> EvidenceItemCustody:
-    prev = (db.query(EvidenceItemCustody.record_hash).filter(EvidenceItemCustody.item_id == item.id)
+_custody_lock = threading.Lock()
+
+
+def _append(db: Session, item_id: int, sha: str, action: str, user: Optional[User], details: str,
+            ip: Optional[str]) -> EvidenceItemCustody:
+    prev = (db.query(EvidenceItemCustody.record_hash).filter(EvidenceItemCustody.item_id == item_id)
             .order_by(EvidenceItemCustody.id.desc()).first())
     prev_hash = prev[0] if prev else None
     at = utcnow()
     actor = user.username if user else "SYSTEM"
-    record = hashlib.sha256(f"{item.id}|{action}|{actor}|{item.sha256}|{prev_hash or ''}|{details}|{at.isoformat()}".encode()).hexdigest()
-    row = EvidenceItemCustody(item_id=item.id, action=action, actor=actor, actor_id=user.id if user else None,
-                              sha256=item.sha256, prev_hash=prev_hash, record_hash=record, details=details,
-                              ip_address=ip, at=at)
+    record = hashlib.sha256(f"{item_id}|{action}|{actor}|{sha}|{prev_hash or ''}|{details}|{at.isoformat()}".encode()).hexdigest()
+    row = EvidenceItemCustody(item_id=item_id, action=action, actor=actor, actor_id=user.id if user else None,
+                              sha256=sha, prev_hash=prev_hash, record_hash=record, details=details, ip_address=ip, at=at)
     db.add(row)
     return row
+
+
+def custody(db: Session, item: EvidenceItem, action: str, user: Optional[User], details: str = "",
+            ip: Optional[str] = None, in_tx: bool = False) -> Optional[EvidenceItemCustody]:
+    """Append to the item's chain. Creation (UPLOADED / CAPTURED / VERSIONED of a new item) is
+    written in the caller's transaction; access records (VIEWED, DOWNLOADED, …) are committed at
+    once in their own short, locked transaction, so two people opening the same file at the same
+    moment can never fork the chain — and the record stays even if the caller's work fails."""
+    if in_tx:
+        return _append(db, item.id, item.sha256, action, user, details, ip)
+    from backend.db.database import SessionLocal
+    with _custody_lock:
+        own = SessionLocal()
+        try:
+            if own.get_bind().dialect.name == "postgresql":
+                from sqlalchemy import text
+                own.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 0x0E70000 + item.id})
+            row = _append(own, item.id, item.sha256, action, user, details, ip)
+            own.commit()
+            return row
+        finally:
+            own.close()
 
 
 def verify_chain(db: Session, item: EvidenceItem) -> dict:
@@ -133,7 +158,8 @@ def create(db: Session, *, incident_id: int, data: bytes, content_type: str, fil
     db.add(item)
     db.flush()
     custody(db, item, "VERSIONED" if parent else ("CAPTURED" if source == "system" else "UPLOADED"), user,
-            f"{filename or ''} {len(data)} bytes" + (f" (v{item.version} of {parent.ref})" if parent else ""), ip)
+            f"{filename or ''} {len(data)} bytes" + (f" (v{item.version} of {parent.ref})" if parent else ""), ip,
+            in_tx=True)
     return item
 
 

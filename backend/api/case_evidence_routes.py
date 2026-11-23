@@ -180,9 +180,9 @@ async def new_version(ref: str, request: Request, file: UploadFile = File(...), 
                          lng=parent.lng, captured_at=parent.captured_at, parent=parent, ip=_ip(request))
     except ce.EvidenceError as e:
         raise HTTPException(e.code, str(e))
-    ce.custody(db, parent, "VERSIONED", user, f"new version {item.ref}: {note}", _ip(request))
     log_audit(db, user, "EVIDENCE_VERSION", "evidence_item", item.ref, f"of {ref}: {note}", request)
     db.commit()
+    ce.custody(db, parent, "VERSIONED", user, f"new version {item.ref}: {note}", _ip(request))
     face_grouping.schedule(item.id)
     return item_out(db, item)
 
@@ -197,9 +197,9 @@ def soft_delete(ref: str, body: DeleteBody, request: Request, db: Session = Depe
     if i.deleted_at:
         raise HTTPException(409, "Already deleted")
     i.deleted_at, i.deleted_by, i.delete_reason = utcnow(), admin.id, body.reason
-    ce.custody(db, i, "DELETED", admin, body.reason, _ip(request))
     log_audit(db, admin, "EVIDENCE_DELETE", "evidence_item", ref, body.reason, request)
     db.commit()
+    ce.custody(db, i, "DELETED", admin, body.reason, _ip(request))
     return item_out(db, i)
 
 
@@ -207,8 +207,8 @@ def soft_delete(ref: str, body: DeleteBody, request: Request, db: Session = Depe
 def verify(ref: str, request: Request, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
     i = _item(db, ref, user)
     res = ce.verify_chain(db, i)
-    ce.custody(db, i, "VERIFIED", user, json.dumps(res), _ip(request))
     db.commit()
+    ce.custody(db, i, "VERIFIED", user, json.dumps(res), _ip(request))
     return res
 
 

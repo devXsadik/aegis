@@ -50,7 +50,7 @@ export const TAB_PAGES = ['overview', 'live', 'alerts', 'map'].map((id) => ALL_P
 // Officers on the move start from their responder list.
 export const POLICE_TABS = ['respond', 'alerts', 'map', 'overview'].map((id) => ALL_PAGES.find((p) => p.id === id))
 // Views inside a page (PAGE_VIEWS). An old link (#/watchlist, #/detection) opens its view.
-export const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history' }
+export const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history', accuracy: 'Accuracy' }
 // Views the search palette lists by their old names, so "watchlist" still finds them.
 export const PALETTE_VIEWS = [
   { id: 'watchlist', label: 'Watchlist sightings', desc: 'Where watchlist people were seen (People page).', icon: Icons.watchlist },

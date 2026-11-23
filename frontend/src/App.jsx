@@ -7,6 +7,8 @@ import { can, canViewPage, PAGE_VIEWS } from './lib/permissions'
 import { ALL_PAGES, NAV, PALETTE_VIEWS, POLICE_TABS, TAB_PAGES, THREAT, VIEW_LABELS } from './lib/nav'
 import { useTheme } from './hooks/useTheme'
 import { useSession } from './hooks/useSession'
+import { useIdleLogout } from './hooks/useIdleLogout'
+import { TwoFactor } from './components/TwoFactor'
 import { useRoute } from './hooks/useRoute'
 import { useDashboardData } from './hooks/useDashboardData'
 import { useLiveStatus } from './hooks/useLiveStatus'
@@ -28,6 +30,7 @@ const lazyPage = (load, name) => lazy(() => load().then((m) => ({ default: m[nam
 const LiveMonitoring = lazyPage(() => import('./pages/LiveMonitoring'), 'LiveMonitoring')
 const MapPage = lazyPage(() => import('./pages/MapPage'), 'MapPage')
 const CommandMap = lazyPage(() => import('./pages/CommandMap'), 'CommandMap')
+const AccuracyView = lazyPage(() => import('./components/Governance'), 'AccuracyDashboard')
 const DetectionCenter = lazyPage(() => import('./pages/DetectionCenter'), 'DetectionCenter')
 const Triage = lazyPage(() => import('./pages/Triage'), 'Triage')
 const Incidents = lazyPage(() => import('./pages/Incidents'), 'Incidents')
@@ -52,7 +55,7 @@ const PAGE_COMPONENTS = {
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
 }
 const VIEW_COMPONENTS = {
-  faces: FaceRegistryPage, watchlist: Watchlist, analytics: Analytics, detection: DetectionCenter,
+  faces: FaceRegistryPage, watchlist: Watchlist, analytics: Analytics, detection: DetectionCenter, accuracy: AccuracyView,
 }
 
 /** A page made of views: tabs for the ones this role may open, then the chosen view. */
@@ -168,6 +171,7 @@ function App() {
     return 'low'
   }, [events, systemStatus, clearedAt, nowTick])
 
+  useIdleLogout(!!authed, session.signOut)
   if (authed === null) return <div className="login-screen" aria-busy="true" />
   if (!authed) {
     return <LoginForm theme={theme} setTheme={setTheme} notice={session.notice} onLogin={session.signIn} />
@@ -196,6 +200,21 @@ function App() {
     openProfile: () => setShowProfile(true),
     showOnMap: (c) => { setMapFocus({ cameraId: c.camera_id, lat: c.lat, lng: c.lng, t: Date.now() }); setPage('map') },
     theme, setTheme,
+  }
+
+  // Server requires two-step sign-in (MFA_REQUIRED): nothing else works until it is on.
+  if (me?.mfa_setup_required) {
+    return (
+      <main className="mfa-gate">
+        <Card title="Turn on two-step sign-in" sub="Your organisation requires it for every account">
+          <TwoFactor />
+          <div className="ds-toolbar" style={{ marginTop: 12 }}>
+            <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>I have turned it on</button>
+            <button type="button" className="btn" onClick={doSignOut}>Sign out</button>
+          </div>
+        </Card>
+      </main>
+    )
   }
 
   return (

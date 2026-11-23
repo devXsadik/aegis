@@ -40,6 +40,19 @@ def unregister(kind: str, fn: Callable) -> None:
 
 
 def retention_days() -> int:
+    """Settings → Data retention, else DETECTION_RETENTION_DAYS (default 30)."""
+    try:
+        from backend.db.database import SessionLocal
+        from backend.services.matching.common import load_json_config
+        db = SessionLocal()
+        try:
+            v = load_json_config(db, "retention_policy").get("detection_days")
+        finally:
+            db.close()
+        if v:
+            return max(1, int(v))
+    except Exception:
+        pass
     try:
         return max(1, int(os.getenv("DETECTION_RETENTION_DAYS", "30")))
     except ValueError:

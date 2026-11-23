@@ -610,3 +610,7 @@ html[lang='bn'] .mono, html[lang='bn'] code { font-family: var(--font-mono); }
 .pf-verify { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .pf-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .pf-actions select.input { width: auto; }
+.fp-cell { display: inline-flex; align-items: center; gap: 8px; }
+.fp-bar { width: 80px; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.fp-bar span { display: block; height: 100%; background: var(--danger); }
+.mfa-gate { max-width: 520px; margin: 8vh auto; padding: 0 16px; display: grid; gap: 14px; }
