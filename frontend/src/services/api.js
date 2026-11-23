@@ -748,3 +748,60 @@ export async function fetchCameraGraph() {
 export async function suggestCameraGraph(maxKm = 3, k = 4) {
   return apiFetch(`/camera-graph/suggest?max_km=${maxKm}&k=${k}`, { method: 'POST' })
 }
+
+/* ---- Case evidence & person folders ---- */
+/** One file per request so each gets its own progress bar and retry. */
+export function uploadEvidenceFile(file, fields, onProgress) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData()
+    Object.entries(fields).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') fd.append(k, v) })
+    fd.append('files', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/evidence-items`)
+    xhr.withCredentials = true
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total) }
+    xhr.onload = () => {
+      let body = null
+      try { body = JSON.parse(xhr.responseText) } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300 && body) {
+        const r = body.results?.[0]
+        if (r?.ok) resolve(r)
+        else reject(Object.assign(new Error(r?.error || 'Upload refused'), { code: r?.code }))
+      } else {
+        reject(new Error(body?.detail || `Upload failed (${xhr.status})`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('Network error — check the connection and retry'))
+    xhr.send(fd)
+  })
+}
+export async function fetchEvidenceItems(params = {}) {
+  return apiFetch(`/evidence-items${qs(params)}`)
+}
+export async function fetchEvidenceItem(ref) {
+  return apiFetch(`/evidence-items/${encodeURIComponent(ref)}`)
+}
+export async function verifyEvidenceItem(ref) {
+  return apiFetch(`/evidence-items/${encodeURIComponent(ref)}/verify`)
+}
+export async function deleteEvidenceItem(ref, reason) {
+  return apiFetch(`/evidence-items/${encodeURIComponent(ref)}/delete`, { method: 'POST', body: JSON.stringify({ reason }) })
+}
+export async function fetchPersonGroups(params = {}) {
+  return apiFetch(`/person-groups${qs(params)}`)
+}
+export async function fetchPersonGroup(id) {
+  return apiFetch(`/person-groups/${id}`)
+}
+export async function editPersonGroup(id, patch) {
+  return apiFetch(`/person-groups/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+export async function mergePersonGroups(targetId, sourceIds) {
+  return apiFetch('/person-groups/merge', { method: 'POST', body: JSON.stringify({ target_id: targetId, source_ids: sourceIds }) })
+}
+export async function moveFaces(faceIds, targetId) {
+  return apiFetch('/person-groups/move', { method: 'POST', body: JSON.stringify({ face_ids: faceIds, target_id: targetId ?? null }) })
+}
+export async function verifyEvidenceFace(id, decision, note) {
+  return apiFetch(`/evidence-faces/${id}/verify`, { method: 'POST', body: JSON.stringify({ decision, note: note || null }) })
+}

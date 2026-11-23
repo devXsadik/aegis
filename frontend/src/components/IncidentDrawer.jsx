@@ -5,6 +5,8 @@ import { Icons, timeAgo, useDialog } from './ui'
 import { AlertTypeBadge, DsIcons, EmptyState, ErrorState, SeverityBadge, Skeleton } from './ds'
 import { StatusSelector } from './StatusSelector'
 import { OfficerChip, OfficerPicker } from './Officers'
+import { EvidenceGallery } from './EvidenceGallery'
+import { EvidenceUploader } from './EvidenceUploader'
 import { parseTs } from '../lib/time'
 import { can } from '../lib/permissions'
 import { downloadEvidencePackage, fetchJurisdictions } from '../services/api'
@@ -59,6 +61,8 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
   const ref = useRef(null)
   useDialog(ref, onClose)
   const [picker, setPicker] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [evReload, setEvReload] = useState(0)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [areas, setAreas] = useState(areasCache)
@@ -138,6 +142,15 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
                 : <div className="off-chips">{incident.assignments.map((a) => (
                     <OfficerChip key={a.user_id} a={a} onRemove={canAssign ? (x) => onUnassign(incident, x) : null} />
                   ))}</div>}
+            </section>
+
+            <section className="inc-sec" aria-labelledby="inc-ev-h">
+              <div className="inc-sec-head">
+                <h3 id="inc-ev-h" className="inc-section-title">Evidence</h3>
+                {canEdit && <button type="button" className="btn btn-sm" onClick={() => setUploading((u) => !u)}><Icons.plus /> {uploading ? 'Close upload' : 'Add evidence'}</button>}
+              </div>
+              {uploading && <EvidenceUploader incidentId={incident.id} onUploaded={() => setEvReload((n) => n + 1)} />}
+              <EvidenceGallery me={me} incidentId={incident.id} reloadKey={evReload} />
             </section>
 
             <section className="inc-sec" aria-labelledby="inc-tl-h">

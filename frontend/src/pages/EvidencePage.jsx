@@ -3,10 +3,13 @@ import { useState } from 'react'
 import { Card, Icons, Tag, Empty, timeAgo, Modal, Seg } from '../components/ui'
 import { evidenceImageUrl, fetchCustody, verifyCustody, addCalibrationLabel } from '../services/api'
 import { useToast } from '../components/Toast'
+import { EvidenceGallery } from '../components/EvidenceGallery'
+import { EvidenceUploader } from '../components/EvidenceUploader'
+import { PersonFolders } from '../components/PersonFolders'
 
 const kindIcon = (ev) => (ev.is_criminal ? Icons.watchlist : ev.weapon_present ? Icons.alert : ev.is_suspicious ? Icons.eye : Icons.camera)
 
-export function EvidencePage({ ctx }) {
+function DetectionSnapshots({ ctx }) {
   const { evidence, me } = ctx
   const { push: toast } = useToast()
   const [busy, setBusy] = useState(false)
@@ -180,5 +183,28 @@ export function EvidencePage({ ctx }) {
         </Modal>
       )}
     </>
+  )
+}
+
+
+/** Evidence: officers' case files (upload, gallery), people found in them, and detection snapshots. */
+export function EvidencePage({ ctx }) {
+  const [tab, setTab] = useState('case')
+  const [reload, setReload] = useState(0)
+  return (
+    <div className="ev-page">
+      <Seg value={tab} onChange={setTab} options={[
+        { value: 'case', label: 'Case evidence' }, { value: 'upload', label: 'Upload' },
+        { value: 'people', label: 'People in evidence' }, { value: 'detections', label: 'Detection snapshots' },
+      ]} />
+      {tab === 'case' && <EvidenceGallery me={ctx.me} reloadKey={reload} />}
+      {tab === 'upload' && (
+        <Card title="Upload evidence" sub="Photos, video, audio or PDF, linked to an incident">
+          <EvidenceUploader onUploaded={() => setReload((n) => n + 1)} />
+        </Card>
+      )}
+      {tab === 'people' && <PersonFolders />}
+      {tab === 'detections' && <DetectionSnapshots ctx={ctx} />}
+    </div>
   )
 }

@@ -562,3 +562,51 @@ html[lang='bn'] .mono, html[lang='bn'] code { font-family: var(--font-mono); }
 .track-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
 @media (max-width: 1000px) { .cmd-grid { grid-template-columns: minmax(0, 1fr); } .cmd-map { height: 60dvh; } .cmd-side { max-height: none; } }
 @media (prefers-reduced-motion: reduce) { .lookout-ring { animation: none; } }
+
+/* ——— Evidence ——— */
+.ev-page { display: grid; gap: 14px; align-content: start; }
+.upl { display: grid; gap: 12px; }
+.upl-drop { border: 2px dashed var(--border-strong); border-radius: 16px; padding: 22px; text-align: center; display: grid; gap: 8px; justify-items: center; color: var(--text-2); }
+.upl-drop.over { border-color: var(--primary); background: var(--primary-soft); }
+.upl-drop > svg { width: 32px; height: 32px; color: var(--text-3); }
+.upl-drop p { margin: 0; }
+.upl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.upl-item { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); font-size: var(--text-sm); }
+.upl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upl-bar { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.upl-bar span { display: block; height: 100%; background: var(--primary); transition: width 0.2s; }
+.upl-item.st-error .upl-bar span { background: var(--danger); }
+.upl-item.st-done .upl-bar span { background: var(--ok); }
+.upl-state { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) { .upl-item { grid-template-columns: 1fr; } .upl-state { justify-content: flex-start; } }
+.ev-grid, .pf-grid { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.ev-tile, .pf-open { width: 100%; display: grid; gap: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: inherit; text-align: left; cursor: pointer; overflow: hidden; }
+.ev-tile:hover, .pf-open:hover { border-color: var(--border-strong); }
+.ev-tile img, .pf-open img, .ev-icon { width: 100%; height: 130px; object-fit: cover; background: var(--media); display: grid; place-items: center; color: var(--text-3); }
+.ev-icon svg { width: 30px; height: 30px; }
+.ev-meta, .pf-body { display: grid; gap: 3px; padding: 8px 10px 10px; font-size: var(--text-xs); color: var(--text-3); }
+.ev-meta b, .pf-body b { font-size: var(--text-sm); color: var(--text); }
+.ev-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.pf-card { position: relative; }
+.pf-card.on .pf-open { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.pf-pick { position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; z-index: 1; accent-color: var(--primary); }
+.lb { width: 1000px; }
+.lb-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: 16px; }
+.lb-media { width: 100%; max-height: 70vh; min-height: 300px; object-fit: contain; background: var(--media); border-radius: 12px; border: 0; }
+.lb-side { display: grid; gap: 10px; align-content: start; }
+.lb-dl { flex-direction: column; }
+.lb-hash { overflow-wrap: anywhere; font-size: 0.7rem; }
+.lb-faces { display: flex; gap: 6px; flex-wrap: wrap; }
+.lb-faces img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+.lb-faces img.pending { outline: 2px solid var(--warn); }
+.lb-custody ol { margin: 6px 0 0; padding-left: 18px; font-size: var(--text-xs); color: var(--text-2); display: grid; gap: 2px; }
+.lb-del { display: flex; gap: 6px; }
+@media (max-width: 820px) { .lb-grid { grid-template-columns: 1fr; } }
+.pf-faces { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.pf-face { display: grid; gap: 4px; padding: 6px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; position: relative; }
+.pf-face.on { border-color: var(--primary); background: var(--primary-soft); }
+.pf-face input { position: absolute; top: 10px; left: 10px; }
+.pf-face img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; }
+.pf-verify { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.pf-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pf-actions select.input { width: auto; }
