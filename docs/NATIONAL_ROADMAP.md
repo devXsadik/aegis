@@ -1,6 +1,7 @@
 # Aegis → National Surveillance & Incident Response — Findings & Plan
 
-Status: proposal, awaiting approval before Phase 1. Date: 2026-11-23.
+Status: implemented (all steps A–P), 2026-11-23. How it works and how to run it: `docs/NATIONAL_SYSTEM.md`.
+Migrations ended up as 0014–0020 (0011–0013 were taken by two-factor sign-in, push and floor plans).
 
 ## 1. Findings (current codebase)
 

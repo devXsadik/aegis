@@ -202,6 +202,19 @@ aegis/
 
 ---
 
+## National deployment
+
+Nationwide cameras, watchlists with legal governance, vehicle (Bangla plates, type, colour, model,
+re-ID) and face matching, multi-camera tracking with lookouts and direction of travel,
+jurisdiction-based officer dispatch, case evidence with chain of custody and face folders, a training
+pipeline and a city simulator. Guide: [`docs/NATIONAL_SYSTEM.md`](docs/NATIONAL_SYSTEM.md) · plan and
+schema: [`docs/NATIONAL_ROADMAP.md`](docs/NATIONAL_ROADMAP.md) · training:
+[`training/README.md`](training/README.md) · scale: [`docs/LOAD_TEST.md`](docs/LOAD_TEST.md).
+
+```bash
+python scripts/simulate.py seed && python scripts/simulate.py run --speed 20   # whole flow, no cameras
+```
+
 ## Run it in one command
 
 **Requirements:** Python **3.10–3.12** (not 3.13+), Node 18+, macOS or Linux. Postgres is optional for local demos (`USE_SQLITE=true` by default).
