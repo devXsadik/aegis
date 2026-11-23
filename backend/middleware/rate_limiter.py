@@ -59,6 +59,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         prefix = next((p for p in self._PROTECTED if path.startswith(p)), None)
         is_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith("/api/v1/")
+        if path.startswith("/api/v1/ingest/") and not self._has_valid_internal_key(request):
+            # Camera gateways post many events from one IP: their own, larger budget.
+            client_ip = request.client.host if request.client else "unknown"
+            if not _limiter.check(f"{client_ip}:ingest", max_requests=int(os.getenv("INGEST_RATE_LIMIT", "6000")),
+                                  window_seconds=60):
+                return JSONResponse(status_code=429, headers={"Retry-After": "5"},
+                                    content={"detail": "Ingest rate limit exceeded"})
+            return await call_next(request)
         if prefix or is_write:
             if self._has_valid_internal_key(request):
                 return await call_next(request)

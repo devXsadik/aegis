@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 import os
+from datetime import datetime
 import urllib.parse
 import requests
 import logging
@@ -67,9 +68,17 @@ class CameraCreate(BaseModel):
     lng: Optional[float] = Field(None, ge=-180, le=180)
     rtsp_url: Optional[str] = None
     active: Optional[bool] = True
-    heading: Optional[float] = None
-    fov: Optional[float] = None
+    heading: Optional[float] = Field(None, ge=0, lt=360)
+    fov: Optional[float] = Field(None, gt=0, le=360)
     range_m: Optional[float] = None
+    protocol: Optional[str] = Field(None, pattern="^(rtsp|onvif|vendor|webhook|device|file)$")
+    vendor: Optional[str] = Field(None, max_length=30)
+    address: Optional[str] = Field(None, max_length=200)
+    road_name: Optional[str] = Field(None, max_length=120)
+    capabilities: Optional[List[str]] = None
+    ir_mode: Optional[bool] = None
+    sample_fps: Optional[float] = Field(None, gt=0, le=60)
+    jurisdiction_id: Optional[int] = None
 
 
 class CameraResponse(BaseModel):
@@ -83,6 +92,40 @@ class CameraResponse(BaseModel):
     heading: Optional[float] = None
     fov: Optional[float] = None
     range_m: Optional[float] = None
+    protocol: Optional[str] = "rtsp"
+    vendor: Optional[str] = None
+    address: Optional[str] = None
+    road_name: Optional[str] = None
+    capabilities: List[str] = []
+    ir_mode: bool = False
+    status: Optional[str] = "unknown"
+    last_heartbeat: Optional[datetime] = None
+    sample_fps: Optional[float] = None
+    priority: int = 0
+    jurisdiction_id: Optional[int] = None
+    has_credentials: bool = False
+    has_ingest_token: bool = False
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _caps(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return []
+        return v or []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flags(cls, v):
+        if isinstance(v, Camera):
+            d = {c.name: getattr(v, c.name) for c in Camera.__table__.columns}
+            d["has_credentials"] = bool(v.credentials)
+            d["has_ingest_token"] = bool(v.ingest_token_hash)
+            d.pop("credentials", None)
+            return d
+        return v
 
     class Config:
         from_attributes = True
@@ -283,7 +326,11 @@ def create_camera(cam: CameraCreate, request: Request, db: Session = Depends(get
     existing = db.query(Camera).filter(Camera.camera_id == cam.camera_id).first()
     if existing:
         raise HTTPException(status_code=400, detail="Camera ID already exists")
-    camera = Camera(**cam.model_dump())
+    data = cam.model_dump()
+    if data.get("capabilities") is not None:
+        data["capabilities"] = json.dumps(data["capabilities"])
+    camera = Camera(**{k: v for k, v in data.items() if v is not None or k in ("lat", "lng")})
+    _auto_jurisdiction(db, camera)
     db.add(camera)
     log_audit(db, admin, "CAMERA_CREATE", "camera", cam.camera_id, f"name={cam.name}", request)
     db.commit()
@@ -299,8 +346,13 @@ def update_camera(camera_id: str, cam: CameraCreate, request: Request, db: Sessi
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     changes = cam.model_dump(exclude_unset=True)
+    if "capabilities" in changes:
+        changes["capabilities"] = json.dumps(changes["capabilities"] or [])
     for key, val in changes.items():
         setattr(camera, key, val)
+    if ("lat" in changes or "lng" in changes) and "jurisdiction_id" not in changes:
+        camera.jurisdiction_id = None
+    _auto_jurisdiction(db, camera)
     shown = {k: v for k, v in changes.items() if k != "rtsp_url"}    # URLs may embed credentials
     log_audit(db, admin, "CAMERA_UPDATE", "camera", camera_id, str(shown), request)
     db.commit()
@@ -415,3 +467,11 @@ def camera_officer_map(db: Session = Depends(get_db), user: User = Depends(opera
     for co, u in rows:
         out.setdefault(co.camera_id, []).append({"id": u.id, "name": u.username})
     return out
+
+
+def _auto_jurisdiction(db: Session, camera: Camera) -> None:
+    """A camera placed on the map belongs to the thana its position falls in (unless set)."""
+    if camera.jurisdiction_id is None and camera.lat is not None and camera.lng is not None:
+        from backend.services.jurisdiction import locate
+        found = locate(db, camera.lat, camera.lng)
+        camera.jurisdiction_id = found.id if found else None

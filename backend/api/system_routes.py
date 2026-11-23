@@ -1,5 +1,6 @@
 """System status and pipeline heartbeat tracking."""
 
+import logging
 import os
 from typing import Optional
 
@@ -127,6 +128,7 @@ async def pipeline_heartbeat(
     payload["ai_age_s"] = body.ai_age_s
     if body.analytics:
         update_live_analytics(body.camera_id, body.analytics)
+    await _persist_beat(body.camera_id)
     await manager.broadcast(payload, "status")
     return {"status": "ok", "camera_id": body.camera_id}
 
@@ -141,3 +143,34 @@ def get_live_analytics() -> dict:
 
 def update_live_analytics(camera_id: str, data: dict) -> None:
     _live_analytics[camera_id] = {**data, "camera_id": camera_id, "updated_at": utcnow().isoformat()}
+
+
+_persisted: dict = {}
+_log = logging.getLogger("HumanAnalysis")
+
+
+async def _persist_beat(camera_id: str) -> None:
+    """Write the camera's last heartbeat to the registry at most every 30 s (health survives restarts)."""
+    import time
+    from starlette.concurrency import run_in_threadpool
+    now = time.time()
+    if now - _persisted.get(camera_id, 0) < 30:
+        return
+    _persisted[camera_id] = now
+
+    def write():
+        from backend.db.database import SessionLocal
+        from backend.models.camera import Camera
+        db = SessionLocal()
+        try:
+            cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+            if cam:
+                cam.last_heartbeat = utcnow()
+                if cam.status in ("offline", "unknown"):
+                    cam.status = "online"
+                db.commit()
+        except Exception as e:      # health bookkeeping must never fail a heartbeat
+            _log.debug("persist heartbeat failed: %s", e)
+        finally:
+            db.close()
+    await run_in_threadpool(write)

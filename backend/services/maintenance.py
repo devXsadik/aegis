@@ -2,7 +2,8 @@
 
 maintenance_loop (daily, MAINTENANCE_HOUR local time, default 03:00):
     recordings older than DVR_RETENTION_HOURS, capture stills older than CAPTURE_RETENTION_DAYS,
-    evidence images older than retention.evidence_days (config.yaml), then a backup.
+    evidence images older than retention.evidence_days (config.yaml), non-matched detections
+    older than DETECTION_RETENTION_DAYS, then a backup.
 health_watch_loop (every 30 s):
     a camera that is switched on but has not reported for DETECTION_DOWN_SECONDS raises
     CAMERA_OFFLINE; when no switched-on camera reports at all, DETECTION_DOWN. Once per outage,
@@ -58,12 +59,29 @@ def purge_captures() -> dict:
     return {"rows": rows, "retention_days": days}
 
 
+def purge_detections() -> dict:
+    """Plate reads, vehicle attributes and face events of people not on a watchlist, past
+    DETECTION_RETENTION_DAYS; matched ones and those attached to an incident stay. Also relabels
+    expired watchlist entries."""
+    from backend.db.database import SessionLocal
+    from backend.services.event_router import purge_expired
+    from backend.services.watchlist_gov import sweep
+    db = SessionLocal()
+    try:
+        removed, expired = purge_expired(db), sweep(db)
+        db.commit()
+        return {"detections_removed": removed, "watchlist_expired": expired}
+    finally:
+        db.close()
+
+
 def run_maintenance(backup: bool = True) -> dict:
     """Each step runs even if an earlier one failed; the result says what happened."""
     from backend.services.backup import run_backup
     from utils.data.retention import run_retention
 
-    steps = {"recordings": purge_recordings, "captures": purge_captures, "evidence": run_retention}
+    steps = {"recordings": purge_recordings, "captures": purge_captures, "evidence": run_retention,
+             "detections": purge_detections}
     if backup and os.getenv("BACKUP_ENABLED", "true").lower() == "true":
         steps["backup"] = run_backup
     out = {}

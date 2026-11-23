@@ -134,7 +134,7 @@ Base = declarative_base()
 def init_db():
     from backend.models import (
         user, face_encoding, evidence, audit_log, known_person, person_image,
-        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction, watchlist,
+        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction, watchlist, detection,
     )
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
@@ -193,6 +193,19 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "jurisdiction_id", "INTEGER"),
     ("audit_logs", "prev_hash", "VARCHAR(64)"),
     ("audit_logs", "record_hash", "VARCHAR(64)"),
+    ("cameras", "protocol", "VARCHAR(12) NOT NULL DEFAULT 'rtsp'"),
+    ("cameras", "vendor", "VARCHAR(30)"),
+    ("cameras", "credentials", "BLOB"),
+    ("cameras", "credentials_encrypted", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("cameras", "address", "VARCHAR(200)"),
+    ("cameras", "road_name", "VARCHAR(120)"),
+    ("cameras", "capabilities", "TEXT"),
+    ("cameras", "ir_mode", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("cameras", "status", "VARCHAR(10) NOT NULL DEFAULT 'unknown'"),
+    ("cameras", "last_heartbeat", "TIMESTAMP"),
+    ("cameras", "sample_fps", "FLOAT"),
+    ("cameras", "priority", "INTEGER NOT NULL DEFAULT 0"),
+    ("cameras", "ingest_token_hash", "VARCHAR(64)"),
     ("known_persons", "aliases", "TEXT"),
     ("known_persons", "case_no", "VARCHAR(60)"),
     ("known_persons", "offence", "VARCHAR(120)"),
@@ -219,6 +232,8 @@ def _ensure_columns():
             continue
         if col in {c["name"] for c in insp.get_columns(table)}:
             continue
+        if engine.dialect.name == "postgresql":
+            ddl = ddl.replace("BLOB", "BYTEA")
         with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
         logger.info("Added column %s.%s", table, col)
