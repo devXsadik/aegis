@@ -2,6 +2,7 @@
 Project path constants — single source of truth for directories.
 """
 
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -17,7 +18,8 @@ MODELS_DIR = ROOT / "models"
 LOGS_DIR = ROOT / "logs"
 
 CONFIG_YAML = CONFIG_DIR / "config.yaml"
-CAMERAS_YAML = CONFIG_DIR / "cameras.yaml"
+# AEGIS_CAMERAS_YAML points tests and the e2e server at a throwaway copy (never the real file).
+CAMERAS_YAML = Path(os.environ["AEGIS_CAMERAS_YAML"]) if os.getenv("AEGIS_CAMERAS_YAML") else CONFIG_DIR / "cameras.yaml"
 MODELS_YAML = CONFIG_DIR / "models.yaml"
 WATCHLIST_MANIFEST = WATCHLIST_DIR / "manifest.json"
 

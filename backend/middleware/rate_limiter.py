@@ -35,7 +35,7 @@ _limiter = InMemoryRateLimiter()
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Strict limits on auth + internal event paths, a general limit on every other write."""
 
-    _WRITE_LIMIT = 240          # per client per minute, all POST/PUT/PATCH/DELETE under /api/v1
+    _WRITE_LIMIT = int(os.getenv("WRITE_RATE_LIMIT", "240"))   # per client per minute, all writes under /api/v1
 
     _PROTECTED = (
         "/api/v1/auth/login",

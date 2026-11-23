@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { can } from '../lib/permissions'
 import { AddCameraModal } from '../components/AddCameraModal'
 import { cameraForDevice, slug } from '../lib/cameras'
+import { CameraHealth, CameraImportModal, CameraRegistryModal } from '../components/CameraRegistry'
 
 // Status comes only from what the system really knows: the pipeline heartbeat and the enabled flag.
 function healthOf(cam, live, unplugged) {
@@ -30,6 +31,8 @@ export function Cameras({ ctx }) {
   const { push: toast } = useToast()
   const [ask, confirmDialog] = useConfirm()
   const [view, setView] = useState('grid')
+  const [registryId, setRegistryId] = useState(null)
+  const [showImport, setShowImport] = useState(false)
   const isAdmin = me?.role === 'admin'
   const canManage = can(me?.role, 'camera.manage')
 
@@ -186,6 +189,7 @@ export function Cameras({ ctx }) {
     <>
       {isAdmin && <button className="btn btn-sm" onClick={() => handleToggle(cam)}>{cam.active ? 'Pause' : 'Resume'}</button>}
       {isAdmin && <button className="btn btn-sm" onClick={() => openAssign(cam)}>Assign officers</button>}
+      {isAdmin && <button className="btn btn-sm" onClick={() => setRegistryId(cam.camera_id)}>Registry</button>}
       {canManage && <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(cam)}>Delete</button>}
     </>
   )
@@ -232,7 +236,8 @@ export function Cameras({ ctx }) {
         sub="Status, location and assigned officers"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Seg value={view} onChange={setView} options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]} />
+            <Seg value={view} onChange={setView} options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }, { value: 'health', label: 'Health' }]} />
+            {isAdmin && <button className="btn" onClick={() => setShowImport(true)}><Icons.download /> Import CSV</button>}
             {canManage && (
               <button className="btn btn-primary" onClick={() => setShowDevices(true)}>
                 <Icons.camera /> Add camera
@@ -240,9 +245,10 @@ export function Cameras({ ctx }) {
             )}
           </div>
         }
-        flush={view === 'list' && rows.length > 0}
+        flush={(view === 'list' && rows.length > 0) || view === 'health'}
       >
-        {rows.length === 0 && (
+        {view === 'health' && <CameraHealth canEdit={isAdmin} onEdit={setRegistryId} />}
+        {rows.length === 0 && view !== 'health' && (
           <Empty icon={Icons.camera}>{canManage ? 'No cameras yet. Use "Add camera" to register the first one.' : 'No cameras have been registered yet.'}</Empty>
         )}
 
@@ -390,6 +396,8 @@ export function Cameras({ ctx }) {
         </Modal>
       )}
       {confirmDialog}
+      {registryId && <CameraRegistryModal cameraId={registryId} onClose={() => setRegistryId(null)} onSaved={reloadCameras} />}
+      {showImport && <CameraImportModal onClose={() => setShowImport(false)} onDone={reloadCameras} />}
     </>
   )
 }

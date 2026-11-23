@@ -673,3 +673,28 @@ export async function uploadWatchVehiclePhoto(ref, file) {
 export async function fetchWatchApprovals() {
   return apiFetch('/watchlist/approvals')
 }
+
+/* ---- Camera registry ---- */
+export async function fetchCameraHealth() {
+  return apiFetch('/cameras/health')
+}
+export async function fetchCameraDetail(id) {
+  return apiFetch(`/cameras/${encodeURIComponent(id)}/detail`)
+}
+export async function setCameraCredentials(id, username, password) {
+  return apiFetch(`/cameras/${encodeURIComponent(id)}/credentials`, { method: 'PUT', body: JSON.stringify({ username, password }) })
+}
+export async function clearCameraCredentials(id) {
+  return apiFetch(`/cameras/${encodeURIComponent(id)}/credentials`, { method: 'DELETE' })
+}
+export async function newIngestToken(id) {
+  return apiFetch(`/cameras/${encodeURIComponent(id)}/ingest-token`, { method: 'POST' })
+}
+export async function importCamerasCsv(file, dryRun = true) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch(`/cameras/import?dry_run=${dryRun}`, { method: 'POST', body: fd })
+}
+export function cameraCsvTemplateUrl() {
+  return `${API_BASE}/cameras/import/template`
+}

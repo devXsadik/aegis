@@ -223,7 +223,7 @@ def _write_cameras_yaml(path: Path, data: dict):
     os.replace(tmp, path)
 
 
-CAMERAS_YAML = Path(__file__).resolve().parents[2] / "config" / "cameras.yaml"
+from paths import CAMERAS_YAML  # noqa: E402  (AEGIS_CAMERAS_YAML override for tests)
 
 
 def sync_camera_to_yaml(cam: Camera):

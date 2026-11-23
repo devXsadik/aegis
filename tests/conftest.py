@@ -15,6 +15,11 @@ import tempfile  # noqa: E402
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="aegis_tests_")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/test.db"
 os.environ["USE_SQLITE"] = "0"
+# …and never the real config/cameras.yaml: the API writes cameras it creates into this file.
+import shutil  # noqa: E402
+_cams = os.path.join(_TEST_DB_DIR, "cameras.yaml")
+shutil.copy(os.path.join(os.path.dirname(__file__), "..", "config", "cameras.yaml"), _cams)
+os.environ["AEGIS_CAMERAS_YAML"] = _cams
 
 try:
     import face_recognition  # noqa: F401

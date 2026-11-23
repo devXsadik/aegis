@@ -22,6 +22,7 @@ _tmp = tempfile.mkdtemp(prefix="aegis_e2e_api_")
 # Set before any backend import: load_dotenv() never overrides a variable that is already set.
 os.environ.update({
     "DATABASE_URL": f"sqlite:///{_tmp}/e2e.db",
+    "AEGIS_CAMERAS_YAML": f"{_tmp}/cameras.yaml",      # copied below; the dashboard may edit it
     "USE_SQLITE": "false",
     "SECRET_KEY": "e2e-secret-key-not-for-production-0123456789",
     "ENCRYPTION_KEY": "e2e-encryption-key-32-characters!",
@@ -33,10 +34,17 @@ os.environ.update({
     "REDIS_URL": "",
     "CORS_ORIGINS": "http://localhost:5174",
     "LOGIN_RATE_LIMIT": "200",              # every e2e test signs in from 127.0.0.1
+    "WRITE_RATE_LIMIT": "5000",             # …and all four browsers write from it too
 })
 
 
+def _copy_cameras_yaml() -> None:
+    import shutil
+    shutil.copy(ROOT / "config" / "cameras.yaml", os.environ["AEGIS_CAMERAS_YAML"])
+
+
 def seed() -> None:
+    _copy_cameras_yaml()
     from backend.auth.auth import hash_password
     from backend.db.database import SessionLocal, init_db
     from backend.models.alert import Alert
@@ -86,6 +94,8 @@ def _seed_areas(db, hash_password) -> None:
     # Second operator: the smoke test signs e2e_operator out, which revokes all of its sessions.
     db.add(User(username="e2e_desk", email="desk@example.invalid", hashed_password=hash_password(PASSWORD),
                 role="operator", is_active=True))
+    db.add(User(username="e2e_admin", email="admin@example.invalid", hashed_password=hash_password(PASSWORD),
+                role="admin", is_active=True))
     db.add(User(username="e2e_supervisor", email="sup@example.invalid", hashed_password=hash_password(PASSWORD),
                 role="supervisor", is_active=True))
     for name, full, area, duty in (("e2e_off_karim", "Karim Hossain", gulshan, "available"),
