@@ -227,7 +227,20 @@ def alert_context(alert_id: int, db: Session = Depends(get_db),
             alert.review_status == "pending"
             and alert.alert_type in REVIEW_REQUIRED_TYPES
         ),
+        "identification": _identification(alert),
     }
+
+
+def _identification(alert: Alert):
+    """Match breakdown stored by the vehicle / face matchers (None for other alerts)."""
+    import json
+    try:
+        d = json.loads(alert.details) if alert.details else None
+    except ValueError:
+        return None
+    if not isinstance(d, dict) or not (d.get("match") or d.get("face")):
+        return None
+    return {k: v for k, v in d.items() if k not in ("lat", "lng", "camera_name", "camera_id", "maps_url")}
 
 
 @router.put("/{alert_id}/acknowledge")

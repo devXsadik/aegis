@@ -19,6 +19,7 @@ from backend.api.watchlist_routes import router as watchlist_router
 from backend.api.ingest_routes import router as ingest_router
 from backend.api.camera_registry_routes import router as camera_registry_router
 from backend.api.detection_routes import router as detection_router
+from backend.api.lookout_routes import router as lookout_router
 import backend.services.matching  # noqa: E402,F401  (registers the matchers with the event router)
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
@@ -190,6 +191,7 @@ app.include_router(jurisdiction_router, prefix=API_V1)
 app.include_router(watchlist_router, prefix=API_V1)
 app.include_router(ingest_router, prefix=API_V1)
 app.include_router(detection_router, prefix=API_V1)
+app.include_router(lookout_router, prefix=API_V1)
 
 
 @app.get("/health")

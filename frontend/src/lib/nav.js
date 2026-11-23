@@ -28,6 +28,7 @@ export const NAV = [
     pages: [
       { id: 'faces', label: 'People', desc: 'Who the system can recognise, and where watchlist people were seen.', icon: Icons.users },
       { id: 'vehicles', label: 'Vehicles', desc: 'Number plates read by the cameras.', icon: Icons.vehicle },
+      { id: 'search', label: 'Vehicle search', desc: 'Find a vehicle by plate, type, colour or photo; start a lookout.', icon: Icons.search },
       { id: 'analytics', label: 'Analytics', desc: 'Trends over time, and everything the cameras detected.', icon: Icons.chart },
       { id: 'reports', label: 'Reports', desc: 'Summaries you can print or export.', icon: Icons.report },
     ],

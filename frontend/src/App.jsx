@@ -36,6 +36,7 @@ const EvidencePage = lazyPage(() => import('./pages/EvidencePage'), 'EvidencePag
 const Watchlist = lazyPage(() => import('./pages/Watchlist'), 'Watchlist')
 const FaceRegistryPage = lazyPage(() => import('./pages/FaceRegistryPage'), 'FaceRegistryPage')
 const Vehicles = lazyPage(() => import('./pages/Vehicles'), 'Vehicles')
+const VehicleSearch = lazyPage(() => import('./pages/VehicleSearch'), 'VehicleSearch')
 const Reports = lazyPage(() => import('./pages/Reports'), 'Reports')
 const Responder = lazyPage(() => import('./pages/Responder'), 'Responder')
 const ShiftLog = lazyPage(() => import('./pages/ShiftLog'), 'ShiftLog')
@@ -46,7 +47,7 @@ const ZoneEditor = lazyPage(() => import('./pages/ZoneEditor'), 'ZoneEditor')
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage,
   alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage, shift: ShiftLog,
-  vehicles: Vehicles, reports: Reports,
+  vehicles: Vehicles, search: VehicleSearch, reports: Reports,
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
 }
 const VIEW_COMPONENTS = {

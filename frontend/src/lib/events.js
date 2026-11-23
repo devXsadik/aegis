@@ -6,6 +6,9 @@ export const EVENT_META = {
   PERSON_TRACKED: { label: 'Tracked across cameras', group: 'faces', icon: 'eye' },
   WEAPON_DETECTED: { label: 'Weapon detected', group: 'weapon', icon: 'alert' },
   SUSPICIOUS_VEHICLE: { label: 'Watchlisted vehicle', group: 'vehicle', icon: 'vehicle' },
+  VEHICLE_MATCH: { label: 'Vehicle watchlist match', group: 'vehicle', icon: 'vehicle' },
+  LOOKOUT_MATCH: { label: 'Lookout match', group: 'vehicle', icon: 'eye' },
+  FACE_MATCH: { label: 'Face watchlist match', group: 'faces', icon: 'watchlist' },
   SUSPICIOUS_BEHAVIOR: { label: 'Suspicious behavior', group: 'behavior', icon: 'eye' },
   ANOMALY_DETECTED: { label: 'Zone anomaly', group: 'behavior', icon: 'eye' },
   INTRUSION: { label: 'Restricted-zone entry', group: 'behavior', icon: 'shield' },
@@ -138,6 +141,9 @@ export const EXPLAIN = {
   ANOMALY_DETECTED: 'A zone rule fired (crowding or long dwell time).',
   SUSPICIOUS_BEHAVIOR: 'Movement or posture matched a behaviour rule (loitering, rapid or erratic movement, raised arms). These rules are heuristics and do produce false alarms.',
   SUSPICIOUS_VEHICLE: 'A plate read matched the vehicle watchlist. OCR misreads are common — verify the plate in the snapshot.',
+  VEHICLE_MATCH: 'A vehicle matched the watchlist by plate and / or appearance. Check the plate and each attribute against the entry before confirming.',
+  LOOKOUT_MATCH: 'A vehicle matching an active lookout passed this camera. It may be a lookalike: confirm against the snapshot.',
+  FACE_MATCH: 'Possible match — needs verification. Compare the live face with the watchlist photos before any field action.',
 }
 
 /** A live event from the alerts WebSocket (or an API alert row) → the dashboard's event shape. */

@@ -107,6 +107,16 @@ def _seed_areas(db, hash_password) -> None:
         db.flush()
         db.add(OfficerProfile(user_id=u.id, full_name=full, rank="SI", badge_no=f"E2E-{u.id}", station_id=area.id, duty_status=duty))
         db.add(OfficerJurisdiction(user_id=u.id, jurisdiction_id=area.id))
+    # Recent vehicle sightings for Vehicle Search (no watchlist hit: they raise no alert).
+    from datetime import timedelta as _td
+    from backend.models.detection import Detection
+    from clock import utcnow as _now
+    for i, (plate, color, vtype, model) in enumerate((("ঢাকা মেট্রো-গ ১২-৩৪৫৬", "white", "car", "Toyota Axio"),
+                                                     ("ঢাকা মেট্রো-খ ৫১-০০১২", "black", "microbus", "Toyota Noah"),
+                                                     (None, "white", "car", "Toyota Premio"))):
+        db.add(Detection(event_id=f"e2e-det-{i}", camera_id="e2e_lab", ts=_now() - _td(minutes=5 + i), kind="vehicle",
+                         source="simulator", plate_raw=plate, plate_canonical=__import__("core.analysis.bd_plate", fromlist=["x"]).canonical(plate) if plate else None,
+                         vehicle_type=vtype, color=color, make_model=model, expires_at=_now() + _td(days=30)))
     from backend.models.known_person import KnownPerson
     db.add(KnownPerson(person_id="P-E2E00001", name="Kalam Sheikh", category="criminal", criminal_status="wanted"))
     db.commit()

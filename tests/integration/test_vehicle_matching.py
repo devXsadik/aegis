@@ -150,3 +150,27 @@ def test_match_config_admin_only(setup):
     assert client.put("/api/v1/vehicle-match/config", headers=setup["admin"], json={"reid_threshold": 2}).status_code == 400
     ok = client.put("/api/v1/vehicle-match/config", headers=setup["admin"], json={"reid_threshold": 0.7}).json()
     assert ok["config"]["reid_threshold"] == 0.7
+
+
+def test_manual_lookout_by_area_boosts_cameras_and_enables_candidates(setup):
+    from backend.models.camera import Camera
+    op = setup["op"]
+    assert client.post("/api/v1/lookouts", headers=op, json={"reason": "FIR-9", "vehicle_type": "car"}).status_code == 400
+    assert client.post("/api/v1/lookouts", headers=op, json={"reason": "FIR-9 lookout", "vehicle_type": "car",
+                                                             "color_primary": "white"}).status_code == 400   # no cameras
+    b = client.post("/api/v1/lookouts", headers=op, json={"reason": "FIR-9 lookout", "vehicle_type": "car", "color_primary": "white",
+                                                          "make_model": "toyota_axio", "camera_ids": [setup["cams"][1]], "hours": 2}).json()
+    assert b["status"] == "active" and [c["camera_id"] for c in b["cameras"]] == [setup["cams"][1]]
+    db = SessionLocal()
+    assert db.query(Camera).filter(Camera.camera_id == setup["cams"][1]).first().priority == 5
+    db.close()
+    res = _ingest(setup["cams"][1], vehicle_type="car", color="white", make_model="Toyota Axio",
+                  attribute_confidences={"type": 0.9, "color": 0.9, "model": 0.9})
+    assert any(r["level"] == "candidate" for r in res)
+    assert [x["ref"] for x in client.get("/api/v1/lookouts", headers=op).json()].count(b["ref"]) == 1
+    done = client.post(f"/api/v1/lookouts/{b['ref']}/cancel", headers=op).json()
+    assert done["status"] == "cancelled"
+    db = SessionLocal()
+    assert db.query(Camera).filter(Camera.camera_id == setup["cams"][1]).first().priority == 0
+    db.close()
+    assert client.post(f"/api/v1/lookouts/{b['ref']}/cancel", headers=op).status_code == 409

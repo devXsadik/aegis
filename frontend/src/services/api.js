@@ -698,3 +698,36 @@ export async function importCamerasCsv(file, dryRun = true) {
 export function cameraCsvTemplateUrl() {
   return `${API_BASE}/cameras/import/template`
 }
+
+/* ---- Vehicle search & lookouts ---- */
+export async function searchVehicles(params) {
+  const p = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return
+    if (Array.isArray(v)) v.forEach((x) => p.append(k, x))
+    else p.set(k, String(v))
+  })
+  return apiFetch(`/vehicle-search?${p}`)
+}
+export async function searchVehiclesByPhoto(file, reason, hours = 72) {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('reason', reason)
+  fd.append('hours', String(hours))
+  return apiFetch('/vehicle-search/photo', { method: 'POST', body: fd })
+}
+export async function fetchLookouts(status = 'active') {
+  return apiFetch(`/lookouts${status ? `?status=${status}` : ''}`)
+}
+export async function startLookout(body) {
+  return apiFetch('/lookouts', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function cancelLookout(ref) {
+  return apiFetch(`/lookouts/${encodeURIComponent(ref)}/cancel`, { method: 'POST' })
+}
+export async function fetchMatchConfig() {
+  return apiFetch('/vehicle-match/config')
+}
+export async function saveMatchConfig(cfg) {
+  return apiFetch('/vehicle-match/config', { method: 'PUT', body: JSON.stringify(cfg) })
+}

@@ -7,6 +7,7 @@ import {
 import { TwoFactor } from '../components/TwoFactor'
 import { JurisdictionAdmin, OfficersAdmin } from '../components/JurisdictionAdmin'
 import { WatchlistAdmin } from '../components/WatchlistAdmin'
+import { VehicleSettings } from '../components/VehicleSettings'
 import {
   fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs,
   fetchBackups, runBackupNow,
@@ -29,7 +30,7 @@ const SECTIONS = [
   { id: 'jurisdictions', icon: DsIcons.map },
   { id: 'watchlists', icon: Icons.watchlist, roles: ['operator', 'investigator'] },
   { id: 'thresholds', icon: DsIcons.sliders, all: true },
-  { id: 'vehicles', icon: Icons.vehicle, phase: 'Phase 7' },
+  { id: 'vehicles', icon: Icons.vehicle },
   { id: 'users', icon: Icons.users },
   { id: 'security', icon: DsIcons.lock, all: true },
   { id: 'retention', icon: DsIcons.database },
@@ -205,16 +206,6 @@ function CamerasSection({ ctx }) {
         </EmptyState>
       </Card>
     </>
-  )
-}
-
-function ComingSection({ icon, title, children, ctx, link }) {
-  return (
-    <Card>
-      <EmptyState icon={icon} title={title} action={link && <LinkOut ctx={ctx} page={link.page} label={link.label} />}>
-        {children}
-      </EmptyState>
-    </Card>
   )
 }
 
@@ -427,11 +418,7 @@ export function Settings({ ctx }) {
       case 'jurisdictions': return <JurisdictionAdmin isAdmin={ctx.me?.role === 'admin'} />
       case 'watchlists': return <WatchlistAdmin role={ctx.me?.role} />
       case 'thresholds': return <ThresholdsSection ctx={ctx} drafts={drafts} setDrafts={setDrafts} values={values} setValues={setValues} />
-      case 'vehicles': return (
-        <ComingSection ctx={ctx} icon={Icons.vehicle} title="Vehicle lists arrive in Phase 7" link={{ page: 'vehicles', label: 'Open Vehicles' }}>
-          Managed lists of vehicle types (CNG, leguna, easy-bike…), colours and make/model, plus matching weights.
-        </ComingSection>
-      )
+      case 'vehicles': return <VehicleSettings isAdmin={ctx.me?.role === 'admin'} />
       case 'users': return <UsersSection ctx={ctx} />
       case 'security': return <SecuritySection />
       case 'retention': return <RetentionSection ctx={ctx} />
