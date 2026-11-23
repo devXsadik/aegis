@@ -97,12 +97,11 @@ def test_ingest_with_camera_token_stores_and_matches():
     db.close()
     assert client.post(f"/api/v1/ingest/hikvision/{cid}", json={"eventType": "Motion"},
                        headers={"X-Camera-Token": tok["token"]}).status_code == 422
-    # faces: no crop kept unless a matcher keeps it
+    # faces of people not on the watchlist: nothing is kept at all
     r = client.post(f"/api/v1/ingest/generic/{cid}", json={"type": "face", "crop_image": base64.b64encode(b"x").decode()},
                     headers={"X-Camera-Token": tok["token"]})
     db = SessionLocal()
-    face = db.query(Detection).filter(Detection.event_id == r.json()["results"][0]["event_id"]).first()
-    assert face.kind == "face" and face.crop is None and face.embedding is None
+    assert db.query(Detection).filter(Detection.event_id == r.json()["results"][0]["event_id"]).first() is None
     db.close()
 
 
