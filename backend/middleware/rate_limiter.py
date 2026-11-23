@@ -65,7 +65,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             client_ip = request.client.host if request.client else "unknown"
             # Keyed on the matched prefix, not the full path: /auth/users/1, /2, ... share one budget.
             if prefix:
-                key, limit = f"{client_ip}:{prefix}", 10 if "login" in prefix else 60
+                key, limit = f"{client_ip}:{prefix}", (int(os.getenv("LOGIN_RATE_LIMIT", "10")) if "login" in prefix else 60)
             else:
                 key, limit = f"{client_ip}:write", self._WRITE_LIMIT
             if not _limiter.check(key, max_requests=limit, window_seconds=60):

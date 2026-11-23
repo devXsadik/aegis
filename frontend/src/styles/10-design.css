@@ -420,3 +420,46 @@ html[lang='bn'] .mono, html[lang='bn'] code { font-family: var(--font-mono); }
 .off-areas-list { max-height: 180px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }
 .off-area-opt { display: flex; gap: 6px; align-items: center; font-size: var(--text-sm); min-height: 30px; cursor: pointer; }
 .table td.mono { white-space: nowrap; }
+
+/* ——— Watchlists ——— */
+.wl-list { list-style: none; margin: 0; padding: 0; }
+.wl-item { display: flex; gap: 14px; padding: 14px 16px; border-top: 1px solid var(--border); align-items: flex-start; }
+.wl-item:first-child { border-top: 0; }
+.wl-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.wl-title { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.wl-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.wl-photo { width: 72px; height: 54px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--media); }
+.wl-photo.empty { display: grid; place-items: center; background: var(--surface-2); color: var(--text-3); }
+.wl-photo.empty svg { width: 22px; height: 22px; }
+.gov-dl { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 4px 0 0; font-size: var(--text-xs); }
+.gov-dl dt { color: var(--text-3); display: inline; }
+.gov-dl dt::after { content: ': '; }
+.gov-dl dd { display: inline; margin: 0; color: var(--text-2); }
+.gov-soon { color: var(--warn); font-weight: 600; }
+.gov-basis { margin: 6px 0; font-size: var(--text-sm); color: var(--text-2); background: var(--surface-2); padding: 8px 10px; border-radius: 10px; }
+.gov-warn { background: var(--warn-soft); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); padding: 8px 12px; border-radius: 10px; font-size: var(--text-sm); }
+.legal-fields { border: 1px solid var(--border-strong); border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; }
+.legal-fields legend { display: inline-flex; gap: 6px; align-items: center; padding: 0 6px; font-weight: 600; font-size: var(--text-sm); }
+.legal-fields legend svg { width: 14px; height: 14px; }
+.plate-chip {
+  display: inline-block; padding: 3px 10px; border-radius: 6px; font-weight: 700; letter-spacing: 0.02em;
+  background: #fff; color: #111; border: 2px solid #111; font-family: var(--font-bn); font-size: 0.92rem;
+}
+.plate-input { display: grid; gap: 8px; }
+.plate-field { font-family: var(--font-bn); font-size: 1.05rem; }
+.plate-helper { display: flex; flex-wrap: wrap; gap: 4px; }
+.plate-key { border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); border-radius: 8px; padding: 3px 9px; min-height: 32px; font-family: var(--font-bn); cursor: pointer; }
+.plate-key:hover { background: var(--surface-3); }
+.plate-preview { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 34px; font-size: var(--text-sm); }
+.plate-plate { padding: 4px 12px; border-radius: 6px; background: #fff; color: #111; border: 2px solid #111; font-weight: 700; font-family: var(--font-bn); }
+.plate-canon { color: var(--text-3); }
+.plate-warn { color: var(--warn); }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border-strong); cursor: pointer; padding: 0; }
+.swatch[aria-checked='true'] { outline: 3px solid var(--primary); outline-offset: 2px; }
+.sw-white { background: #f5f5f5; } .sw-black { background: #111; } .sw-silver { background: linear-gradient(135deg, #d9d9d9, #9a9a9a); }
+.sw-grey { background: #7a7a7a; } .sw-red { background: #d32f2f; } .sw-blue { background: #1e5bd8; } .sw-green { background: #2e7d32; }
+.sw-yellow { background: #f2c200; } .sw-orange { background: #ef7d1a; } .sw-brown { background: #7b4a24; } .sw-maroon { background: #6d1a2a; }
+.sw-other { background: conic-gradient(#d32f2f, #f2c200, #2e7d32, #1e5bd8, #d32f2f); }
+.wl-vehicle-modal { width: 760px; }
+@media (max-width: 640px) { .wl-item { flex-wrap: wrap; } .wl-actions { flex-direction: row; width: 100%; } }

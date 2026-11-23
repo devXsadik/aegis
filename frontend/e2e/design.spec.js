@@ -14,7 +14,7 @@ test('settings sections, language switch to Bangla and back', async ({ page }) =
   await page.goto('/#/settings')
   const nav = page.getByRole('navigation', { name: 'Settings sections' })
   // An operator sees only the personal sections; command sections stay hidden.
-  await expect(nav.getByRole('button')).toHaveCount(4)
+  await expect(nav.getByRole('button')).toHaveCount(5)
   await nav.getByRole('button', { name: /Detection thresholds/ }).click()
   await expect(page.getByRole('heading', { name: 'Detection thresholds', level: 2 })).toBeVisible()
 

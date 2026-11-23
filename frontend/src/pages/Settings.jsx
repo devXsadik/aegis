@@ -6,6 +6,7 @@ import {
 } from '../components/ds'
 import { TwoFactor } from '../components/TwoFactor'
 import { JurisdictionAdmin, OfficersAdmin } from '../components/JurisdictionAdmin'
+import { WatchlistAdmin } from '../components/WatchlistAdmin'
 import {
   fetchIntegrationStatus, testIntegration, fetchConfigThresholds, saveConfigThreshold, fetchThresholdSpecs,
   fetchBackups, runBackupNow,
@@ -26,7 +27,7 @@ const SECTIONS = [
   { id: 'notifications', icon: Icons.bell, all: true },
   { id: 'cameras', icon: Icons.camera, phase: 'Phase 5' },
   { id: 'jurisdictions', icon: DsIcons.map },
-  { id: 'watchlists', icon: Icons.watchlist, phase: 'Phase 6' },
+  { id: 'watchlists', icon: Icons.watchlist, roles: ['operator', 'investigator'] },
   { id: 'thresholds', icon: DsIcons.sliders, all: true },
   { id: 'vehicles', icon: Icons.vehicle, phase: 'Phase 7' },
   { id: 'users', icon: Icons.users },
@@ -34,7 +35,7 @@ const SECTIONS = [
   { id: 'retention', icon: DsIcons.database },
   { id: 'system', icon: DsIcons.cpu },
 ]
-const sectionsFor = (role) => SECTIONS.filter((s) => s.all || COMMAND.has(role))
+const sectionsFor = (role) => SECTIONS.filter((s) => s.all || COMMAND.has(role) || s.roles?.includes(role))
 
 const THRESHOLD_UI = {
   confidence_threshold: { label: 'Person detection confidence', step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, hint: 'Higher = fewer false people, may miss distant ones' },
@@ -424,12 +425,7 @@ export function Settings({ ctx }) {
       case 'notifications': return <NotificationsSection ctx={ctx} />
       case 'cameras': return <CamerasSection ctx={ctx} />
       case 'jurisdictions': return <JurisdictionAdmin isAdmin={ctx.me?.role === 'admin'} />
-      case 'watchlists': return (
-        <ComingSection ctx={ctx} icon={Icons.watchlist} title="Watchlist governance arrives in Phase 6" link={{ page: 'faces', label: 'Open People' }}>
-          Case/FIR/GD number, legal basis, second-person approval and an expiry date on every entry; expired entries
-          stop alerting on their own.
-        </ComingSection>
-      )
+      case 'watchlists': return <WatchlistAdmin role={ctx.me?.role} />
       case 'thresholds': return <ThresholdsSection ctx={ctx} drafts={drafts} setDrafts={setDrafts} values={values} setValues={setValues} />
       case 'vehicles': return (
         <ComingSection ctx={ctx} icon={Icons.vehicle} title="Vehicle lists arrive in Phase 7" link={{ page: 'vehicles', label: 'Open Vehicles' }}>

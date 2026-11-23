@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 // Phases 2–4: incident drawer, jurisdiction-based officer picker, status selector with notes.
-async function signIn(page, user = 'e2e_operator') {
+async function signIn(page, user = 'e2e_desk') {
   await page.goto('/')
   await page.getByLabel('Username').fill(user)
   await page.getByLabel('Password').fill('e2e-pass-12345')

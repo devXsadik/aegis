@@ -32,6 +32,7 @@ os.environ.update({
     "CAD_WEBHOOK": "", "RADIO_WEBHOOK": "", "SMS_WEBHOOK": "",
     "REDIS_URL": "",
     "CORS_ORIGINS": "http://localhost:5174",
+    "LOGIN_RATE_LIMIT": "200",              # every e2e test signs in from 127.0.0.1
 })
 
 
@@ -82,6 +83,9 @@ def _seed_areas(db, hash_password) -> None:
     db.flush()
     db.add(Camera(camera_id="e2e_lab", name="Lab gate", location="Lab", lat=23.79, lng=90.415, jurisdiction_id=gulshan.id))
     db.add(Camera(camera_id="e2e_gate", name="Main gate", location="Gate", lat=23.785, lng=90.41))
+    # Second operator: the smoke test signs e2e_operator out, which revokes all of its sessions.
+    db.add(User(username="e2e_desk", email="desk@example.invalid", hashed_password=hash_password(PASSWORD),
+                role="operator", is_active=True))
     db.add(User(username="e2e_supervisor", email="sup@example.invalid", hashed_password=hash_password(PASSWORD),
                 role="supervisor", is_active=True))
     for name, full, area, duty in (("e2e_off_karim", "Karim Hossain", gulshan, "available"),
@@ -93,6 +97,8 @@ def _seed_areas(db, hash_password) -> None:
         db.flush()
         db.add(OfficerProfile(user_id=u.id, full_name=full, rank="SI", badge_no=f"E2E-{u.id}", station_id=area.id, duty_status=duty))
         db.add(OfficerJurisdiction(user_id=u.id, jurisdiction_id=area.id))
+    from backend.models.known_person import KnownPerson
+    db.add(KnownPerson(person_id="P-E2E00001", name="Kalam Sheikh", category="criminal", criminal_status="wanted"))
     db.commit()
 
 

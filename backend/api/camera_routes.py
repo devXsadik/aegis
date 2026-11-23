@@ -93,7 +93,6 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
     # Auto-sync cameras from cameras.yaml into DB
     yaml_path = CAMERAS_YAML
     if yaml_path.exists():
-        _sync_lock.acquire()   # two dashboards loading at once would both insert the same new camera
         try:
             with open(yaml_path, "r") as f:
                 ydata = yaml.safe_load(f) or {}
@@ -110,6 +109,8 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
                     existing[cam_id].active = bool(cam.get("enabled", True))
                     continue
                 if cam_id and cam_id not in existing_ids:
+                    # Two dashboards loading at once may both insert it: let the second one lose quietly.
+                    sp = db.begin_nested()
                     db.add(Camera(
                         camera_id=cam_id,
                         name=cam.get("name", cam_id),
@@ -119,21 +120,20 @@ def list_cameras(db: Session = Depends(get_db), user: User = Depends(operator_or
                         rtsp_url=cam.get("source", ""),
                         active=cam.get("enabled", True),
                     ))
+                    try:
+                        sp.commit()
+                    except IntegrityError:
+                        sp.rollback()
                     existing_ids.add(cam_id)
             db.commit()
         except Exception as e:
             logger.error(f"Failed to sync cameras from YAML: {e}")
             db.rollback()
-        finally:
-            _sync_lock.release()
     return db.query(Camera).all()
 
 
-import threading
-
 import yaml
-
-_sync_lock = threading.Lock()
+from sqlalchemy.exc import IntegrityError
 from pathlib import Path
 
 

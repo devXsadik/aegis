@@ -173,10 +173,19 @@ def sweep(db: Session) -> int:
     return n
 
 
+ADOPTED_KEY = "watchlist.legacy_adopted"
+
+
 def adopt_legacy(db: Session) -> int:
-    """Entries from before governance keep alerting for LEGACY_DAYS, flagged for review."""
+    """ONE TIME, on the first start with governance: entries that existed before it keep alerting
+    for LEGACY_DAYS, flagged for review. Never again afterwards — otherwise a criminal enrolled
+    later without approval would be activated by a restart."""
+    from backend.models.config_entry import ConfigEntry
+    if db.query(ConfigEntry).filter(ConfigEntry.key == ADOPTED_KEY).first():
+        return 0
+    db.add(ConfigEntry(key=ADOPTED_KEY, value=utcnow().isoformat()))
     now = utcnow()
-    n = 0
+    n = 1
     for p in db.query(KnownPerson).filter(
             KnownPerson.category == "criminal", KnownPerson.criminal_status.in_(PERSON_ALERT_STATUSES),
             or_(KnownPerson.wl_status.is_(None), KnownPerson.wl_status == "")).all():

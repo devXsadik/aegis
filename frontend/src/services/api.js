@@ -632,3 +632,44 @@ export async function setCameraJurisdiction(cameraId, jurisdictionId) {
     method: 'PUT', body: JSON.stringify({ jurisdiction_id: jurisdictionId }),
   })
 }
+
+/* ---- Watchlists with governance ---- */
+export async function normalizePlate(text) {
+  return apiFetch('/watchlist/plates/normalize', { method: 'POST', body: JSON.stringify({ text }) })
+}
+export async function fetchVehicleCatalog(kind) {
+  return apiFetch(`/watchlist/catalog${kind ? `?kind=${kind}` : ''}`)
+}
+export async function addCatalogEntry(body) {
+  return apiFetch('/watchlist/catalog', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function editCatalogEntry(id, patch) {
+  return apiFetch(`/watchlist/catalog/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+export async function fetchWatchPersons(params = {}) {
+  return apiFetch(`/watchlist/persons${qs(params)}`)
+}
+export async function requestWatchPerson(personId, body) {
+  return apiFetch(`/watchlist/persons/${encodeURIComponent(personId)}/request`, { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function decideWatch(kind, ref, action, note) {
+  const base = kind === 'person' ? 'persons' : 'vehicles'
+  return apiFetch(`/watchlist/${base}/${encodeURIComponent(ref)}/${action}`, { method: 'POST', body: JSON.stringify({ note: note || null }) })
+}
+export async function fetchWatchVehicles(params = {}) {
+  return apiFetch(`/watchlist/vehicles${qs(params)}`)
+}
+export async function addWatchVehicle(body) {
+  return apiFetch('/watchlist/vehicles', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function editWatchVehicle(ref, patch) {
+  return apiFetch(`/watchlist/vehicles/${encodeURIComponent(ref)}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+export async function uploadWatchVehiclePhoto(ref, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiFetch(`/watchlist/vehicles/${encodeURIComponent(ref)}/photos`, { method: 'POST', body: fd })
+}
+export async function fetchWatchApprovals() {
+  return apiFetch('/watchlist/approvals')
+}

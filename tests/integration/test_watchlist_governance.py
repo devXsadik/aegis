@@ -176,3 +176,15 @@ def test_views_are_audited_and_plate_helper(users):
 def test_legacy_plates_endpoint_retired(users):
     assert client.post("/api/v1/vehicles/plates", headers=users["admin"][1],
                        json={"plate_number": "X 12-3456"}).status_code == 410
+
+
+def test_legacy_adoption_happens_once():
+    """A criminal enrolled after the first start must never be activated by a restart."""
+    pid = f"P-LATE{RUN}"
+    _person(pid)
+    init_db()                     # what every start-up does
+    db = SessionLocal()
+    p = db.query(KnownPerson).filter(KnownPerson.person_id == pid).first()
+    assert p.wl_status is None and pid not in gov.active_person_ids(db)
+    assert gov.adopt_legacy(db) == 0
+    db.close()
