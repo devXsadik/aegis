@@ -20,6 +20,7 @@ import shutil  # noqa: E402
 _cams = os.path.join(_TEST_DB_DIR, "cameras.yaml")
 shutil.copy(os.path.join(os.path.dirname(__file__), "..", "config", "cameras.yaml"), _cams)
 os.environ["AEGIS_CAMERAS_YAML"] = _cams
+os.environ["AEGIS_UPLOADS_DIR"] = os.path.join(_TEST_DB_DIR, "uploads")
 
 try:
     import face_recognition  # noqa: F401

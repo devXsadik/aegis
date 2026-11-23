@@ -64,9 +64,10 @@ def _head(session: Session) -> Optional[str]:
 
 @event.listens_for(Session, "before_flush")
 def _audit_before_flush(session: Session, flush_context, instances) -> None:
+    from backend.models.case_evidence import EvidenceItemCustody
     for obj in list(session.dirty) + list(session.deleted):
-        if isinstance(obj, AuditLog) and (obj in session.deleted or session.is_modified(obj)):
-            raise PermissionError("Audit log rows are append-only")
+        if isinstance(obj, (AuditLog, EvidenceItemCustody)) and (obj in session.deleted or session.is_modified(obj)):
+            raise PermissionError(f"{type(obj).__tablename__} rows are append-only")
     if not any(isinstance(o, AuditLog) for o in session.new):
         return
     if session.get_bind().dialect.name == "postgresql":

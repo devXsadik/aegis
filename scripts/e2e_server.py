@@ -23,6 +23,7 @@ _tmp = tempfile.mkdtemp(prefix="aegis_e2e_api_")
 os.environ.update({
     "DATABASE_URL": f"sqlite:///{_tmp}/e2e.db",
     "AEGIS_CAMERAS_YAML": f"{_tmp}/cameras.yaml",      # copied below; the dashboard may edit it
+    "AEGIS_UPLOADS_DIR": f"{_tmp}/uploads",
     "USE_SQLITE": "false",
     "SECRET_KEY": "e2e-secret-key-not-for-production-0123456789",
     "ENCRYPTION_KEY": "e2e-encryption-key-32-characters!",
