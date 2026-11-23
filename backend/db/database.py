@@ -134,11 +134,23 @@ Base = declarative_base()
 def init_db():
     from backend.models import (
         user, face_encoding, evidence, audit_log, known_person, person_image,
-        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction,
+        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction, watchlist,
     )
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
     _migrate_data()
+    _adopt_legacy_watchlist()
+
+
+def _adopt_legacy_watchlist():
+    from backend.services.watchlist_gov import adopt_legacy
+    from backend.services.vehicle_catalog import seed_defaults
+    db = SessionLocal()
+    try:
+        if adopt_legacy(db) + seed_defaults(db):
+            db.commit()
+    finally:
+        db.close()
 
 
 def _migrate_data():
@@ -181,6 +193,21 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "jurisdiction_id", "INTEGER"),
     ("audit_logs", "prev_hash", "VARCHAR(64)"),
     ("audit_logs", "record_hash", "VARCHAR(64)"),
+    ("known_persons", "aliases", "TEXT"),
+    ("known_persons", "case_no", "VARCHAR(60)"),
+    ("known_persons", "offence", "VARCHAR(120)"),
+    ("known_persons", "risk_level", "VARCHAR(10)"),
+    ("known_persons", "issuing_authority", "VARCHAR(120)"),
+    ("known_persons", "legal_basis", "TEXT"),
+    ("known_persons", "wl_status", "VARCHAR(12)"),
+    ("known_persons", "requested_by", "INTEGER"),
+    ("known_persons", "requested_at", "TIMESTAMP"),
+    ("known_persons", "approved_by", "INTEGER"),
+    ("known_persons", "approved_at", "TIMESTAMP"),
+    ("known_persons", "starts_at", "TIMESTAMP"),
+    ("known_persons", "expires_at", "TIMESTAMP"),
+    ("known_persons", "decision_note", "TEXT"),
+    ("known_persons", "needs_review", "BOOLEAN NOT NULL DEFAULT FALSE"),
 ]
 
 

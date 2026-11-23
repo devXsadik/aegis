@@ -88,14 +88,21 @@ class LicensePlateDatabase:
         self._cached = None
         self._loaded_at = 0.0
 
+    @staticmethod
+    def key(plate: str) -> str:
+        """Compare by the canonical BD form when the text parses (Bangla and English agree),
+        else by the plain normalized string."""
+        from core.analysis.bd_plate import canonical
+        return canonical(plate) or normalize_plate(plate)
+
     def _load_watchlist(self):
         if self._cached is None or time.time() - self._loaded_at > self.cache_ttl:
-            self._cached = {normalize_plate(p) for p in self.loader()}
+            self._cached = {self.key(p) for p in self.loader()}
             self._loaded_at = time.time()
         return self._cached
 
     def is_watchlisted(self, plate_number: str) -> bool:
-        return normalize_plate(plate_number) in self._load_watchlist()
+        return self.key(plate_number) in self._load_watchlist()
 
     def invalidate_cache(self):
         self._cached = None

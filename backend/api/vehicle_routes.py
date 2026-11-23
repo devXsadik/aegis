@@ -52,47 +52,16 @@ def list_plates(
     return query.offset(skip).limit(limit).all()
 
 
-@router.post("/plates", response_model=LicensePlateResponse)
-def add_watchlisted_plate(
-    plate: LicensePlateCreate,
-    db: Session = Depends(get_db),
-    admin: User = Depends(admin_only)
-):
-    existing = db.query(LicensePlate).filter(
-        LicensePlate.plate_number == plate.plate_number.upper()
-    ).first()
-
-    if existing:
-        existing.watchlisted = True
-        existing.reason = plate.reason
-        db.commit()
-        return existing
-
-    new_plate = LicensePlate(
-        plate_number=plate.plate_number.upper(),
-        watchlisted=True,
-        reason=plate.reason
-    )
-    db.add(new_plate)
-    db.commit()
-    db.refresh(new_plate)
-    return new_plate
+@router.post("/plates", status_code=410)
+def add_watchlisted_plate(plate: LicensePlateCreate, admin: User = Depends(admin_only)):
+    """Retired: a plate alone, with no case number, approval or expiry, may no longer alert."""
+    raise HTTPException(status_code=410, detail="Use POST /api/v1/watchlist/vehicles: watchlist entries need a "
+                                                "case number, legal basis, second-person approval and an expiry date")
 
 
-@router.delete("/plates/{plate_number}")
-def remove_watchlisted_plate(
-    plate_number: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(admin_only)
-):
-    plate = db.query(LicensePlate).filter(
-        LicensePlate.plate_number == plate_number.upper()
-    ).first()
-    if plate:
-        plate.watchlisted = False
-        db.commit()
-        return {"status": "removed"}
-    raise HTTPException(status_code=404, detail="Plate not found")
+@router.delete("/plates/{plate_number}", status_code=410)
+def remove_watchlisted_plate(plate_number: str, admin: User = Depends(admin_only)):
+    raise HTTPException(status_code=410, detail="Use POST /api/v1/watchlist/vehicles/{ref}/revoke")
 
 
 @router.get("/detections")

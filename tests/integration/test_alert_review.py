@@ -5,14 +5,14 @@ import sys
 import types
 from clock import utcnow
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_review.db"
-os.environ["USE_SQLITE"] = "false"
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_review.db")   # conftest sets a temp DB first
 sys.modules.setdefault("face_recognition", types.ModuleType("face_recognition"))
 
 from unittest.mock import AsyncMock, patch  # noqa: E402
 
 from backend.db.database import Base, SessionLocal, engine, init_db  # noqa: E402
-from backend.models.known_person import KnownPerson  # noqa: E402
+from backend.models.known_person import KnownPerson
+from tests.watch_helpers import approved  # noqa: E402
 from backend.models.user import User  # noqa: E402
 from backend.services import alert_dispatcher as ad  # noqa: E402
 
@@ -21,7 +21,7 @@ def test_criminal_alert_holds_webhooks_then_releases(monkeypatch):
     monkeypatch.setenv("ALERT_DEDUPE_SECONDS", "0")      # this test dispatches the same type repeatedly
     init_db()
     _db = SessionLocal()
-    _db.add(KnownPerson(person_id="X", name="Test Crook", category="criminal", criminal_status="wanted"))
+    _db.add(KnownPerson(person_id="X", name="Test Crook", category="criminal", criminal_status="wanted", **approved()))
     _db.add(KnownPerson(person_id="C", name="Civ", category="civilian", criminal_status="cleared"))
     _db.commit()
     _db.close()

@@ -27,6 +27,24 @@ class KnownPerson(Base):
     notes = Column(Text, nullable=True)
     image_path = Column(String(255), nullable=True)
 
+    # Watchlist governance (services/watchlist_gov.py). Only `active` entries inside
+    # [starts_at, expires_at) raise alerts; everyone else stays enrolled but silent.
+    aliases = Column(Text, nullable=True)                  # JSON list
+    case_no = Column(String(60), nullable=True, index=True)  # case / FIR / GD number
+    offence = Column(String(120), nullable=True)
+    risk_level = Column(String(10), nullable=True)         # low | medium | high | critical
+    issuing_authority = Column(String(120), nullable=True)
+    legal_basis = Column(Text, nullable=True)
+    wl_status = Column(String(12), nullable=True, index=True)   # pending|active|rejected|revoked|expired
+    requested_by = Column(Integer, nullable=True)
+    requested_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by = Column(Integer, nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    starts_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    decision_note = Column(Text, nullable=True)            # reject / revoke reason
+    needs_review = Column(Boolean, nullable=False, default=False, server_default="0")   # legacy entry
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

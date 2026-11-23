@@ -5,8 +5,7 @@ import sys
 import types
 from clock import utcnow
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_officer.db"
-os.environ["USE_SQLITE"] = "false"
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_review.db")   # conftest sets a temp DB first
 sys.modules.setdefault("face_recognition", types.ModuleType("face_recognition"))
 
 from unittest.mock import AsyncMock, patch  # noqa: E402
@@ -16,7 +15,8 @@ from backend.models.alert import Alert  # noqa: E402,F401
 from backend.models.camera import Camera  # noqa: E402
 from backend.models.camera_officer import CameraOfficer  # noqa: E402
 from backend.models.incident import Incident  # noqa: E402
-from backend.models.known_person import KnownPerson  # noqa: E402
+from backend.models.known_person import KnownPerson
+from tests.watch_helpers import approved  # noqa: E402
 from backend.models.user import User  # noqa: E402
 from backend.services import alert_dispatcher as ad  # noqa: E402
 from backend.services import officer_dispatch as od  # noqa: E402
@@ -33,7 +33,7 @@ def test_alert_routes_to_assigned_officer(monkeypatch):
         User(username="off2", email="o2@t", hashed_password="x", role="police"),
         Camera(camera_id="gate_a", name="Gate A", lat=23.8, lng=90.4),
         Camera(camera_id="gate_b", name="Gate B", lat=23.9, lng=90.5),
-        KnownPerson(person_id="X", name="Test Crook", category="criminal", criminal_status="wanted"),
+        KnownPerson(person_id="X", name="Test Crook", category="criminal", criminal_status="wanted", **approved()),
     ])
     db.commit()
     o1 = db.query(User).filter(User.username == "off1").first()
@@ -109,7 +109,7 @@ def test_dedupe_then_escalation_pages_backup_once(monkeypatch):
         User(username="p1", email="p1@t", hashed_password="x", role="police", phone="+8801700000011"),
         User(username="p2", email="p2@t", hashed_password="x", role="police", phone="+8801700000012"),
         Camera(camera_id="cam_e", name="Cam E", lat=1.0, lng=2.0),
-        KnownPerson(person_id="Z", name="Z Crook", category="criminal", criminal_status="wanted"),
+        KnownPerson(person_id="Z", name="Z Crook", category="criminal", criminal_status="wanted", **approved()),
     ])
     db.commit()
     for prio, name in enumerate(["p1", "p2"]):

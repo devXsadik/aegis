@@ -134,10 +134,12 @@ async def dispatch_alert(
         display_name = None
         if alert_type == "CRIMINAL_DETECTED":
             # Defense in depth: only a currently enrolled, alert-eligible criminal may raise this.
+            from backend.services.watchlist_gov import is_active
             known = db.query(KnownPerson).filter(KnownPerson.person_id == person_name).first()
-            if not (known and known.category == "criminal" and known.criminal_status in ALERT_STATUSES):
-                logger.warning(f"Rejected CRIMINAL_DETECTED for non-criminal identity: {person_name}")
-                return {"status": "rejected", "reason": "identity is not an alert-eligible criminal"}
+            if not (known and known.category == "criminal" and known.criminal_status in ALERT_STATUSES
+                    and is_active(known)):
+                logger.warning(f"Rejected CRIMINAL_DETECTED for identity not on the active watchlist: {person_name}")
+                return {"status": "rejected", "reason": "identity is not an approved, unexpired watchlist entry"}
             display_name = known.name
 
         camera_lat, camera_lng, camera_name = _resolve_camera_geo(
