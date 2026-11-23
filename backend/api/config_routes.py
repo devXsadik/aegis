@@ -22,7 +22,21 @@ THRESHOLD_SPECS = {
     "threshold.face_tolerance": (0.35, 0.60, 0.45),          # lower = stricter match
     "threshold.loiter_seconds": (5, 120, 15),
     "threshold.crowd_threshold": (2, 30, 5),
+    # Watchlist face matching (cosine similarity of ArcFace-family embeddings; higher = stricter)
+    "threshold.face_alert_similarity": (0.30, 0.90, 0.50),      # "Possible match" alert, critical
+    "threshold.face_possible_similarity": (0.25, 0.80, 0.38),   # weaker: still an alert, lower severity
 }
+
+
+def threshold(db, name: str) -> float:
+    """Current value of threshold.<name> (default when unset or invalid)."""
+    lo, hi, default = THRESHOLD_SPECS[f"threshold.{name}"]
+    row = db.query(ConfigEntry).filter(ConfigEntry.key == f"threshold.{name}").first()
+    try:
+        v = float(row.value) if row and row.value is not None else default
+    except ValueError:
+        v = default
+    return min(hi, max(lo, v))
 
 
 class ConfigEntryIn(BaseModel):

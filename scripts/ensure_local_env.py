@@ -39,6 +39,28 @@ def ensure_face_model() -> None:
         print(f"  face detector not downloaded ({e}); using slower dlib detection")
 
 
+def ensure_watchlist_face_model() -> None:
+    """Fetch OpenCV's SFace recogniser (37 MB) for watchlist face matching if missing."""
+    sys.path.insert(0, str(ROOT))
+    from core.recognition.embedder import SFACE_MODEL, SFACE_URL
+
+    if SFACE_MODEL.is_file():
+        return
+    try:
+        import urllib.request
+
+        SFACE_MODEL.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(SFACE_URL, timeout=60) as r:
+            data = r.read()
+        if len(data) < 1_000_000:
+            raise ValueError(f"unexpected download size {len(data)}")
+        SFACE_MODEL.write_bytes(data)
+        print(f"Downloaded watchlist face model → {SFACE_MODEL.relative_to(ROOT)}"
+              " (run scripts/reembed_faces.py once to embed existing watchlist photos)")
+    except Exception as e:  # noqa: BLE001
+        print(f"  watchlist face model not downloaded ({e}); FACE_MATCH needs it or embeddings from the cameras")
+
+
 def ensure_attribute_model() -> None:
     """Fetch the gender/age estimator (1.3 MB) used to describe red-alert captures. Best effort:
     without it captures simply carry no gender/age estimate."""
@@ -103,6 +125,7 @@ def ensure_action_model() -> None:
 
 def main() -> int:
     ensure_face_model()
+    ensure_watchlist_face_model()
     ensure_attribute_model()
     ensure_reid_model()
     ensure_action_model()

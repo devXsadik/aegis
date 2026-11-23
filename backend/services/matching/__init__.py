@@ -4,3 +4,4 @@ vehicle.py — plate + attributes + re-ID against the vehicle watchlist and acti
 face.py    — face embeddings against the person watchlist (Phase 8)"""
 
 from backend.services.matching import vehicle  # noqa: E402,F401  (registers the vehicle matcher)
+from backend.services.matching import face  # noqa: E402,F401  (registers the face matcher)

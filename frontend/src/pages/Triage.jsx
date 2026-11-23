@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { VehicleMatchCard } from '../components/MatchCard'
+import { FaceMatchCard, VehicleMatchCard } from '../components/MatchCard'
 import { Card, Icons, Tag, Empty, Seg, timeAgo, SEVERITY_TONE } from '../components/ui'
 import {
   fetchAlertsFiltered, fetchAlertContext, acknowledgeAlert, dispatchPolice,
@@ -180,6 +180,7 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
       )}
 
       {data?.identification?.match && <VehicleMatchCard id={data.identification} />}
+      {data?.identification?.face && <FaceMatchCard id={data.identification} />}
 
       <p className="tq-why">{EXPLAIN[String(item.type).toUpperCase()] || item.msg}</p>
 

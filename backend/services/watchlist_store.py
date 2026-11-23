@@ -18,7 +18,7 @@ def load_face_encodings() -> Tuple[List[np.ndarray], List[str]]:
     db = SessionLocal()
     try:
         encodings, names = [], []
-        for rec in db.query(FaceEncoding).all():
+        for rec in db.query(FaceEncoding).filter(FaceEncoding.is_dlib()).all():   # pipeline matches dlib vectors
             enc = FaceEncoding.deserialize_encoding(rec.encoding)
             if enc.size > 0:
                 encodings.append(enc)

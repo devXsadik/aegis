@@ -37,3 +37,10 @@ class FaceEncoding(Base):
     def deserialize_encoding(data: bytes):
         import numpy as np
         return np.frombuffer(data, dtype=np.float64)
+
+    @staticmethod
+    def is_dlib():
+        """dlib vectors (version '1.0' or unset). Other versions (e.g. 'sface-2021dec') are a
+        different space and must never be compared with them."""
+        from sqlalchemy import or_
+        return or_(FaceEncoding.encoding_version.is_(None), FaceEncoding.encoding_version == "1.0")

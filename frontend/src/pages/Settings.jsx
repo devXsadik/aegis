@@ -44,6 +44,8 @@ const THRESHOLD_UI = {
   face_tolerance: { label: 'Face match strictness', step: 0.01, fmt: (v) => v.toFixed(2), hint: 'Lower = stricter (fewer wrong matches). Default 0.45' },
   loiter_seconds: { label: 'Loitering time', step: 1, fmt: (v) => `${v}s`, hint: 'Time standing still before it counts as loitering' },
   crowd_threshold: { label: 'Crowd size', step: 1, fmt: (v) => `${v} people`, hint: 'People in one zone before a crowd alert' },
+  face_alert_similarity: { label: 'Watchlist face: alert threshold', step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, hint: 'At or above: critical “Possible match” alert. Higher = fewer false alarms' },
+  face_possible_similarity: { label: 'Watchlist face: possible-match threshold', step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, hint: 'From here up to the alert threshold: lower-severity alert. Below: nothing is kept' },
 }
 
 const ROLES = [

@@ -129,7 +129,7 @@ def encode_single_face(rgb: np.ndarray) -> np.ndarray:
 def rank_candidates(probe: np.ndarray, db, tolerance: float, top_k: int = 5,
                     only_person: Optional[int] = None) -> List[Candidate]:
     """Best distance per person, ascending. Optionally restrict to one person (1:1)."""
-    q = db.query(FaceEncoding)
+    q = db.query(FaceEncoding).filter(FaceEncoding.is_dlib())
     if only_person is not None:
         q = q.filter(FaceEncoding.person_id == only_person)
     rows = q.all()
@@ -172,6 +172,7 @@ def enroll_image(db, person: KnownPerson, data: bytes, filename: Optional[str], 
     db.flush()
     db.add(FaceEncoding(person_id=person.id, image_id=img.id,
                         encoding=FaceEncoding.serialize_encoding(enc)))
+    add_watch_embedding(db, person, img.id, rgb)
     return {"image_id": img.id, "filename": filename,
             "possible_duplicate_of": [{"person_id": c.person_id, "name": c.name,
                                        "distance": c.distance} for c in dup]}
@@ -198,3 +199,19 @@ def verify_bytes(db, data: bytes, target: Optional[KnownPerson], tolerance: floa
     return {"status": status, "mode": "1:1" if target else "1:N", "threshold": tolerance,
             "image": {"width": int(rgb.shape[1]), "height": int(rgb.shape[0])},
             "face_count": len(faces), "best_match": best, "faces": faces}
+
+
+def add_watch_embedding(db, person: KnownPerson, image_id: int, rgb) -> bool:
+    """Also store the ArcFace-family embedding used for watchlist matching (if the model is
+    installed). Separate rows, separate version: never mixed with the dlib vectors."""
+    from core.recognition import embedder
+    emb = embedder.get()
+    if not emb.available():
+        return False
+    import cv2
+    vec = emb.embed(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    if vec is None:
+        return False
+    db.add(FaceEncoding(person_id=person.id, image_id=image_id, encoding=embedder.to_bytes(vec),
+                        encoding_version=emb.name))
+    return True

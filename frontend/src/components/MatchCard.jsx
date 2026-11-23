@@ -63,3 +63,37 @@ export function VehicleMatchCard({ id }) {
     </section>
   )
 }
+
+/** Live face beside the watchlist photos, with the similarity against both thresholds. */
+export function FaceMatchCard({ id }) {
+  const f = id.face
+  const pctSim = Math.round(f.similarity * 100)
+  return (
+    <section className="match-card" aria-label="Face match details">
+      <header className="match-head">
+        <Badge tone={f.similarity >= f.alert_threshold ? 'danger' : 'warn'} icon={Icons.watchlist}>Possible match — needs verification</Badge>
+        <span className="match-score">Similarity <b>{pctSim}%</b></span>
+        {f.risk_level && <Badge tone="orange" size="sm">Risk: {f.risk_level}</Badge>}
+        {f.case_no && <Badge tone="muted" size="sm">{f.case_no}</Badge>}
+      </header>
+      <div className="face-compare">
+        <figure>
+          {f.crop_url ? <img src={f.crop_url} alt="Face seen by the camera" /> : <span className="face-missing">No live crop</span>}
+          <figcaption>Live</figcaption>
+        </figure>
+        <div className="face-photos">
+          {f.watch_photos.map((u, i) => (
+            <figure key={u}><img src={u} alt={`Watchlist photo ${i + 1} of ${f.name}`} /><figcaption>{i === 0 ? f.name : ''}</figcaption></figure>
+          ))}
+        </div>
+      </div>
+      <div className="sim-bar" role="img" aria-label={`Similarity ${pctSim}%, possible from ${Math.round(f.possible_threshold * 100)}%, alert from ${Math.round(f.alert_threshold * 100)}%`}>
+        <span className="sim-fill" style={{ width: `${Math.max(0, Math.min(100, pctSim))}%` }} />
+        <span className="sim-mark" style={{ left: `${f.possible_threshold * 100}%` }} title="Possible match threshold" />
+        <span className="sim-mark alert" style={{ left: `${f.alert_threshold * 100}%` }} title="Alert threshold" />
+      </div>
+      {f.others?.length > 0 && <p className="ds-setting-hint" style={{ margin: 0 }}>Next closest: {f.others.map((o) => `${o.person_id} (${Math.round(o.similarity * 100)}%)`).join(', ')}</p>}
+      <p className="ds-setting-hint" style={{ margin: 0 }}>Model {f.model} · face quality {Math.round((f.quality ?? 0) * 100)}%. Confirm only if you are sure it is the same person; rejections are kept to measure false alarms.</p>
+    </section>
+  )
+}
