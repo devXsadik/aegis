@@ -99,22 +99,19 @@ def custody(db: Session, item: EvidenceItem, action: str, user: Optional[User], 
             ip: Optional[str] = None, in_tx: bool = False) -> Optional[EvidenceItemCustody]:
     """Append to the item's chain. Creation (UPLOADED / CAPTURED / VERSIONED of a new item) is
     written in the caller's transaction; access records (VIEWED, DOWNLOADED, …) are committed at
-    once in their own short, locked transaction, so two people opening the same file at the same
-    moment can never fork the chain — and the record stays even if the caller's work fails."""
+    once, under a lock, so the record stays even if the caller's later work fails."""
     if in_tx:
         return _append(db, item.id, item.sha256, action, user, details, ip)
-    from backend.db.database import SessionLocal
+    # Commit right away under a lock (and a Postgres advisory lock across processes): two people
+    # opening the same file at once must never fork the chain. Same session as the request: a
+    # second connection per request would starve the pool under load.
     with _custody_lock:
-        own = SessionLocal()
-        try:
-            if own.get_bind().dialect.name == "postgresql":
-                from sqlalchemy import text
-                own.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 0x0E70000 + item.id})
-            row = _append(own, item.id, item.sha256, action, user, details, ip)
-            own.commit()
-            return row
-        finally:
-            own.close()
+        if db.get_bind().dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 0x0E70000 + item.id})
+        row = _append(db, item.id, item.sha256, action, user, details, ip)
+        db.commit()
+        return row
 
 
 def verify_chain(db: Session, item: EvidenceItem) -> dict:

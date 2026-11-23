@@ -6,7 +6,7 @@ export const ROLE_PAGES = {
   operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings', 'search', 'command', 'accuracy']),
   police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift', 'settings']),
   investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports', 'settings', 'search']),
-  ml_engineer: new Set(['settings']),   // datasets / models pages arrive with the training pipeline
+  ml_engineer: new Set(['settings', 'models']),
   auditor: new Set(['settings', 'accuracy']),
   supervisor: null,   // null = every page
   admin: null,

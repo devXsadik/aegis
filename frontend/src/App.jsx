@@ -30,6 +30,7 @@ const lazyPage = (load, name) => lazy(() => load().then((m) => ({ default: m[nam
 const LiveMonitoring = lazyPage(() => import('./pages/LiveMonitoring'), 'LiveMonitoring')
 const MapPage = lazyPage(() => import('./pages/MapPage'), 'MapPage')
 const CommandMap = lazyPage(() => import('./pages/CommandMap'), 'CommandMap')
+const ModelsData = lazyPage(() => import('./pages/ModelsData'), 'ModelsData')
 const AccuracyView = lazyPage(() => import('./components/Governance'), 'AccuracyDashboard')
 const DetectionCenter = lazyPage(() => import('./pages/DetectionCenter'), 'DetectionCenter')
 const Triage = lazyPage(() => import('./pages/Triage'), 'Triage')
@@ -52,7 +53,7 @@ const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, command: CommandMap,
   alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage, shift: ShiftLog,
   vehicles: Vehicles, search: VehicleSearch, reports: Reports,
-  cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,
+  cameras: Cameras, models: ModelsData, zones: ZoneEditor, users: Users, settings: Settings,
 }
 const VIEW_COMPONENTS = {
   faces: FaceRegistryPage, watchlist: Watchlist, analytics: Analytics, detection: DetectionCenter, accuracy: AccuracyView,

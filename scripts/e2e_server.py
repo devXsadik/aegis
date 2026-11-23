@@ -24,6 +24,9 @@ os.environ.update({
     "DATABASE_URL": f"sqlite:///{_tmp}/e2e.db",
     "AEGIS_CAMERAS_YAML": f"{_tmp}/cameras.yaml",      # copied below; the dashboard may edit it
     "AEGIS_UPLOADS_DIR": f"{_tmp}/uploads",
+    "AEGIS_DATASETS_DIR": f"{_tmp}/datasets",
+    "AEGIS_MODEL_STORE": f"{_tmp}/registry",
+    "AEGIS_MODELS_DIR": f"{_tmp}/models_live",
     "USE_SQLITE": "false",
     "SECRET_KEY": "e2e-secret-key-not-for-production-0123456789",
     "ENCRYPTION_KEY": "e2e-encryption-key-32-characters!",
@@ -95,6 +98,8 @@ def _seed_areas(db, hash_password) -> None:
     # Second operator: the smoke test signs e2e_operator out, which revokes all of its sessions.
     db.add(User(username="e2e_desk", email="desk@example.invalid", hashed_password=hash_password(PASSWORD),
                 role="operator", is_active=True))
+    db.add(User(username="e2e_ml", email="ml@example.invalid", hashed_password=hash_password(PASSWORD),
+                role="ml_engineer", is_active=True))
     db.add(User(username="e2e_admin", email="admin@example.invalid", hashed_password=hash_password(PASSWORD),
                 role="admin", is_active=True))
     db.add(User(username="e2e_supervisor", email="sup@example.invalid", hashed_password=hash_password(PASSWORD),

@@ -1,7 +1,10 @@
 /* Identification breakdown on an alert: what the camera read vs what the watchlist says,
    per attribute ✓ / ✗, confidences, overall score, direction. Operators confirm or reject. */
+import { useEffect, useState } from 'react'
 import { Icons } from './ui'
 import { Badge } from './ds'
+import { addCorrection, fetchVehicleCatalog } from '../services/api'
+import { useToast } from './Toast'
 
 const RESULT = {
   match: { sym: '✓', tone: 'ok', label: 'matches' },
@@ -60,7 +63,48 @@ export function VehicleMatchCard({ id }) {
       <p className="ds-setting-hint" style={{ margin: 0 }}>
         Possible match — needs verification. Confirm only after checking the image against the watchlist entry; rejections improve the models.
       </p>
+      {id.detection_id && <Correct detectionId={id.detection_id} />}
     </section>
+  )
+}
+
+const FIELD_KIND = { vehicle_type: 'type', color: 'color', make_model: 'model' }
+
+/** "The camera got the colour wrong": the crop and the right answer go to the review queue. */
+function Correct({ detectionId }) {
+  const { push: toast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [cat, setCat] = useState({})
+  const [field, setField] = useState('color')
+  const [value, setValue] = useState('')
+  useEffect(() => {
+    if (!open || cat.color) return
+    fetchVehicleCatalog().then((rows) => {
+      const by = {}
+      rows.forEach((r) => { (by[r.kind] = by[r.kind] || []).push(r) })
+      setCat(by)
+    }).catch(() => {})
+  }, [open, cat.color])
+  if (!open) return <button type="button" className="link-btn" onClick={() => setOpen(true)}>Wrong type, colour or model? Correct it</button>
+  const send = async () => {
+    try {
+      await addCorrection(detectionId, field, value)
+      toast('Thanks — sent to the review queue for the next training round', 'ok')
+      setOpen(false)
+    } catch (e) {
+      toast(e.message || 'Could not send', 'danger')
+    }
+  }
+  return (
+    <div className="ds-toolbar">
+      <select className="input" value={field} onChange={(e) => { setField(e.target.value); setValue('') }} aria-label="Attribute to correct">
+        <option value="color">Colour</option><option value="vehicle_type">Type</option><option value="make_model">Make / model</option>
+      </select>
+      <select className="input" value={value} onChange={(e) => setValue(e.target.value)} aria-label="Correct value">
+        <option value="">Correct value…</option>{(cat[FIELD_KIND[field]] || []).map((c) => <option key={c.code} value={c.code}>{c.name_en}</option>)}
+      </select>
+      <button type="button" className="btn btn-sm btn-primary" disabled={!value} onClick={send}>Send correction</button>
+    </div>
   )
 }
 

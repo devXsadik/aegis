@@ -816,3 +816,29 @@ export async function saveRetention(body) {
 export async function fetchAccuracy(days = 30) {
   return apiFetch(`/governance/accuracy?days=${days}`)
 }
+
+/* ---- Models & data (ML) ---- */
+export async function addCorrection(detectionId, field, corrected, note) {
+  return apiFetch('/ml/review-queue', { method: 'POST', body: JSON.stringify({ detection_id: detectionId, field, corrected, note: note || null }) })
+}
+export const fetchReviewQueue = (status = 'open') => apiFetch(`/ml/review-queue?status=${status}`)
+export const dismissReview = (id) => apiFetch(`/ml/review-queue/${id}/dismiss`, { method: 'POST' })
+export const fetchDatasets = () => apiFetch('/ml/datasets')
+export const fetchDataset = (id, params = {}) => apiFetch(`/ml/datasets/${id}${qs(params)}`)
+export const createDataset = (body) => apiFetch('/ml/datasets', { method: 'POST', body: JSON.stringify(body) })
+export async function addDatasetItems(id, files, { cropVehicles = false, labels } = {}) {
+  const fd = new FormData()
+  ;[...files].forEach((f) => fd.append('files', f))
+  fd.append('crop_vehicles', cropVehicles ? 'true' : 'false')
+  if (labels) fd.append('labels', JSON.stringify(labels))
+  return apiFetch(`/ml/datasets/${id}/items`, { method: 'POST', body: fd })
+}
+export const labelItem = (iid, labels) => apiFetch(`/ml/items/${iid}/labels`, { method: 'PUT', body: JSON.stringify({ labels }) })
+export const splitDataset = (id, body) => apiFetch(`/ml/datasets/${id}/split`, { method: 'POST', body: JSON.stringify(body) })
+export const freezeDataset = (id) => apiFetch(`/ml/datasets/${id}/freeze`, { method: 'POST' })
+export const versionDataset = (id) => apiFetch(`/ml/datasets/${id}/versions`, { method: 'POST' })
+export const datasetFromReview = (id, ids) => apiFetch(`/ml/datasets/${id}/from-review`, { method: 'POST', body: JSON.stringify({ review_ids: ids }) })
+export const datasetExportUrl = (id, fmt) => `${API_BASE}/ml/datasets/${id}/export?fmt=${fmt}`
+export const fetchModels = () => apiFetch('/ml/models')
+export const promoteModel = (id) => apiFetch(`/ml/models/${id}/promote`, { method: 'POST' })
+export const rollbackModel = (task) => apiFetch(`/ml/models/rollback?task=${task}`, { method: 'POST' })

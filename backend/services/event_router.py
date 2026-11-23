@@ -13,7 +13,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -39,16 +39,20 @@ def unregister(kind: str, fn: Callable) -> None:
         _HANDLERS[kind].remove(fn)
 
 
-def retention_days() -> int:
-    """Settings → Data retention, else DETECTION_RETENTION_DAYS (default 30)."""
+def retention_days(db: Optional[Session] = None) -> int:
+    """Settings → Data retention, else DETECTION_RETENTION_DAYS (default 30). Pass the caller's
+    session: opening a second one per event would starve the connection pool under load."""
     try:
-        from backend.db.database import SessionLocal
         from backend.services.matching.common import load_json_config
-        db = SessionLocal()
-        try:
+        if db is None:
+            from backend.db.database import SessionLocal
+            own = SessionLocal()
+            try:
+                v = load_json_config(own, "retention_policy").get("detection_days")
+            finally:
+                own.close()
+        else:
             v = load_json_config(db, "retention_policy").get("detection_days")
-        finally:
-            db.close()
         if v:
             return max(1, int(v))
     except Exception:
@@ -89,7 +93,7 @@ def store(db: Session, ev: NormalizedEvent) -> Detection:
         color_reliable=not bool(ev.is_night), direction=ev.direction,
         embedding=base64.b64decode(ev.embedding) if ev.embedding and ev.type == "vehicle" else None,
         embedding_model=ev.embedding_model if ev.type == "vehicle" else None,
-        expires_at=ts + timedelta(days=retention_days()),
+        expires_at=ts + timedelta(days=retention_days(db)),
     )
     db.add(det)
     db.flush()

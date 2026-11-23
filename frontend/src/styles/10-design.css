@@ -614,3 +614,18 @@ html[lang='bn'] .mono, html[lang='bn'] code { font-family: var(--font-mono); }
 .fp-bar { width: 80px; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .fp-bar span { display: block; height: 100%; background: var(--danger); }
 .mfa-gate { max-width: 520px; margin: 8vh auto; padding: 0 16px; display: grid; gap: 14px; }
+
+/* ——— Models & data ——— */
+.ml-detail { display: grid; gap: 12px; }
+.ml-balance { display: grid; gap: 6px; font-size: var(--text-sm); }
+.ml-class { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); font-size: var(--text-xs); }
+.ml-class.low { background: var(--warn-soft); color: var(--warn); }
+.ml-items { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.ml-items li { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; align-content: start; }
+.ml-items li.on { border-color: var(--primary); }
+.ml-items img, .ml-items .ev-icon { width: 100%; height: 100px; object-fit: cover; border-radius: 8px; background: var(--media); }
+.ml-items select.input, .ml-items input.input { font-size: var(--text-xs); padding: 4px 6px; min-height: 30px; }
+.ml-task + .ml-task { border-top: 1px solid var(--border); }
+.ml-detail > .ds-toolbar:first-child { position: sticky; top: 56px; z-index: 1; background: var(--surface); padding: 6px 0; }
+/* Dialogs (portalled to <body>) sit above drawers (95) and below pop-up lists (140) and toasts. */
+.modal-overlay { z-index: 120; }

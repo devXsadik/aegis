@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 /* Shared UI primitives: icons, tags, cards, stats, modal, empty states. */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { parseTs } from '../lib/time'
 
 const stroke = {
@@ -195,7 +196,9 @@ export function Modal({ title, onClose, children, footer, className = '' }) {
   const ref = useRef(null)
   const titleId = useId()
   useDialog(ref, onClose)
-  return (
+  // Portal to <body>: a transformed ancestor (page entrance animation) would otherwise make
+  // `position: fixed` relative to the page, pushing tall dialogs off-screen when it scrolls.
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className={`modal ${className}`} ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
@@ -205,7 +208,8 @@ export function Modal({ title, onClose, children, footer, className = '' }) {
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

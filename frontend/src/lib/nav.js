@@ -38,6 +38,7 @@ export const NAV = [
     group: 'Set up',
     pages: [
       { id: 'cameras', label: 'Cameras', desc: 'Add cameras and check that each one is streaming.', icon: Icons.camera },
+      { id: 'models', label: 'Models & data', desc: 'Training datasets, the model registry and the review queue.', icon: Icons.ai },
       { id: 'zones', label: 'Zones', desc: 'Draw the areas and lines each camera should watch.', icon: Icons.zone },
       { id: 'users', label: 'Users', desc: 'Who can sign in and what they are allowed to do.', icon: Icons.users },
       { id: 'settings', label: 'Settings', desc: 'Detection, notification and system options.', icon: Icons.settings },

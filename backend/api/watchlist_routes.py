@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from backend.auth.auth import admin_only, operator_or_admin, supervisor_or_admin
+from backend.auth.auth import admin_only, get_current_user, operator_or_admin, supervisor_or_admin
 from backend.auth.guards import viewer_dep
 from backend.db.database import get_db
 from backend.models.known_person import KnownPerson
@@ -96,9 +96,17 @@ class CatalogPatch(BaseModel):
     active: Optional[bool] = None
 
 
+def catalog_reader(user: User = Depends(get_current_user)) -> User:
+    """The managed lists are not personal data: operational roles and ML engineers (labelling) read them."""
+    from backend.auth.auth import ROLES_OPS
+    if user.role not in ROLES_OPS and user.role != "ml_engineer":
+        raise HTTPException(403, "Not allowed")
+    return user
+
+
 @router.get("/catalog")
 def catalog(kind: Optional[str] = None, include_inactive: bool = False, db: Session = Depends(get_db),
-            user: User = Depends(operator_or_admin)):
+            user: User = Depends(catalog_reader)):
     q = db.query(VehicleCatalog)
     if kind:
         q = q.filter(VehicleCatalog.kind == kind)

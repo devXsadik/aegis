@@ -9,12 +9,13 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : 4,    // one API server + Vite: more workers only adds contention
+  workers: process.env.CI ? 2 : 3,    // one API server + Vite: more workers only adds contention
   expect: { timeout: 15_000 },        // the API answers in seconds when four browsers share an 8 GB laptop
   use: {
     baseURL: 'http://localhost:5174',
     channel: process.env.PW_CHANNEL || undefined,
     trace: 'retain-on-failure',
+    actionTimeout: 20_000,           // a stuck click fails on its own line instead of eating the test timeout
   },
   webServer: [
     {

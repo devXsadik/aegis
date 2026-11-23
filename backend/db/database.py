@@ -112,8 +112,13 @@ if DATABASE_URL.startswith("sqlite"):
     # SQLite does not support pool_size / max_overflow the same way
     engine = create_engine(
         DATABASE_URL,
-        connect_args=_connect_args,
+        connect_args={**_connect_args, "timeout": 30},
         pool_pre_ping=True,
+        # One file, many threads: SQLite serialises writes itself. A larger pool keeps async
+        # routes (which take their connection on the event loop) from waiting on worker threads
+        # that are in turn waiting on the loop for a live broadcast.
+        pool_size=int(os.getenv("SQLITE_POOL_SIZE", "20")),
+        max_overflow=int(os.getenv("SQLITE_MAX_OVERFLOW", "40")),
     )
 else:
     if "sslmode=require" in DATABASE_URL:
