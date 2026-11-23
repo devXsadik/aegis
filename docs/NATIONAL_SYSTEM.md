@@ -125,7 +125,7 @@ confirmation itself. For RTSP: `python scripts/simulate.py rtsp` with MediaMTX a
 ## Tests
 
 ```sh
-pytest tests/                          # 490+ tests, isolated temp DB / files
+pytest tests/                          # 480+ tests, isolated temp DB / files
 cd frontend && npm test && PW_CHANNEL=chrome npm run e2e     # unit + 16 browser flows
 ```
 
