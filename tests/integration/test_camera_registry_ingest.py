@@ -78,8 +78,15 @@ def test_ingest_with_camera_token_stores_and_matches():
     tok = client.post(f"/api/v1/cameras/{cid}/ingest-token", headers=admin()).json()
     assert tok["url"] == f"/api/v1/ingest/hikvision/{cid}"
     seen = []
-    event_router.register("vehicle", lambda db, ev, det: seen.append((ev.plate_text, det.plate_canonical)) or [{"ok": 1}])
-    r = client.post(f"/api/v1/ingest/hikvision/{cid}", json=body, headers={"X-Camera-Token": tok["token"]})
+
+    def spy(db, ev, det):
+        seen.append((ev.plate_text, det.plate_canonical))
+        return []
+    event_router.register("vehicle", spy)
+    try:
+        r = client.post(f"/api/v1/ingest/hikvision/{cid}", json=body, headers={"X-Camera-Token": tok["token"]})
+    finally:
+        event_router.unregister("vehicle", spy)
     assert r.status_code == 200, r.text
     assert r.json()["accepted"] == 1 and seen[-1] == ("Dhaka Metro Ga 12-3456", "DHAKA-METRO-GA-12-3456")
     db = SessionLocal()

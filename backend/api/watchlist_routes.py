@@ -445,8 +445,9 @@ async def add_vehicle_photo(ref: str, request: Request, file: UploadFile = File(
     if len(data) > MAX_PHOTO:
         raise HTTPException(413, "Photo larger than 5 MB")
     blob, enc = seal(data)
+    from backend.services.matching.vehicle import embed_photo
     ph = WatchlistVehiclePhoto(vehicle_id=v.id, image=blob, encrypted=enc, content_type=file.content_type,
-                               sha256=hashlib.sha256(data).hexdigest())
+                               sha256=hashlib.sha256(data).hexdigest(), embedding=embed_photo(data))
     db.add(ph)
     db.flush()
     log_audit(db, user, "WATCHLIST_PHOTO_ADD", "watchlist_vehicle", ref, ph.sha256, request)

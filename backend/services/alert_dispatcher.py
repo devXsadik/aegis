@@ -67,7 +67,19 @@ def _geo_details(lat, lng, camera_name, camera_id) -> Optional[str]:
 
 
 # Identification-type alerts: external webhooks wait for human confirmation.
-REVIEW_REQUIRED_TYPES = {"CRIMINAL_DETECTED"}
+# Identification alerts: an operator must confirm before anything leaves the command centre.
+REVIEW_REQUIRED_TYPES = {"CRIMINAL_DETECTED", "VEHICLE_MATCH", "FACE_MATCH", "LOOKOUT_MATCH"}
+
+
+def _merge_details(geo: Optional[str], extra: Optional[dict]) -> Optional[str]:
+    if not extra:
+        return geo
+    import json
+    try:
+        base = json.loads(geo) if geo else {}
+    except ValueError:
+        base = {}
+    return json.dumps({**(base if isinstance(base, dict) else {}), **extra}, default=str, ensure_ascii=False)
 
 
 async def _send_webhooks(alert_type: str, payload: dict) -> str:
@@ -111,6 +123,7 @@ async def dispatch_alert(
     db: Optional[Session] = None,
     zone: Optional[str] = None,
     confidence: Optional[float] = None,
+    extra: Optional[dict] = None,
 ) -> dict:
     """Fully automated alert dispatch with pinpoint camera GPS."""
     own_session = db is None
@@ -187,7 +200,7 @@ async def dispatch_alert(
             person_name=person_name,
             plate_number=plate_number,
             message=message,
-            details=_geo_details(camera_lat, camera_lng, camera_name, camera_id),
+            details=_merge_details(_geo_details(camera_lat, camera_lng, camera_name, camera_id), extra),
             channels_sent=channels or "websocket,dashboard,map",
             review_status="pending" if needs_review else "not_required",
         )

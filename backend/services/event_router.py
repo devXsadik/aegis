@@ -34,6 +34,11 @@ def register(kind: str, fn: Callable) -> None:
         _HANDLERS[kind].append(fn)
 
 
+def unregister(kind: str, fn: Callable) -> None:
+    if fn in _HANDLERS[kind]:
+        _HANDLERS[kind].remove(fn)
+
+
 def retention_days() -> int:
     try:
         return max(1, int(os.getenv("DETECTION_RETENTION_DAYS", "30")))
