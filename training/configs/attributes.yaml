@@ -1,0 +1,11 @@
+# Vehicle colour + type + make/model, one backbone, three heads.
+backbone: efficientnet_b0     # or convnext_tiny (better, ~3x slower); "tiny" is for smoke tests
+pretrained: true              # ImageNet weights, then fine-tune on our crops
+size: 224
+epochs: 25
+batch: 32
+lr: 0.0003
+weight_decay: 0.0001
+label_smoothing: 0.05
+hflip: true
+seed: 13

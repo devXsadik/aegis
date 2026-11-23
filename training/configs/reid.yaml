@@ -1,0 +1,11 @@
+# Vehicle re-ID: ResNet-50 + BNNeck, cross-entropy + batch-hard triplet.
+backbone: resnet50
+pretrained: true
+size: 256
+dim: 512
+epochs: 60          # VeRi-776 pre-training; 15–20 when fine-tuning on our footage
+p: 16               # identities per batch
+k: 4                # images per identity
+lr: 0.00035
+margin: 0.3
+seed: 13

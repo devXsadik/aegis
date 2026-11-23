@@ -55,3 +55,7 @@ data/eval/civilians/
 
 # Defense slides, report and images live next to the repo: ../aegis-presentation
 presentation/
+runs/
+data/datasets/
+models/registry/
+evidence/items/

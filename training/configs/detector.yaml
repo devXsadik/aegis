@@ -1,0 +1,7 @@
+# Bangladeshi vehicle detector: fine-tune COCO YOLO on our classes (cng, leguna, easy_bike, …).
+weights: yolov8s.pt      # or yolo11s.pt
+epochs: 100
+imgsz: 960               # small far-away vehicles on CCTV
+batch: 16
+patience: 30
+seed: 13

@@ -15,6 +15,8 @@ RECORDINGS_DIR = DATA_DIR / "recordings"
 RESULTS_DIR = DATA_DIR / "results"
 EVIDENCE_DIR = ROOT / "evidence"
 # Officer-uploaded case files (sealed at rest). AEGIS_UPLOADS_DIR moves them (tests use a temp dir).
+DATASETS_DIR = Path(os.environ["AEGIS_DATASETS_DIR"]) if os.getenv("AEGIS_DATASETS_DIR") else ROOT / "data" / "datasets"
+MODEL_STORE_DIR = Path(os.environ["AEGIS_MODEL_STORE"]) if os.getenv("AEGIS_MODEL_STORE") else ROOT / "models" / "registry"
 UPLOADS_DIR = Path(os.environ["AEGIS_UPLOADS_DIR"]) if os.getenv("AEGIS_UPLOADS_DIR") else EVIDENCE_DIR / "items"
 MODELS_DIR = ROOT / "models"
 LOGS_DIR = ROOT / "logs"

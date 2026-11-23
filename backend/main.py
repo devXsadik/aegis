@@ -23,6 +23,7 @@ from backend.api.lookout_routes import router as lookout_router
 from backend.api.tracking_routes import router as tracking_router
 from backend.api.case_evidence_routes import router as case_evidence_router
 from backend.api.governance_routes import router as governance_router
+from backend.api.ml_routes import router as ml_router
 import backend.services.matching  # noqa: E402,F401  (registers the matchers with the event router)
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
@@ -200,6 +201,7 @@ app.include_router(lookout_router, prefix=API_V1)
 app.include_router(tracking_router, prefix=API_V1)
 app.include_router(case_evidence_router, prefix=API_V1)
 app.include_router(governance_router, prefix=API_V1)
+app.include_router(ml_router, prefix=API_V1)
 
 
 @app.get("/health")
