@@ -117,8 +117,44 @@ def _seed_areas(db, hash_password) -> None:
         db.add(Detection(event_id=f"e2e-det-{i}", camera_id="e2e_lab", ts=_now() - _td(minutes=5 + i), kind="vehicle",
                          source="simulator", plate_raw=plate, plate_canonical=__import__("core.analysis.bd_plate", fromlist=["x"]).canonical(plate) if plate else None,
                          vehicle_type=vtype, color=color, make_model=model, expires_at=_now() + _td(days=30)))
+    _seed_tracking(db)
     from backend.models.known_person import KnownPerson
     db.add(KnownPerson(person_id="P-E2E00001", name="Kalam Sheikh", category="criminal", criminal_status="wanted"))
+    db.commit()
+
+
+def _seed_tracking(db) -> None:
+    """A confirmed target already followed from Gate to Lab, a lookout to the north, and a
+    'target detected' notification for officer Karim (no alerts: the smoke test counts them)."""
+    import json
+    from datetime import timedelta
+    from backend.models.bolo import Bolo, BoloCamera
+    from backend.models.camera import Camera
+    from backend.models.incident import Incident
+    from backend.models.tracking import CrossCameraTrack, Notification, TrackHop
+    from backend.models.user import User
+    from clock import utcnow
+    now = utcnow()
+    db.add(Camera(camera_id="e2e_north", name="North road", location="North", lat=23.797, lng=90.416, heading=0))
+    inc = Incident(ticket_id="INC-TRK1", title="E2E tracked vehicle", status="verified_match", priority="high",
+                   camera_id="e2e_lab", camera_location="Lab", source="vehicle_match")
+    db.add(inc)
+    db.flush()
+    t = CrossCameraTrack(kind="vehicle", target_ref="V-E2E", incident_id=inc.id, status="active", verified=True,
+                         last_camera="e2e_lab", last_seen=now, direction="N", bearing=0)
+    db.add(t)
+    db.flush()
+    db.add(TrackHop(track_id=t.id, camera_id="e2e_gate", seen_at=now - timedelta(minutes=4), direction="NE", method="plate:exact"))
+    db.add(TrackHop(track_id=t.id, camera_id="e2e_lab", seen_at=now, direction="N", method="plate:exact"))
+    b = Bolo(ref="B-E2E00001", kind="vehicle", target_ref="V-E2E", origin="auto", origin_camera="e2e_lab", direction="N",
+             incident_id=inc.id, cross_track_id=t.id, window_start=now, window_end=now + timedelta(minutes=30), status="active")
+    b.cameras.append(BoloCamera(camera_id="e2e_north", rank=0, eta_from_s=60, eta_to_s=300, distance_m=800))
+    db.add(b)
+    karim = db.query(User).filter(User.username == "e2e_off_karim").first()
+    db.add(Notification(user_id=karim.id, kind="target_detected", priority="critical",
+                        title="V-E2E detected at Lab gate, moving N", body="Towards North road, ETA ~2 min.",
+                        payload=json.dumps({"camera_id": "e2e_lab", "direction": "N", "lat": 23.79, "lng": 90.415}),
+                        incident_id=inc.id, ack_deadline=now + timedelta(minutes=10)))
     db.commit()
 
 

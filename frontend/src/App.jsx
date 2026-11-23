@@ -27,6 +27,7 @@ import { Overview } from './pages/Overview'
 const lazyPage = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })))
 const LiveMonitoring = lazyPage(() => import('./pages/LiveMonitoring'), 'LiveMonitoring')
 const MapPage = lazyPage(() => import('./pages/MapPage'), 'MapPage')
+const CommandMap = lazyPage(() => import('./pages/CommandMap'), 'CommandMap')
 const DetectionCenter = lazyPage(() => import('./pages/DetectionCenter'), 'DetectionCenter')
 const Triage = lazyPage(() => import('./pages/Triage'), 'Triage')
 const Incidents = lazyPage(() => import('./pages/Incidents'), 'Incidents')
@@ -45,7 +46,7 @@ const Settings = lazyPage(() => import('./pages/Settings'), 'Settings')
 const ZoneEditor = lazyPage(() => import('./pages/ZoneEditor'), 'ZoneEditor')
 
 const PAGE_COMPONENTS = {
-  overview: Overview, live: LiveMonitoring, map: MapPage,
+  overview: Overview, live: LiveMonitoring, map: MapPage, command: CommandMap,
   alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage, shift: ShiftLog,
   vehicles: Vehicles, search: VehicleSearch, reports: Reports,
   cameras: Cameras, zones: ZoneEditor, users: Users, settings: Settings,

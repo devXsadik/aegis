@@ -19,8 +19,10 @@ test('operator searches white cars with a reason, then starts and ends a lookout
   await page.locator('.vs-card').first().getByRole('button', { name: 'Lookout' }).click()
   const dlg = page.getByRole('dialog', { name: 'Start a live lookout' })
   await dlg.getByRole('button', { name: 'Start lookout' }).click()
-  await expect(page.getByText(/Lookout B-[0-9A-F]+ active on 1 camera/)).toBeVisible()
-  const active = page.locator('.wl-item').filter({ hasText: /B-[0-9A-F]+/ })
+  const toast = page.getByText(/Lookout B-[0-9A-F]+ active on 1 camera/)
+  await expect(toast).toBeVisible()
+  const ref = (await toast.textContent()).match(/B-[0-9A-F]+/)[0]
+  const active = page.locator('.wl-item').filter({ hasText: ref })
   await expect(active).toHaveCount(1)
   await active.getByRole('button', { name: 'End' }).click()
   await expect(page.getByText(/ended/)).toBeVisible()

@@ -11,6 +11,7 @@ export const NAV = [
       { id: 'overview', label: 'Home', desc: 'What needs you right now, and how the system is doing.', icon: Icons.overview },
       { id: 'live', label: 'Live cameras', desc: 'Watch every camera as it happens.', icon: Icons.live },
       { id: 'map', label: 'Map', desc: 'Where your cameras are and where alerts came from.', icon: Icons.map },
+      { id: 'command', label: 'Command map', desc: 'Targets on the move, lookouts, camera status and officers.', icon: Icons.dispatch },
     ],
   },
   {

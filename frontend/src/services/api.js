@@ -731,3 +731,20 @@ export async function fetchMatchConfig() {
 export async function saveMatchConfig(cfg) {
   return apiFetch('/vehicle-match/config', { method: 'PUT', body: JSON.stringify(cfg) })
 }
+
+/* ---- Notifications & command map ---- */
+export async function fetchMyNotifications(unacked = false) {
+  return apiFetch(`/notifications/me${unacked ? '?unacked=true' : ''}`)
+}
+export async function ackNotification(id, state, note) {
+  return apiFetch(`/notifications/${id}/ack`, { method: 'POST', body: JSON.stringify({ state, note: note || null }) })
+}
+export async function fetchCommandMap(jurisdictionId) {
+  return apiFetch(`/map/command${jurisdictionId ? `?jurisdiction_id=${jurisdictionId}` : ''}`)
+}
+export async function fetchCameraGraph() {
+  return apiFetch('/camera-graph')
+}
+export async function suggestCameraGraph(maxKm = 3, k = 4) {
+  return apiFetch(`/camera-graph/suggest?max_km=${maxKm}&k=${k}`, { method: 'POST' })
+}

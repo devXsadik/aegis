@@ -7,6 +7,7 @@ import { captureImageUrl, fetchResponderAlerts, setResponderStatus } from '../se
 import { eventLabel, waitLabel } from '../lib/events'
 import { parseTs } from '../lib/time'
 import { currentSubscription, pushSupported, turnOffPush, turnOnPush } from '../lib/push'
+import { OfficerInbox } from '../components/OfficerInbox'
 
 /** "Phone alerts": this device buzzes on a new alert even with the screen off (Web Push). */
 function PhoneAlerts({ toast }) {
@@ -124,6 +125,7 @@ export function Responder({ ctx }) {
   const alerts = (data?.alerts || []).filter((a) => (show === 'open' ? a.status !== 'resolved' : a.status === 'resolved'))
   return (
     <div className="rsp">
+      <OfficerInbox me={ctx.me} />
       <div className="rsp-head">
         <span className="meta">
           {data?.assigned_cameras?.length ? `Your cameras: ${data.assigned_cameras.length}` : 'All cameras (none assigned to you)'} · last 24 hours
