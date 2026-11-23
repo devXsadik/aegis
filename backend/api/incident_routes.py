@@ -109,6 +109,7 @@ class IncidentOut(BaseModel):
     resolved_at: Optional[datetime]
     closed_at: Optional[datetime] = None
     snapshot: Optional[dict] = None
+    trail: List[dict] = []
     assignments: List[AssignmentOut] = []
     notes: List[NoteOut] = []
     events: List[EventOut] = []
@@ -225,10 +226,16 @@ def _serialize(db: Session, incs: List[Incident], full: bool = True) -> List[dic
                 "state": a.state, "out_of_area": bool(a.out_of_area), "assigned_at": a.assigned_at,
             } for a in i.assignments],
             "notes": [NoteOut.model_validate(n) for n in i.notes] if full else [],
+            "trail": _trail(db, i.id) if full else [],
             "events": [EventOut.model_validate(e) for e in i.events] if full else [],
         })
         out.append(d.model_dump(mode="json"))
     return out
+
+
+def _trail(db: Session, incident_id: int) -> List[dict]:
+    from backend.services.tracking import trail
+    return trail(db, incident_id)
 
 
 def _push(background: BackgroundTasks, inc: Incident, change: str, user: Optional[User] = None):

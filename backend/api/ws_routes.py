@@ -62,6 +62,26 @@ async def websocket_incidents(websocket: WebSocket):
     await _serve(websocket, "incidents")
 
 
+@router.websocket("/ws/notifications")
+async def websocket_notifications(websocket: WebSocket):
+    """Personal channel: only this user's notifications."""
+    if not _origin_allowed(websocket):
+        await websocket.close(code=1008)
+        return
+    try:
+        user = await run_in_threadpool(verify_viewer_token, request_token(websocket))
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    channel = f"user:{user.id}"
+    await manager.connect(websocket, channel)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, channel)
+
+
 @router.websocket("/ws/status")
 async def websocket_status(websocket: WebSocket):
     await _serve(websocket, "status")

@@ -120,3 +120,21 @@ def notify_later(camera_id: Optional[str], severity: str) -> None:
         return
     task = asyncio.get_running_loop().create_task(notify(camera_id, severity))
     task.add_done_callback(lambda t: t.exception() and logger.warning(f"Web push failed: {t.exception()}"))
+
+
+async def notify_users(user_ids) -> int:
+    """Wake the devices of specific users (targeted notifications)."""
+    if os.getenv("WEB_PUSH_ENABLED", "true").lower() == "false":
+        return 0
+    from backend.db.database import SessionLocal
+    from backend.models.push_subscription import PushSubscription
+    db = SessionLocal()
+    try:
+        subs = [s.endpoint for s in db.query(PushSubscription).filter(PushSubscription.user_id.in_(list(user_ids)))]
+    finally:
+        db.close()
+    if not subs:
+        return 0
+    async with httpx.AsyncClient(timeout=8) as client:
+        results = await asyncio.gather(*(_send(client, e) for e in subs), return_exceptions=True)
+    return sum(1 for r in results if isinstance(r, int) and r < 300)

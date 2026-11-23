@@ -283,6 +283,13 @@ async def acknowledge_alert(
             if released:
                 alert.channels_sent = ",".join(filter(None, [alert.channels_sent, released]))
     db.commit()
+    if decision == "confirmed":
+        # A confirmed identification: the cross-camera track is verified and officers are told.
+        from starlette.concurrency import run_in_threadpool
+        await run_in_threadpool(_after_confirm, alert_id)
+    if decision == "rejected":
+        from starlette.concurrency import run_in_threadpool
+        await run_in_threadpool(_after_reject, alert_id, user.id, body.note)
     return {"status": "updated", "id": alert_id, "review_status": alert.review_status,
             "webhooks_released": released}
 
@@ -324,3 +331,31 @@ async def dispatch_police(
     return {"status": "dispatched", "alert_id": alert_id, "redispatch": result}
 
 
+
+
+def _after_confirm(alert_id: int) -> None:
+    from backend.db.database import SessionLocal
+    from backend.services import tracking
+    db = SessionLocal()
+    try:
+        alert = db.get(Alert, alert_id)
+        if alert and tracking.on_alert_confirmed(db, alert):
+            db.commit()
+    finally:
+        db.close()
+
+
+def _after_reject(alert_id: int, user_id: int, note) -> None:
+    """A rejected identification: its crop goes to the review queue for the next training round."""
+    from backend.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        try:
+            from backend.services.review_queue import from_rejected_alert
+        except ImportError:
+            return
+        alert = db.get(Alert, alert_id)
+        if alert and from_rejected_alert(db, alert, user_id, note):
+            db.commit()
+    finally:
+        db.close()

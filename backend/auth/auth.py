@@ -127,7 +127,7 @@ VIEWER_DENIED_PATHS = (
     "/api/v1/faces", "/api/v1/evidence", "/api/v1/captures", "/api/v1/reid", "/api/v1/custody",
     "/api/v1/reports", "/api/v1/incidents", "/api/v1/shift", "/api/v1/vehicles", "/api/v1/audit",
     "/api/v1/calibration", "/api/v1/recordings", "/api/v1/vms", "/api/v1/responder", "/api/v1/auth/assignees",
-    "/api/v1/officers", "/api/v1/watchlist", "/api/v1/detections", "/api/v1/vehicle-search", "/api/v1/vehicle-match", "/api/v1/lookouts",
+    "/api/v1/officers", "/api/v1/watchlist", "/api/v1/detections", "/api/v1/vehicle-search", "/api/v1/vehicle-match", "/api/v1/lookouts", "/api/v1/tracks", "/api/v1/camera-graph",
 )
 
 

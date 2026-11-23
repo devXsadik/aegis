@@ -15,6 +15,7 @@ from backend.models.detection import Detection
 from backend.models.watchlist import WatchlistVehicle
 from backend.services import event_router, lookout
 from backend.services.matching.common import camera, dispatch_sync, load_json_config
+from backend.services.matching.followup import dispatch_and_track
 from backend.services.watchlist_gov import active_vehicles
 from core.analysis import vehicle_attrs, vehicle_match
 from core.ingest.events import NormalizedEvent
@@ -128,10 +129,17 @@ def match_vehicle(db: Session, ev: NormalizedEvent, det: Detection) -> List[dict
     label = r.label + ("" if v else " (lookout)")
     plate_shown = v.plate_raw if v and v.plate_raw else (read.get("plate_text") or "no plate")
     msg = f"{label}: {plate_shown} at {cam.name if cam else ev.camera_id} — needs verification"
-    res = dispatch_sync(db=db, alert_type="VEHICLE_MATCH" if v else "LOOKOUT_MATCH", severity=r.severity,
-                        camera_id=ev.camera_id, camera_location=(cam.location or cam.name) if cam else ev.camera_id,
-                        plate_number=(v.plate_canonical or v.ref) if v else bolo.ref, message=msg,
-                        confidence=r.score, extra=extra)
+    alert = dict(alert_type="VEHICLE_MATCH" if v else "LOOKOUT_MATCH", severity=r.severity,
+                 camera_id=ev.camera_id, camera_location=(cam.location or cam.name) if cam else ev.camera_id,
+                 plate_number=(v.plate_canonical or v.ref) if v else bolo.ref, message=msg,
+                 confidence=r.score, extra=extra)
+    if v and r.level in ("confirmed", "plate_mismatch", "probable", "candidate"):
+        # Strong enough to follow across cameras (a fuzzy-only "possible" is not).
+        res = dispatch_and_track(db, kind="vehicle", target_ref=v.ref, target={**_entry(v), "ref": v.ref, "snapshot": crop_url},
+                                 ts=ev.timestamp, direction=ev.direction, detection_id=det.id, alert=alert,
+                                 method=f"plate:{r.plate}" if r.plate in ("exact", "fuzzy") else "attributes+reid")
+    else:
+        res = dispatch_sync(db=db, **alert)
     det.alert_id = res.get("alert_id")
     return [{"kind": "vehicle", "level": r.level, "severity": r.severity, "ref": det.match_ref,
              "alert_id": res.get("alert_id"), "status": res.get("status")}]

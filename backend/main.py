@@ -20,6 +20,7 @@ from backend.api.ingest_routes import router as ingest_router
 from backend.api.camera_registry_routes import router as camera_registry_router
 from backend.api.detection_routes import router as detection_router
 from backend.api.lookout_routes import router as lookout_router
+from backend.api.tracking_routes import router as tracking_router
 import backend.services.matching  # noqa: E402,F401  (registers the matchers with the event router)
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
@@ -106,7 +107,9 @@ async def lifespan(app: FastAPI):
     from backend.services.escalation import escalation_loop
     escalation_task = asyncio.create_task(escalation_loop())
     from backend.services.maintenance import health_watch_loop, maintenance_loop
-    background = [asyncio.create_task(maintenance_loop()), asyncio.create_task(health_watch_loop())]
+    from backend.services.tracking_loop import tracking_loop
+    background = [asyncio.create_task(maintenance_loop()), asyncio.create_task(health_watch_loop()),
+                  asyncio.create_task(tracking_loop())]
     from scripts.seed_cameras import seed_cameras
     seed_cameras()
     try:
@@ -192,6 +195,7 @@ app.include_router(watchlist_router, prefix=API_V1)
 app.include_router(ingest_router, prefix=API_V1)
 app.include_router(detection_router, prefix=API_V1)
 app.include_router(lookout_router, prefix=API_V1)
+app.include_router(tracking_router, prefix=API_V1)
 
 
 @app.get("/health")

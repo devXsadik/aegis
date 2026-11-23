@@ -124,6 +124,7 @@ async def dispatch_alert(
     zone: Optional[str] = None,
     confidence: Optional[float] = None,
     extra: Optional[dict] = None,
+    attach_incident_id: Optional[int] = None,
 ) -> dict:
     """Fully automated alert dispatch with pinpoint camera GPS."""
     own_session = db is None
@@ -242,7 +243,16 @@ async def dispatch_alert(
 
         # Auto-open a server-side incident ticket for critical/high threats
         incident = None
-        if severity in ("critical", "high"):
+        if attach_incident_id:
+            # A sighting of a target already being followed: same incident, new timeline entry.
+            from backend.models.incident import Incident
+            from backend.services.incident_service import add_event
+            incident = db.get(Incident, attach_incident_id)
+            if incident:
+                add_event(db, incident, "MATCHED", f"{alert_type}: {message}", "SYSTEM", camera_id=camera_id,
+                          payload={"alert_id": alert.id, "severity": severity})
+                db.commit()
+        elif severity in ("critical", "high"):
             try:
                 from backend.services.incident_service import create_incident_from_alert
                 incident = create_incident_from_alert(db, alert, created_by_name="SYSTEM")
@@ -309,7 +319,8 @@ async def dispatch_alert(
             f"AUTO ALERT: {alert_type} @ {camera_location} ({camera_id}) "
             f"GPS=({camera_lat},{camera_lng})"
         )
-        return {"status": "dispatched", "alert_id": alert.id, "payload": payload}
+        return {"status": "dispatched", "alert_id": alert.id, "payload": payload,
+                "incident_id": incident.id if incident is not None else None}
 
     except Exception as e:
         logger.error(f"Alert dispatch failed: {e}")

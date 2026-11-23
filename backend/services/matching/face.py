@@ -21,7 +21,8 @@ from backend.models.person_image import PersonImage
 from backend.services import event_router
 from backend.services.event_router import _crop_bytes
 from backend.services.face_index import INDEX
-from backend.services.matching.common import camera, dispatch_sync
+from backend.services.matching.common import camera
+from backend.services.matching.followup import dispatch_and_track
 from backend.utils.at_rest import seal
 from core.ingest.events import NormalizedEvent
 from core.recognition import embedder, quality
@@ -79,11 +80,14 @@ def match_face(db: Session, ev: NormalizedEvent, det: Detection) -> List[dict]:
                       "others": [{"person_id": p, "similarity": round(s, 3)} for p, s in hits[1:]],
                       "case_no": person.case_no, "risk_level": person.risk_level, "offence": person.offence},
              "detection_id": det.id, "direction": ev.direction}
-    res = dispatch_sync(db=db, alert_type="FACE_MATCH", severity=severity, camera_id=ev.camera_id,
-                        camera_location=(cam.location or cam.name) if cam else ev.camera_id, person_name=pid,
-                        message=f"Possible match — needs verification: {person.name} ({round(sim * 100)}%) at "
-                                f"{cam.name if cam else ev.camera_id}",
-                        confidence=sim, extra=extra)
+    res = dispatch_and_track(
+        db, kind="person", target_ref=pid, target={"ref": pid, "name": person.name, "snapshot": extra["face"]["crop_url"]},
+        ts=ev.timestamp, direction=ev.direction, method="face", detection_id=det.id,
+        alert=dict(alert_type="FACE_MATCH", severity=severity, camera_id=ev.camera_id,
+                   camera_location=(cam.location or cam.name) if cam else ev.camera_id, person_name=pid,
+                   message=f"Possible match — needs verification: {person.name} ({round(sim * 100)}%) at "
+                           f"{cam.name if cam else ev.camera_id}",
+                   confidence=sim, extra=extra))
     det.alert_id = res.get("alert_id")
     return [{"kind": "face", "person_id": pid, "similarity": round(sim, 3), "severity": severity,
              "alert_id": res.get("alert_id"), "status": res.get("status")}]
