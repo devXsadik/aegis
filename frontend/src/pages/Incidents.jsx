@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { can } from '../lib/permissions'
-import { Card, Icons, Tag, Empty, Stat, timeAgo, SEVERITY_TONE, Modal } from '../components/ui'
+import { Card, Icons, Stat, timeAgo, Modal } from '../components/ui'
+import { AlertTypeBadge, EmptyState, ErrorState, SeverityBadge, SkeletonList, StatusBadge } from '../components/ds'
+import { useI18n } from '../hooks/useI18n'
 import {
   fetchIncidents, fetchIncidentStats, updateIncident, addIncidentNote, createIncident, fetchAssignees,
   downloadEvidencePackage, verifyEvidencePackage,
@@ -8,7 +10,8 @@ import {
 import { useToast } from '../components/Toast'
 const STATUSES = ['open', 'investigating', 'resolved', 'closed']
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
-const STATUS_TONE = { open: 'danger', investigating: 'warn', resolved: 'ok', closed: 'muted' }
+const matches = (inc, q) => !q || [inc.ticket_id, inc.title, inc.camera_location, inc.person_name, inc.plate_number, inc.assigned_name]
+  .some((v) => v && String(v).toLowerCase().includes(q))
 
 /** Upload a package to check it came from this system and nothing in it changed. */
 function PackageCheck() {
@@ -49,6 +52,7 @@ function PackageCheck() {
 
 export function Incidents({ ctx }) {
   const { push: toast } = useToast()
+  const { t } = useI18n()
   const canEdit = can(ctx?.me?.role, 'incident.edit')
   const [assignees, setAssignees] = useState([])
   const [showNew, setShowNew] = useState(false)
@@ -62,6 +66,8 @@ export function Incidents({ ctx }) {
   const [loadedFilter, setLoadedFilter] = useState(null)   // which filter the list on screen belongs to
   const loading = loadedFilter !== filter
   const [loadError, setLoadError] = useState('')
+  const [query, setQuery] = useState('')
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -83,7 +89,8 @@ export function Incidents({ ctx }) {
       }
     })()
     return () => { cancelled = true }
-  }, [filter])
+  }, [filter, attempt])
+  const retry = () => { setLoadedFilter(null); setAttempt((n) => n + 1) }
 
   const reload = async () => {
     const [list, st] = await Promise.all([
@@ -99,6 +106,11 @@ export function Incidents({ ctx }) {
       const updated = await updateIncident(id, body)
       setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)))
       if (selected?.id === id) setSelected(updated)
+      const ticket = updated.ticket_id
+      if (body.status) toast(t('incidents.statusChanged', { ticket, status: t(`status.${body.status}`) }), 'ok')
+      else if ('assigned_to' in body) {
+        toast(updated.assigned_name ? t('incidents.assigned', { ticket, name: updated.assigned_name }) : t('incidents.unassigned', { ticket }), 'ok')
+      }
       reload().catch(() => {})
     } catch (e) {
       toast(e.message || 'Update failed', 'danger')
@@ -114,6 +126,7 @@ export function Incidents({ ctx }) {
       const found = refreshed.find((i) => i.id === selected.id)
       setIncidents(refreshed)
       if (found) setSelected(found)
+      toast(t('incidents.noteSaved', { ticket: selected.ticket_id }), 'ok')
     } catch (e) {
       toast(e.message || 'Could not add note', 'danger')
     }
@@ -131,63 +144,82 @@ export function Incidents({ ctx }) {
       setSelected(inc)
       setShowNew(false)
       setNewForm({ title: '', description: '', priority: 'medium' })
-      toast('Incident created', 'ok')
+      toast(t('incidents.created', { ticket: inc.ticket_id }), 'ok')
     } catch (e) {
       toast(e.message || 'Could not create incident', 'danger')
     }
   }
 
   const by = stats?.by_status || {}
+  const q = query.trim().toLowerCase()
+  const shown = incidents.filter((i) => matches(i, q))
+  const filtered = filter !== 'all' || !!q
 
   return (
     <>
-      {loadError && <div className="login-error" role="alert" style={{ marginBottom: 12 }}>{loadError}</div>}
-      <div className="grid grid-3 mb">
-        <Stat label="Open" value={by.open || 0} delta="Waiting for someone to pick up" accent={by.open ? 'danger' : 'ok'} icon={Icons.incident} />
-        <Stat label="Investigating" value={by.investigating || 0} delta="Being worked on" accent="warn" icon={Icons.search} />
+      <div className="grid grid-3 inc-stats">
+        <Stat label={t('status.open')} value={by.open || 0} delta="Waiting for someone to pick up" accent={by.open ? 'danger' : 'ok'} icon={Icons.incident} />
+        <Stat label={t('status.investigating')} value={by.investigating || 0} delta="Being worked on" accent="warn" icon={Icons.search} />
         <Stat label="Resolved or closed" value={(by.resolved || 0) + (by.closed || 0)} delta={`${stats?.total ?? 0} incidents in total`} accent="ok" icon={Icons.check} />
       </div>
 
       <Card
-        title="Incidents"
-        sub="Opened automatically for critical and high alerts"
+        title={t('incidents.title')}
+        sub={t('incidents.sub')}
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select className="input" style={{ padding: '4px 8px' }} aria-label="Filter by status" value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="all">All statuses</option>
-              {STATUSES.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
-            </select>
+          <div className="ds-toolbar">
             <PackageCheck />
-            {canEdit && <button className="btn btn-sm btn-primary" onClick={() => setShowNew(true)}><Icons.incident /> New</button>}
+            {canEdit && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowNew(true)}><Icons.plus /> {t('incidents.new')}</button>}
           </div>
         }
         flush
       >
-        {loading && <div className="skeleton-rows" aria-label="Loading incidents"><div className="skeleton" /><div className="skeleton" /><div className="skeleton" /></div>}
-        {!loading && incidents.length === 0 && (
-          <div style={{ padding: 16 }}>
-            <Empty icon={Icons.incident}>
-              {filter === 'all' ? 'No incidents yet. One opens automatically for each critical alert.' : `No ${filter} incidents.`}
-            </Empty>
-          </div>
+        <div className="ds-toolbar" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <label className="ds-search">
+            <Icons.search />
+            <input className="input" type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('incidents.searchPh')} aria-label={t('common.search')} />
+          </label>
+          <select className="input" aria-label="Filter by status" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All statuses</option>
+            {STATUSES.map((st) => <option key={st} value={st}>{t(`status.${st}`)}</option>)}
+          </select>
+        </div>
+        {loading && <SkeletonList rows={5} label="Loading incidents" />}
+        {!loading && loadError && <ErrorState title={t('incidents.loadError')} message={loadError} onRetry={retry} />}
+        {!loading && !loadError && shown.length === 0 && (
+          filtered
+            ? <EmptyState icon={Icons.search} title={t('incidents.emptyFiltered')}
+                action={<button type="button" className="btn btn-sm" onClick={() => { setQuery(''); setFilter('all') }}>{t('incidents.clearFilters')}</button>}>
+                {t('incidents.emptyFilteredMsg')}
+              </EmptyState>
+            : <EmptyState icon={Icons.incident} title={t('incidents.empty')}
+                action={canEdit && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowNew(true)}><Icons.plus /> {t('incidents.new')}</button>}>
+                {t('incidents.emptyMsg')}
+              </EmptyState>
         )}
-        {!loading && incidents.length > 0 && (
-          <div className="table-wrap">
+        {!loading && !loadError && shown.length > 0 && (
+          <div className="table-wrap table-stack">
           <table className="table">
             <thead>
               <tr>
-                <th>Ticket</th><th>Title</th><th>Priority</th><th>Camera</th>
-                <th>Officer</th><th>Status</th><th>Opened</th><th></th>
+                <th scope="col">Incident</th><th scope="col">Type</th><th scope="col">Severity</th><th scope="col">Camera</th>
+                <th scope="col">Officer</th><th scope="col">Status</th><th scope="col">Opened</th><th scope="col"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
-              {incidents.map((inc) => (
+              {shown.map((inc) => (
                 <tr key={inc.id}>
-                  <td className="mono">{inc.ticket_id}</td>
-                  <td><b>{inc.title}</b></td>
-                  <td><Tag tone={SEVERITY_TONE[inc.priority] || 'muted'}>{inc.priority}</Tag></td>
-                  <td>{inc.camera_location || '—'}</td>
-                  <td>
+                  <td className="cell-wide">
+                    <div className="inc-title-cell">
+                      <b>{inc.title}</b>
+                      <span className="meta mono">{inc.ticket_id}{inc.person_name ? ` · ${inc.person_name}` : ''}{inc.plate_number ? ` · ${inc.plate_number}` : ''}</span>
+                    </div>
+                  </td>
+                  <td data-label="Type"><AlertTypeBadge type={inc.incident_type} size="sm" /></td>
+                  <td data-label="Severity"><SeverityBadge level={inc.priority} size="sm" /></td>
+                  <td data-label="Camera">{inc.camera_location || '—'}</td>
+                  <td data-label="Officer">
                     <select
                       className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
                       aria-label={`Assignee for ${inc.ticket_id}`}
@@ -199,19 +231,20 @@ export function Incidents({ ctx }) {
                       {assignees.map((u) => <option key={u.id} value={u.id}>{u.username} ({u.role})</option>)}
                     </select>
                   </td>
-                  <td>
-                    <select
-                      className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
-                      aria-label={`Status for ${inc.ticket_id}`}
-                      disabled={!canEdit}
-                      value={inc.status}
-                      onChange={(e) => patch(inc.id, { status: e.target.value })}
-                    >
-                      {STATUSES.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
-                    </select>
+                  <td data-label="Status">
+                    {canEdit ? (
+                      <select
+                        className="input" style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+                        aria-label={`Status for ${inc.ticket_id}`}
+                        value={inc.status}
+                        onChange={(e) => patch(inc.id, { status: e.target.value })}
+                      >
+                        {STATUSES.map((st) => <option key={st} value={st}>{t(`status.${st}`)}</option>)}
+                      </select>
+                    ) : <StatusBadge status={inc.status} size="sm" />}
                   </td>
-                  <td className="muted">{timeAgo(inc.created_at)}</td>
-                  <td><button className="btn btn-sm" onClick={() => setSelected(inc)}>Open</button></td>
+                  <td data-label="Opened" className="muted"><time dateTime={inc.created_at}>{timeAgo(inc.created_at)}</time></td>
+                  <td className="cell-wide"><button type="button" className="btn btn-sm" onClick={() => setSelected(inc)} aria-label={`Open ${inc.ticket_id}`}>{t('common.open')}</button></td>
                 </tr>
               ))}
             </tbody>
@@ -238,21 +271,22 @@ export function Incidents({ ctx }) {
             </>
           }
         >
-          <dl className="kv" style={{ marginBottom: 18 }}>
-            <dt>Type</dt><dd>{selected.incident_type?.replace(/_/g, ' ')}</dd>
-            <dt>Priority</dt><dd><Tag tone={SEVERITY_TONE[selected.priority]}>{selected.priority}</Tag></dd>
-            <dt>Camera</dt><dd>{selected.camera_location || '—'}</dd>
-            <dt>Status</dt><dd><Tag tone={STATUS_TONE[selected.status]}>{selected.status}</Tag></dd>
-            <dt>Officer</dt><dd>{selected.assigned_name || 'Unassigned'}</dd>
-            {selected.person_name && <><dt>Subject</dt><dd>{selected.person_name}</dd></>}
+          <dl className="inc-detail-grid">
+            <div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
+            <div><dt>Severity</dt><dd><SeverityBadge level={selected.priority} /></dd></div>
+            <div><dt>Type</dt><dd><AlertTypeBadge type={selected.incident_type} /></dd></div>
+            <div><dt>Officer</dt><dd>{selected.assigned_name || 'Unassigned'}</dd></div>
+            <div><dt>Camera</dt><dd>{selected.camera_location || '—'}</dd></div>
+            <div><dt>Opened</dt><dd>{timeAgo(selected.created_at)}</dd></div>
+            {selected.person_name && <div><dt>Subject</dt><dd>{selected.person_name}</dd></div>}
             {selected.lat != null && (
-              <><dt>GPS</dt><dd className="mono">{Number(selected.lat).toFixed(5)}, {Number(selected.lng).toFixed(5)}</dd></>
+              <div><dt>GPS</dt><dd className="mono">{Number(selected.lat).toFixed(5)}, {Number(selected.lng).toFixed(5)}</dd></div>
             )}
           </dl>
 
-          <h4 style={{ marginBottom: 10, fontSize: '0.9rem' }}>Timeline</h4>
+          <h4 className="inc-section-title">Timeline</h4>
           <div className="timeline" style={{ marginBottom: 18 }}>
-            {(selected.events || []).length === 0 && <div className="muted">No events yet</div>}
+            {(selected.events || []).length === 0 && <EmptyState compact icon={Icons.clock}>No events yet</EmptyState>}
             {(selected.events || []).map((ev) => (
               <div key={ev.id} className="timeline-item">
                 <div className="t-time">{timeAgo(ev.created_at)} · {ev.actor}</div>
@@ -261,7 +295,7 @@ export function Incidents({ ctx }) {
             ))}
           </div>
 
-          <h4 style={{ marginBottom: 10, fontSize: '0.9rem' }}>Notes</h4>
+          <h4 className="inc-section-title">Notes</h4>
           {(selected.notes || []).map((n) => (
             <div key={n.id} className="row">
               <div>
@@ -271,7 +305,7 @@ export function Incidents({ ctx }) {
               <span className="muted" style={{ fontSize: '0.72rem' }}>{timeAgo(n.created_at)}</span>
             </div>
           ))}
-          {(selected.notes || []).length === 0 && <div className="muted">No notes yet</div>}
+          {(selected.notes || []).length === 0 && <EmptyState compact icon={Icons.report}>No notes yet</EmptyState>}
           {canEdit && (
             <>
               <label className="field" style={{ marginTop: 12 }}>
@@ -287,7 +321,7 @@ export function Incidents({ ctx }) {
       )}
       {showNew && (
         <Modal
-          title="New incident"
+          title={t('incidents.new')}
           onClose={() => setShowNew(false)}
           footer={(
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

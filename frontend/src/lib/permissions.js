@@ -3,9 +3,9 @@
 
 export const ROLE_PAGES = {
   viewer: new Set(['overview', 'live', 'map', 'alerts']),
-  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras']),
-  police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift']),
-  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports']),
+  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings']),
+  police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift', 'settings']),
+  investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports', 'settings']),
   supervisor: null,   // null = every page
   admin: null,
 }

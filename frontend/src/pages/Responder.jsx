@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Empty, Icons, Seg, SEVERITY_TONE, Tag, timeAgo } from '../components/ui'
+import { Icons, Seg, timeAgo } from '../components/ui'
+import { EmptyState, ErrorState, SeverityBadge, SkeletonList } from '../components/ds'
+import { useI18n } from '../hooks/useI18n'
 import { useToast } from '../components/Toast'
 import { captureImageUrl, fetchResponderAlerts, setResponderStatus } from '../services/api'
 import { eventLabel, waitLabel } from '../lib/events'
@@ -47,7 +49,7 @@ function Card({ a, now, busy, onStep }) {
       <div className="rsp-body">
         <div className="rsp-title">
           <b>{eventLabel(a.type)}{a.person_name && a.person_name !== 'Unknown' ? `: ${a.person_name}` : ''}</b>
-          <Tag tone={SEVERITY_TONE[a.severity] || 'muted'}>{a.severity}</Tag>
+          <SeverityBadge level={a.severity} size="sm" />
         </div>
         <div className="rsp-where">
           <Icons.map /> {a.camera}{a.location && a.location !== a.camera ? ` · ${a.location}` : ''}
@@ -88,7 +90,11 @@ export function Responder({ ctx }) {
   const [show, setShow] = useState('open')
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const load = useCallback(() => fetchResponderAlerts().then(setData).catch(() => {}), [])
+  const { t } = useI18n()
+  const [error, setError] = useState('')
+  const load = useCallback(() => fetchResponderAlerts()
+    .then((d) => { setData(d); setError('') })
+    .catch((e) => setError(e.message || 'error')), [])
   const liveCount = ctx.events.length
   useEffect(() => {
     load()
@@ -127,8 +133,12 @@ export function Responder({ ctx }) {
           <Seg value={show} onChange={setShow} options={[{ value: 'open', label: 'To do' }, { value: 'done', label: 'Resolved' }]} />
         </div>
       </div>
+      {!data && !error && <SkeletonList rows={3} />}
+      {!data && error && <ErrorState title={t('respond.loadError')} message={error} onRetry={load} />}
       {data && alerts.length === 0 && (
-        <Empty icon={Icons.check}>{show === 'open' ? 'Nothing to respond to right now.' : 'Nothing resolved in the last 24 hours.'}</Empty>
+        show === 'open'
+          ? <EmptyState icon={Icons.check} title={t('respond.empty')}>{t('respond.emptyMsg')}</EmptyState>
+          : <EmptyState icon={Icons.clock} title={t('respond.emptyDone')} />
       )}
       <div className="rsp-list">
         {alerts.map((a) => <Card key={a.id} a={a} now={now} busy={busy} onStep={step} />)}

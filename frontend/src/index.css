@@ -1,6 +1,6 @@
 /* Aegis dashboard styles. Fonts first, then the parts in this order: later files override
    earlier ones, so a new rule goes in the file for its area, and order changes only with care. */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Oswald:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Oswald:wght@500;600&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
 @import './styles/01-tokens.css';
 @import './styles/02-shell.css';
 @import './styles/03-page.css';
@@ -10,3 +10,4 @@
 @import './styles/07-workflows.css';
 @import './styles/08-shared.css';
 @import './styles/09-features.css';
+@import './styles/10-design.css';
