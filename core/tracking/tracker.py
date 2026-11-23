@@ -75,7 +75,7 @@ class HumanTracker:
         """
         if self._bytetrack:
             return self.tracker.update([d[0] for d in detections], [d[1] for d in detections],
-                                       [d[2] for d in detections])
+                                       [d[2] for d in detections], frame)
         raw = [([x1, y1, x2 - x1, y2 - y1], conf, cls) for (x1, y1, x2, y2), conf, cls in detections]
         if self.appearance == "cnn":
             return self.tracker.update_tracks(raw, frame=frame)
@@ -147,15 +147,48 @@ class ByteTrackBackend:
             match_thresh=match_thresh, fuse_score=True,
         ), frame_rate=30)
 
-    def update(self, xyxy, conf, cls):
+    def update(self, xyxy, conf, cls, frame=None):
         rows = self._tracker.update(_Dets(xyxy, conf, cls))
         return [ByteTrackResult(int(r[4]), r[:4].tolist(), float(r[5]), int(r[6])) for r in rows]
 
 
+class BoTSortBackend:
+    """BoT-SORT (ultralytics): ByteTrack's association plus camera-motion compensation (sparse
+    optical flow, so a panning or shaking camera does not break tracks) and, with
+    appearance=reid, whole-body re-ID vectors from models/person_reid_youtu_2021nov.onnx to
+    re-attach a person after a longer occlusion. Same output surface as ByteTrack."""
+
+    def __init__(self, max_age: int = 50, reid: bool = False, gmc: str = "sparseOptFlow",
+                 high_thresh: float = 0.5, low_thresh: float = 0.1, match_thresh: float = 0.8):
+        from types import SimpleNamespace
+        from ultralytics.trackers.bot_sort import BOTSORT
+
+        class _Tracker(BOTSORT):
+            @staticmethod
+            def reset_id():
+                pass
+
+        args = SimpleNamespace(
+            track_high_thresh=high_thresh, track_low_thresh=low_thresh, new_track_thresh=high_thresh,
+            track_buffer=max_age, match_thresh=match_thresh, fuse_score=True, gmc_method=gmc,
+            proximity_thresh=0.5, appearance_thresh=0.25, with_reid=False, model="auto")
+        self._tracker = _Tracker(args, frame_rate=30)
+        if reid:                     # our ONNX re-ID model instead of Ultralytics' own
+            args.with_reid = True
+            self._tracker.encoder = lambda img, b: reid_embeds(
+                img, [(x - w / 2, y - h / 2, x + w / 2, y + h / 2) for x, y, w, h in np.asarray(b)[:, :4]])
+
+    def update(self, xyxy, conf, cls, frame=None):
+        rows = self._tracker.update(_Dets(xyxy, conf, cls), frame)
+        return [ByteTrackResult(int(r[4]), r[:4].tolist(), float(r[5]), int(r[6])) for r in rows]
+
+
 def make_tracker(algorithm: str, appearance: str, **deepsort_kw):
-    """'deepsort' (default) or 'bytetrack'. Returns (backend, is_bytetrack)."""
+    """'deepsort' (default), 'bytetrack' or 'botsort'. Returns (backend, is_ultralytics_style)."""
     if algorithm == "bytetrack":
         return ByteTrackBackend(max_age=deepsort_kw.get("max_age", 50)), True
+    if algorithm == "botsort":
+        return BoTSortBackend(max_age=deepsort_kw.get("max_age", 50), reid=appearance == "reid"), True
     if algorithm != "deepsort":
-        raise ValueError(f"Unknown tracking algorithm: {algorithm} (use deepsort or bytetrack)")
+        raise ValueError(f"Unknown tracking algorithm: {algorithm} (use deepsort, bytetrack or botsort)")
     return make_deepsort(appearance, **deepsort_kw), False

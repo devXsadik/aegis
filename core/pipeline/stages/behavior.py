@@ -21,7 +21,8 @@ class BehaviorStage(PipelineStage):
 
     def __init__(self, pose_analyzer=None, anomaly_detector=None,
                  anpr=None, plate_db=None, fall_detector=None, action_recognizer=None,
-                 pose_every_n: int = 2, anpr_every_n: int = 3, enabled: bool = True, fight_detector=None):
+                 pose_every_n: int = 2, anpr_every_n: int = 3, enabled: bool = True, fight_detector=None,
+                 wrong_way=None, abandoned=None, crowd_surge=None):
         super().__init__(name="behavior", enabled=enabled)
         self.pose_analyzer = pose_analyzer
         self.anomaly_detector = anomaly_detector
@@ -30,6 +31,8 @@ class BehaviorStage(PipelineStage):
         self.fall_detector = fall_detector if fall_detector is not None else FallDetector()
         self.action_recognizer = action_recognizer
         self.fight_detector = fight_detector          # core/analysis/fight.py; off unless configured
+        # core/analysis/scene_events.py, each off unless configured (scene_events: in config.yaml)
+        self.wrong_way, self.abandoned, self.crowd_surge = wrong_way, abandoned, crowd_surge
         self._fighting = set()
         self._actions = {}                   # track id → (reason, NTU label, probability)
         self.pose_every_n = max(1, pose_every_n)   # pose is the costliest per-frame step
@@ -124,12 +127,26 @@ class BehaviorStage(PipelineStage):
                 )
             except Exception as e:
                 logger.warning(f"Anomaly detection error: {e}")
+        self._scene_events(ctx)
 
         if self.anpr is not None:
             self._run_anpr(ctx)
 
         return ctx
 
+
+    def _scene_events(self, ctx: FrameContext) -> None:
+        import time as _time
+        now = _time.time()
+        try:
+            if self.wrong_way is not None and self.anomaly_detector is not None:
+                ctx.anomalies.extend(self.wrong_way.update(ctx.vehicle_tracks, ctx.frame.shape, self.anomaly_detector.zones))
+            if self.abandoned is not None:
+                ctx.anomalies.extend(self.abandoned.update(ctx.bag_detections, ctx.human_detections, ctx.frame.shape, now))
+            if self.crowd_surge is not None and self.anomaly_detector is not None:
+                ctx.anomalies.extend(self.crowd_surge.update(dict(self.anomaly_detector.zone_counts), now))
+        except Exception as e:
+            logger.warning(f"Scene event error: {e}")
 
     def _run_anpr(self, ctx: FrameContext) -> None:
         """Read plates per vehicle track and publish them only once confirmed by voting.

@@ -15,6 +15,10 @@ class InMemoryRateLimiter:
         self._lock = threading.Lock()
 
     def check(self, key: str, max_requests: int, window_seconds: int) -> bool:
+        from backend.services import cluster
+        shared = cluster.rate_check(key, max_requests, window_seconds)   # all workers count together
+        if shared is not None:
+            return shared
         now = time.time()
         with self._lock:
             if len(self._buckets) > 10_000:      # drop idle clients so the table cannot grow without bound

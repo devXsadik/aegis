@@ -66,6 +66,7 @@ export function OfficerChip({ a, onRemove }) {
 }
 
 const km = (m) => (m == null ? null : m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`)
+const eta = (s) => (s < 60 ? '1 min' : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`)
 
 function OfficerCard({ o, selected, onToggle }) {
   const duty = DUTY[o.duty_status] || DUTY.off_duty
@@ -85,7 +86,13 @@ function OfficerCard({ o, selected, onToggle }) {
           <span className="off-card-tags">
             <Badge tone={duty.tone} size="sm">{duty.label}</Badge>
             <Badge tone={o.active_incidents ? 'warn' : 'muted'} size="sm" icon={Icons.incident}>{o.active_incidents} active</Badge>
-            {km(o.distance_m) && <Badge tone="muted" size="sm" icon={Icons.map}>{km(o.distance_m)}</Badge>}
+            {o.eta_s != null && (
+              <Badge tone="info" size="sm" icon={Icons.clock}
+                title={`${o.eta_source === 'road' ? 'Road route' : 'Estimate from straight-line distance and city speed'}; from ${o.location_source === 'gps' ? "the officer's last phone location" : 'their station'}`}>
+                {o.eta_source === 'road' ? '' : '≈ '}{eta(o.eta_s)} away
+              </Badge>
+            )}
+            {km(o.route_m ?? o.distance_m) && <Badge tone="muted" size="sm" icon={Icons.map}>{km(o.route_m ?? o.distance_m)}{o.location_source === 'station' ? ' from station' : ''}</Badge>}
             {o.out_of_area && <Badge tone="warn" size="sm">Neighbouring area</Badge>}
             {o.assigned && <Badge tone="info" size="sm" icon={Icons.check}>Already assigned</Badge>}
           </span>

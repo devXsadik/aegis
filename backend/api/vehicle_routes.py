@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from backend.db.database import get_db
 from backend.models.vehicle import LicensePlate, VehicleDetection
@@ -109,3 +109,34 @@ def _is_watchlisted(db: Session, plate: str) -> bool:
     return db.query(LicensePlate.id).filter(
         LicensePlate.plate_number == plate, LicensePlate.watchlisted == True  # noqa: E712
     ).first() is not None
+
+
+# ——— registration lookup (BRTA connector; services/registry_lookup.py) ———
+
+REGISTRY_ROLES = {"admin", "supervisor", "investigator"}
+
+
+@router.get("/registry/status")
+def registry_status(user: User = Depends(operator_or_admin)):
+    from backend.services import registry_lookup
+    return {"configured": registry_lookup.configured(), "allowed": user.role in REGISTRY_ROLES}
+
+
+@router.get("/registry")
+def registry(request: Request, plate: str = Query(..., min_length=3, max_length=40),
+             reason: str = Query(..., min_length=10, max_length=300), case_ref: str = Query(..., min_length=3, max_length=60),
+             db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    """Owner and registration of a plate, for an open case. Reason and case number are logged."""
+    from backend.services import registry_lookup
+    from backend.services.audit import log_audit
+    from core.analysis.bd_plate import canonical as canon
+    if user.role not in REGISTRY_ROLES:
+        raise HTTPException(403, "Registry lookups are for supervisors and investigators")
+    canonical = canon(plate) or plate.strip().upper()
+    log_audit(db, user, "REGISTRY_LOOKUP", "vehicle", canonical, f"case {case_ref.strip()}: {reason.strip()}", request)
+    db.commit()                                          # logged even if the registry fails
+    try:
+        rec = registry_lookup.lookup(canonical)
+    except registry_lookup.RegistryError as e:
+        raise HTTPException(e.code, str(e))
+    return {"plate": canonical, "found": rec is not None, "record": rec}

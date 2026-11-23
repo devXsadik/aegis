@@ -1,0 +1,9 @@
+# Weapon detector: classes handgun, rifle, knife (+ machete / stick if you label them).
+# Include hard negatives (phones, umbrellas, tools, rejected weapon alerts from the review queue)
+# as images with empty label files: they are what keeps false alerts down.
+weights: yolov8s.pt      # or yolo11s.pt
+epochs: 150
+imgsz: 960               # weapons are small in CCTV frames
+batch: 16
+patience: 40
+seed: 13

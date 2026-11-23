@@ -61,10 +61,10 @@ def _shift_start(db: Session):
 
 
 def _cameras_not_reporting(db: Session) -> list:
-    from backend.api.system_routes import _pipeline_status
+    from backend.api.system_routes import pipeline_cameras
     from backend.services.ha import camera_offline_sla
 
-    beats = _pipeline_status.get("cameras", {})
+    beats = pipeline_cameras()
     out = []
     for cam in db.query(Camera).filter(Camera.active == True).all():  # noqa: E712
         if camera_offline_sla(beats.get(cam.camera_id, {}).get("last_seen")) != "ok":

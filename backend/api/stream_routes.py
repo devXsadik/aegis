@@ -8,6 +8,8 @@ viewers are authenticated by the dashboard's session cookie (viewer_dep).
 import asyncio
 import threading
 import time
+
+from starlette.concurrency import run_in_threadpool
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -35,11 +37,30 @@ async def push_frame(
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty frame")
+    store_frame(camera_id, body)
+    from backend.services import cluster
+    if cluster.enabled():
+        await run_in_threadpool(cluster.put_frame, camera_id, body)
+    return {"status": "ok", "camera_id": camera_id, "bytes": len(body)}
+
+
+_remote_seen: dict = {}  # camera_id -> monotonic ts of a frame another worker received
+
+
+def store_frame(camera_id: str, body: bytes) -> None:
+    """Keep the newest frame and wake this worker's viewers (also called for other workers' frames)."""
     with _lock:
         _frames[camera_id] = (body, time.monotonic())
     for ev in _waiters.get(camera_id, ()):
         ev.set()
-    return {"status": "ok", "camera_id": camera_id, "bytes": len(body)}
+
+
+def has_viewers(camera_id: str) -> bool:
+    return bool(_waiters.get(camera_id))
+
+
+def mark_remote(camera_id: str) -> None:
+    _remote_seen[camera_id] = time.monotonic()
 
 
 @router.get("/cameras")
@@ -47,12 +68,12 @@ def streaming_cameras(viewer: User = Depends(viewer_dep)):
     """Camera ids that pushed a frame recently (i.e. have live video)."""
     now = time.monotonic()
     with _lock:
-        return {
-            "cameras": [
-                cam for cam, (_, ts) in _frames.items()
-                if now - ts < FRAME_STALE_SECONDS
-            ]
-        }
+        cams = {cam for cam, (_, ts) in _frames.items() if now - ts < FRAME_STALE_SECONDS}
+    cams |= {cam for cam, ts in list(_remote_seen.items()) if now - ts < FRAME_STALE_SECONDS}
+    from backend.services import cluster
+    if cluster.enabled():
+        cams |= set(cluster.frame_cameras())          # keys expire with the frame
+    return {"cameras": sorted(cams)}
 
 
 def _frame_with_digital_ptz(camera_id: str, jpeg_bytes: bytes) -> bytes:
@@ -79,9 +100,13 @@ def _frame_with_digital_ptz(camera_id: str, jpeg_bytes: bytes) -> bytes:
 def snapshot(camera_id: str, viewer: User = Depends(viewer_dep)):
     with _lock:
         entry = _frames.get(camera_id)
-    if not entry or time.monotonic() - entry[1] > FRAME_STALE_SECONDS:
+    raw = entry[0] if entry and time.monotonic() - entry[1] <= FRAME_STALE_SECONDS else None
+    if raw is None:
+        from backend.services import cluster
+        raw = cluster.get_frame(camera_id)       # pushed to another worker
+    if raw is None:
         raise HTTPException(status_code=404, detail="No live frame for this camera")
-    data = _frame_with_digital_ptz(camera_id, entry[0])
+    data = _frame_with_digital_ptz(camera_id, raw)
     return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store"})
 

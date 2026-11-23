@@ -1,0 +1,17 @@
+# HTTPS in front of the dashboard (docker compose --profile https up -d).
+# DOMAIN: a public name pointing at this machine gets a Let's Encrypt certificate automatically;
+# "localhost" or an internal name gets Caddy's own internal CA (trust it on operator PCs).
+{$DOMAIN:localhost} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
+		-Server
+	}
+	reverse_proxy web:80 {
+		header_up X-Request-ID {http.request.uuid}
+	}
+}

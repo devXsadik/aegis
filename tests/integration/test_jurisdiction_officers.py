@@ -193,3 +193,84 @@ def test_unmapped_camera_override_lists_all_officers(world):
     got = client.post(f"{API}/incidents/{inc['id']}/assignments", headers=world["sup"],
                       json={"user_ids": [o["b"][0]], "include_neighbours": True, "reason": "area not mapped"})
     assert got.status_code == 200, got.text
+
+
+# ——— dispatch messages, roster, district scope ———
+
+def test_messages_between_dispatch_and_field(world):
+    o, iid = world["officers"], world["inc"]["id"]
+    client.post(f"{API}/incidents/{iid}/assignments", headers=world["op"], json={"user_ids": [o["a_free"][0]]})
+    r = client.post(f"{API}/incidents/{iid}/messages", headers=world["op"], json={"body": "Suspect in a red CNG, heading north"})
+    assert r.status_code == 201 and not r.json()["from_field"]
+    items = client.get(f"{API}/notifications/me", headers=o["a_free"][1]).json()
+    assert any(n["kind"] == "message" and n["ack_deadline"] is None for n in items)      # no escalation
+    r = client.post(f"{API}/incidents/{iid}/messages", headers=o["a_free"][1], json={"body": "On Road 11, no sign yet"})
+    assert r.status_code == 201 and r.json()["from_field"] and r.json()["author_name"] == "Officer a_free"
+    thread = client.get(f"{API}/incidents/{iid}/messages", headers=o["a_free"][1]).json()
+    assert [m["body"] for m in thread][-2:] == ["Suspect in a red CNG, heading north", "On Road 11, no sign yet"]
+    _, stranger = _user(f"j_stranger_{RUN}", "police")                     # no area, not assigned
+    assert client.post(f"{API}/incidents/{iid}/messages", headers=stranger, json={"body": "x"}).status_code == 404
+    assert client.post(f"{API}/incidents/{iid}/messages", headers=world["op"], json={"body": "  "}).status_code == 422
+    assert client.post(f"{API}/incidents/{iid}/messages", headers=world["op"],
+                       json={"body": "see", "evidence_ref": "EV-NOPE"}).status_code == 400
+    events = client.get(f"{API}/incidents/{iid}", headers=world["op"]).json()["events"]
+    assert sum(e["event_type"] == "MESSAGE" for e in events) == 2
+
+
+def test_roster_puts_officers_on_shift_first(world):
+    from datetime import datetime, timedelta, timezone
+    o, iid = world["officers"], world["inc"]["id"]
+    now = datetime.now(timezone.utc)
+    shift = {"user_id": o["a_far"][0], "starts_at": (now - timedelta(hours=1)).isoformat(),
+             "ends_at": (now + timedelta(hours=7)).isoformat(), "assignment": "Patrol car 3"}
+    assert client.post(f"{API}/roster", headers=world["op"], json=shift).status_code == 403      # supervisors plan
+    r = client.post(f"{API}/roster", headers=world["sup"], json=shift)
+    assert r.status_code == 201
+    assert client.post(f"{API}/roster", headers=world["sup"], json=shift).status_code == 409      # overlapping
+    bad = {**shift, "ends_at": (now - timedelta(hours=2)).isoformat()}
+    assert client.post(f"{API}/roster", headers=world["sup"], json=bad).status_code == 422
+    listed = client.get(f"{API}/roster", headers=world["op"]).json()["shifts"]
+    mine = next(s for s in listed if s["id"] == r.json()["id"])
+    assert mine["now"] and mine["area"] == "Thana A" and mine["officer"] == "Officer a_far"
+    assert all(s["user_id"] == o["a_far"][0] for s in client.get(f"{API}/roster", headers=o["a_far"][1]).json()["shifts"])
+    res = client.get(f"{API}/incidents/{iid}/eligible-officers", headers=world["op"]).json()["officers"]
+    avail = [x for x in res if x["duty_status"] == "available" and not x.get("assigned")]
+    assert avail[0]["id"] == o["a_far"][0] and avail[0]["on_shift"]          # on shift beats nearer
+    assert all("eta_s" in x for x in res if x["distance_m"] is not None)
+    assert client.delete(f"{API}/roster/{r.json()['id']}", headers=world["sup"]).json() == {"ok": True}
+
+
+def test_district_admin_only_sees_and_manages_their_district(world):
+    _, other_admin = _user(f"j_oadm_{RUN}", "admin")
+    db = SessionLocal()
+    elsewhere = client.post(f"{API}/jurisdictions", headers=world["admin"], json={
+        "code": f"X-{RUN}", "name_en": "Other district", "level": "district", "geojson": box(91.0, 24.0, 91.1, 24.1)}).json()
+    db.close()
+    # national admin makes a district admin for the test district
+    r = client.post(f"{API}/auth/users", headers=world["admin"], json={
+        "username": f"j_dadm_{RUN}", "email": f"j_dadm_{RUN}@t.local", "password": "Str0ng-pass-123!", "role": "admin",
+        "scope_jurisdiction_id": world["dist"]["id"]})
+    assert r.status_code == 200, r.text
+    from backend.auth.auth import issue_token
+    db = SessionLocal()
+    dadm = {"Authorization": f"Bearer {issue_token(db.get(User, r.json()['id']))}"}
+    db.close()
+    visible = {u["username"] for u in client.get(f"{API}/auth/users", headers=dadm).json()}
+    assert f"j_a_free_{RUN}" in visible and f"j_b_{RUN}" in visible               # officers of its thanas
+    assert f"j_oadm_{RUN}" not in visible and f"j_admin_{RUN}" not in visible       # national accounts
+    made = client.post(f"{API}/auth/users", headers=dadm, json={
+        "username": f"j_dop_{RUN}", "email": f"j_dop_{RUN}@t.local", "password": "Str0ng-pass-123!", "role": "operator"}).json()
+    assert made["scope_jurisdiction_id"] == world["dist"]["id"]                     # inherits the district
+    assert client.post(f"{API}/auth/users", headers=dadm, json={
+        "username": f"j_dx_{RUN}", "email": f"j_dx_{RUN}@t.local", "password": "Str0ng-pass-123!", "role": "operator",
+        "scope_jurisdiction_id": elsewhere["id"]}).status_code == 403
+    assert client.patch(f"{API}/auth/users/{made['id']}", headers=dadm, json={"scope_jurisdiction_id": None}).status_code == 403
+    # a district operator sees only incidents of the district
+    db = SessionLocal()
+    dop = {"Authorization": f"Bearer {issue_token(db.get(User, made['id']))}"}
+    db.close()
+    out = client.post(f"{API}/incidents/", headers=world["op"], json={"title": f"Far away {RUN}", "priority": "low"}).json()
+    listed = client.get(f"{API}/incidents/?limit=200", headers=dop).json()
+    ids = {i["id"] for i in (listed["items"] if isinstance(listed, dict) else listed)}
+    assert world["inc"]["id"] in ids and out["id"] not in ids
+    assert client.get(f"{API}/incidents/{out['id']}", headers=dop).status_code == 404

@@ -20,11 +20,67 @@ def plausible_plate(plate: str) -> bool:
     return MIN_PLATE_LEN <= len(plate) <= MAX_PLATE_LEN and any(c.isdigit() for c in plate)
 
 
+class PlateDetector:
+    """YOLO plate detector (one class: plate), run on a vehicle crop. Weights from training/
+    (models/plate_yolo.pt); without them the recogniser falls back to OCR over the whole crop."""
+
+    def __init__(self, model_path: str, conf: float = 0.35, device: str = "cpu"):
+        from ultralytics import YOLO
+
+        from core.detectors.device import lock_for, read_boxes
+        self._read_boxes = read_boxes
+        self.model = YOLO(model_path)
+        self.conf = conf
+        self.device = device
+        self._lock = lock_for(device)
+
+    def detect(self, roi) -> list:
+        with self._lock:
+            res = self.model(roi, conf=self.conf, verbose=False, device=self.device)
+            boxes = self._read_boxes(res)
+        return [((int(x1), int(y1), int(x2), int(y2)), float(c)) for x1, y1, x2, y2, c, _ in boxes]
+
+
+def prepare_plate(crop):
+    """Plate crop → OCR input: at least 64 px tall, grey, contrast-equalised (night, glare)."""
+    import cv2
+    h = crop.shape[0]
+    if h and h < 64:
+        f = 64 / h
+        crop = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC)
+    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(grey)
+
+
+def join_lines(reads) -> tuple:
+    """Bangladeshi plates have two lines (city-class over the number): order the OCR fragments
+    top-to-bottom, left-to-right and join them. reads: [(bbox_points, text, conf)]."""
+    if not reads:
+        return "", 0.0
+    boxes = []
+    for r in reads:
+        ys = [p[1] for p in r[0]]
+        xs = [p[0] for p in r[0]]
+        boxes.append(((min(ys) + max(ys)) / 2, max(1.0, max(ys) - min(ys)), min(xs), r))
+    boxes.sort(key=lambda b: b[0])
+    lines, last = [], None
+    for cy, hgt, x, r in boxes:           # a new line starts half a text-height below the last
+        if last is None or cy - last > 0.5 * hgt:
+            lines.append([])
+            last = cy
+        lines[-1].append((x, r))
+    ordered = [r for line in lines for _, r in sorted(line, key=lambda t: t[0])]
+    text = "".join(normalize_plate(t) for _, t, _ in ordered)
+    conf = min(float(c) for _, _, c in ordered)
+    return text, conf
+
+
 class LicensePlateRecognizer:
-    def __init__(self, languages: list = None, gpu: bool = False):
+    def __init__(self, languages: list = None, gpu: bool = False, plate_detector: "PlateDetector" = None):
         self.languages = languages or ["en"]
         self.gpu = gpu
         self._reader = None
+        self.plate_detector = plate_detector
 
     @property
     def reader(self):
@@ -34,6 +90,28 @@ class LicensePlateRecognizer:
         return self._reader
 
     def detect_plates(self, roi):
+        if self.plate_detector is not None:
+            return self._detect_with_detector(roi)
+        return self._ocr_whole(roi)
+
+    def _detect_with_detector(self, roi):
+        plates = []
+        h, w = roi.shape[:2]
+        for (x1, y1, x2, y2), det_conf in self.plate_detector.detect(roi):
+            px, py = int((x2 - x1) * 0.06), int((y2 - y1) * 0.1)
+            x1, y1, x2, y2 = max(0, x1 - px), max(0, y1 - py), min(w, x2 + px), min(h, y2 + py)
+            crop = roi[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+            reads = [r for r in self.reader.readtext(prepare_plate(crop)) if r[2] >= 0.2]
+            text, conf = join_lines(reads)
+            if not plausible_plate(text):
+                continue
+            plates.append({"bbox": (x1, y1, x2, y2), "plate_number": text,
+                           "confidence": round(conf * det_conf, 4)})
+        return plates
+
+    def _ocr_whole(self, roi):
         results = self.reader.readtext(roi)
         plates = []
         for bbox, text, conf in results:

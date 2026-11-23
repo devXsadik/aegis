@@ -119,3 +119,30 @@ def test_digital_ptz_moves_zooms_saves_presets_and_goes_home():
     from backend.services import ptz
     frame = np.full((480, 640, 3), 50, np.uint8)
     assert ptz.apply_digital_crop(frame, cam).shape == frame.shape                 # zoomed crop, same size
+
+
+def test_ptz_settings_persist_and_follow_gates_the_tracker():
+    from backend.services import ptz
+    admin, op = _auth("admin"), _auth("operator")
+    cam = "ptz_follow_cam"
+    r = client.post(f"/api/v1/vms/ptz/{cam}/onvif", headers=admin,
+                    json={"host": "http://192.0.2.10", "username": "ptz", "password": "s3cret-pw"})
+    assert r.status_code == 200 and r.json()["onvif"]["configured"]
+    move = {"action": "move", "pan": 0.5, "tilt": 0, "zoom": 0}
+    assert client.post(f"/api/v1/vms/ptz/{cam}/track", headers=KEY, json=move).json() == {"following": False}
+    assert client.post(f"/api/v1/vms/ptz/{cam}/track", json=move).status_code in (401, 403)
+    assert client.post(f"/api/v1/vms/ptz/{cam}/follow", headers=op, json={"enabled": True}).json()["follow"] is True
+    ptz._states.clear()
+    ptz._loaded.clear()                                          # a restart, or another API worker
+    st = client.get(f"/api/v1/vms/ptz/{cam}", headers=op).json()
+    assert st["follow"] is True and st["onvif"]["host"] == "http://192.0.2.10"
+    assert ptz.get_state(cam).onvif_pass == "s3cret-pw"
+    from backend.db.database import SessionLocal
+    from backend.models.config_entry import ConfigEntry
+    db = SessionLocal()
+    raw = db.query(ConfigEntry).filter(ConfigEntry.key == f"ptz:{cam}").first().value
+    db.close()
+    assert "s3cret-pw" not in raw                                # password is sealed at rest
+    out = client.post(f"/api/v1/vms/ptz/{cam}/track", headers=KEY, json=move).json()
+    assert out == {"following": True, "action": "move"}
+    client.post(f"/api/v1/vms/ptz/{cam}/follow", headers=op, json={"enabled": False})

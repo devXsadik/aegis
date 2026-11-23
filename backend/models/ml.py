@@ -7,7 +7,7 @@ from sqlalchemy.sql import func
 
 from backend.db.database import Base
 
-TASKS = ("vehicle_detect", "vehicle_attr", "vehicle_reid", "face")
+TASKS = ("vehicle_detect", "vehicle_attr", "vehicle_reid", "face", "plate_detect", "weapon_detect")
 SPLITS = ("train", "val", "test")
 
 
@@ -64,7 +64,7 @@ class ModelVersion(Base):
     labels_path = Column(String(400), nullable=True)
     format = Column(String(10), nullable=False, default="onnx")      # onnx | pt | engine
     sha256 = Column(String(64), nullable=True)
-    stage = Column(String(12), nullable=False, default="staging", server_default="staging", index=True)  # staging|production|archived
+    stage = Column(String(12), nullable=False, default="staging", server_default="staging", index=True)  # staging|shadow|production|archived
     notes = Column(Text, nullable=True)
     created_by = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

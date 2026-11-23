@@ -112,3 +112,39 @@ def test_backup_endpoints_are_admin_only(admin, monkeypatch, tmp_path):
     listed = client.get("/api/v1/system/backups", headers=admin).json()
     assert listed["backups"][0]["name"] == made["name"] and listed["keep"] == 7
     assert client.get("/api/v1/system/backups").status_code == 401
+
+
+def test_backup_is_copied_offsite_sealed(monkeypatch, tmp_path):
+    import io
+    import tarfile
+    from backend.services import blobstore
+    from backend.utils.at_rest import unseal
+    init_db()
+    puts = []
+
+    class S3:
+        def put_object(self, **kw):
+            puts.append(kw)
+    blobstore.set_client(S3())
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("BACKUP_S3_BUCKET", "aegis-backups")
+    try:
+        info = backup.run_backup(keep=2)
+    finally:
+        blobstore.set_client(None)
+    assert info["offsite"]["ok"] and puts[0]["Bucket"] == "aegis-backups"
+    assert puts[0]["Key"].startswith(f"backups/{info['name']}.tar.gz")
+    raw = unseal(puts[0]["Body"], info["offsite"]["encrypted"])
+    names = tarfile.open(fileobj=io.BytesIO(raw)).getnames()
+    assert f"{info['name']}/aegis.db" in names and f"{info['name']}/backup.json" in names
+
+
+def test_production_checks_list_what_is_missing(monkeypatch):
+    from backend.main import _production_checks
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    assert _production_checks() == []
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    for k in ("REDIS_URL", "BACKUP_S3_BUCKET", "SENTRY_DSN", "METRICS_TOKEN", "EVIDENCE_STORE"):
+        monkeypatch.delenv(k, raising=False)
+    out = " ".join(_production_checks())
+    assert "REDIS_URL" in out and "EVIDENCE_STORE" in out and "BACKUP_S3_BUCKET" in out

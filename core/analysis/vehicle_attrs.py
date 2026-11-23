@@ -105,13 +105,19 @@ def _net(name: str):
         return None
 
 
-@lru_cache(maxsize=1)
-def _attr_labels() -> Optional[dict]:
-    path = os.path.join(MODELS, "vehicle_attr.labels.json")
+@lru_cache(maxsize=2)
+def _attr_labels(folder: str = "") -> Optional[dict]:
+    path = os.path.join(MODELS, folder, "vehicle_attr.labels.json")
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+@lru_cache(maxsize=1)
+def _shadow_net():
+    """Candidate model in models/shadow/ (backend/services/ml.start_shadow), or None."""
+    return _net.__wrapped__(os.path.join("shadow", "vehicle_attr.onnx"))
 
 
 def _blob(crop: np.ndarray, size: int, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)) -> np.ndarray:
@@ -129,18 +135,34 @@ def classify(crop: np.ndarray, detector_class: Optional[str] = None, det_conf: O
     """{'vehicle_type', 'color', 'make_model', 'confidences', 'is_night', 'model'}."""
     night = is_night(crop)
     net, labels = _net("vehicle_attr.onnx"), _attr_labels()
-    if net is not None and labels:
-        net.setInput(_blob(crop, int(labels.get("input_size", 224))))
-        heads = labels["heads"]                                     # [{"name": "color", "classes": [...]}, ...]
-        outs = net.forward([h["output"] for h in heads])
-        out = {"confidences": {}, "is_night": night, "model": labels.get("version", "vehicle_attr")}
-        for head, logits in zip(heads, outs):
-            p = _softmax(np.asarray(logits).ravel())
-            k = int(np.argmax(p))
-            key = {"color": "color", "type": "vehicle_type", "model": "make_model"}[head["name"]]
-            out[key] = head["classes"][k]
-            out["confidences"][head["name"]] = float(p[k]) * (0.5 if night and head["name"] == "color" else 1.0)
-        return out
+    out = _run_attr(net, labels, crop, night) if net is not None and labels else None
+    if out is None:
+        out = _baseline(crop, night, detector_class, det_conf)
+    snet, slabels = _shadow_net(), _attr_labels("shadow")
+    if snet is not None and slabels:
+        try:
+            from core.analysis import shadow
+            shadow.record("vehicle_attr", out, _run_attr(snet, slabels, crop, night))
+        except Exception:                                           # a broken candidate never hurts live
+            pass
+    return out
+
+
+def _run_attr(net, labels: dict, crop: np.ndarray, night: bool) -> dict:
+    net.setInput(_blob(crop, int(labels.get("input_size", 224))))
+    heads = labels["heads"]                                         # [{"name": "color", "classes": [...]}, ...]
+    outs = net.forward([h["output"] for h in heads])
+    out = {"confidences": {}, "is_night": night, "model": labels.get("version", "vehicle_attr")}
+    for head, logits in zip(heads, outs):
+        p = _softmax(np.asarray(logits).ravel())
+        k = int(np.argmax(p))
+        key = {"color": "color", "type": "vehicle_type", "model": "make_model"}[head["name"]]
+        out[key] = head["classes"][k]
+        out["confidences"][head["name"]] = float(p[k]) * (0.5 if night and head["name"] == "color" else 1.0)
+    return out
+
+
+def _baseline(crop, night, detector_class, det_conf) -> dict:
     color, share = dominant_color(crop)
     vtype, tconf = type_from_detector(detector_class, det_conf)
     return {"vehicle_type": vtype, "color": color, "make_model": None, "is_night": night, "model": "baseline-v1",

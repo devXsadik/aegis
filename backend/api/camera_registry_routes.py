@@ -151,8 +151,8 @@ def camera_health(cam: Camera, beat: Optional[dict]) -> dict:
 
 @router.get("/health")
 def health(db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
-    from backend.api.system_routes import _pipeline_status
-    beats = _pipeline_status.get("cameras", {})
+    from backend.api.system_routes import pipeline_cameras
+    beats = pipeline_cameras()
     cams = db.query(Camera).order_by(Camera.name).all()
     rows = [camera_health(c, beats.get(c.camera_id)) for c in cams]
     changed = False

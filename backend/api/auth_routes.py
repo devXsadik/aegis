@@ -63,6 +63,7 @@ class UserCreate(BaseModel):
 
     role: str = "viewer"
     phone: Optional[str] = None
+    scope_jurisdiction_id: Optional[int] = None      # district / area administration; None = national
 
 
 class UserResponse(BaseModel):
@@ -74,6 +75,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     totp_enabled: bool = False
     mfa_setup_required: bool = False
+    scope_jurisdiction_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -130,6 +132,25 @@ def logout(response: Response):
     return {"status": "signed_out"}
 
 
+def _allowed_scope(db: Session, admin: User, requested: Optional[int], default_to_own: bool) -> Optional[int]:
+    """A district admin can only create / move accounts inside their own district."""
+    from backend.services import scope
+    if requested is not None:
+        from backend.models.jurisdiction import Jurisdiction
+        if not db.get(Jurisdiction, requested):
+            raise HTTPException(status_code=400, detail="Unknown area")
+    own = scope.area_ids(db, admin)
+    if own is None:
+        return requested
+    if requested is None:
+        if default_to_own:
+            return admin.scope_jurisdiction_id
+        raise HTTPException(status_code=403, detail="A district administrator cannot make an account national")
+    if requested not in own:
+        raise HTTPException(status_code=403, detail="That area is outside your district")
+    return requested
+
+
 @router.post("/users", response_model=UserResponse)
 def create_user(req: UserCreate, request: Request, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
     if req.role not in VALID_ROLES:
@@ -142,12 +163,14 @@ def create_user(req: UserCreate, request: Request, db: Session = Depends(get_db)
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username or email already exists")
+    scope_id = _allowed_scope(db, admin, req.scope_jurisdiction_id, default_to_own=True)
     user = User(
         username=req.username,
         email=req.email,
         hashed_password=hash_password(req.password),
         role=req.role,
         phone=(req.phone or "").strip() or None,
+        scope_jurisdiction_id=scope_id,
     )
     db.add(user)
     db.flush()
@@ -197,6 +220,7 @@ class UserPatch(BaseModel):
     is_active: Optional[bool] = None
     phone: Optional[str] = None
     new_password: Optional[str] = None
+    scope_jurisdiction_id: Optional[int] = None
     reset_2fa: Optional[bool] = None        # lost phone: turn two-factor off so they can set it up again
 
     @field_validator("new_password")
@@ -208,10 +232,14 @@ class UserPatch(BaseModel):
 @router.patch("/users/{user_id}", response_model=UserResponse)
 def update_user(user_id: int, body: UserPatch, request: Request, db: Session = Depends(get_db),
                 admin: User = Depends(admin_only)):
+    from backend.services import scope
     target = db.query(User).filter(User.id == user_id).first()
-    if not target:
+    if not target or not scope.user_in_scope(db, admin, target):
         raise HTTPException(status_code=404, detail="User not found")
     changes = body.model_dump(exclude_unset=True)
+    if "scope_jurisdiction_id" in changes:
+        target.scope_jurisdiction_id = _allowed_scope(db, admin, changes["scope_jurisdiction_id"], default_to_own=False)
+        revoke_tokens(target)
     if "role" in changes and changes["role"] not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role. Allowed: {', '.join(sorted(VALID_ROLES))}")
     if target.id == admin.id and (changes.get("is_active") is False or changes.get("role", "admin") != "admin"):
@@ -332,5 +360,6 @@ def list_assignees(db: Session = Depends(get_db), user: User = Depends(operator_
 
 @router.get("/users", response_model=list[UserResponse])
 def list_users(db: Session = Depends(get_db), admin: User = Depends(admin_only)):
-    return db.query(User).all()
+    from backend.services import scope
+    return [u for u in db.query(User).all() if scope.user_in_scope(db, admin, u)]
 

@@ -183,7 +183,7 @@ def command_map(jurisdiction_id: Optional[int] = None, hours: float = 2.0, db: S
     from datetime import timedelta as _td
 
     from backend.api.camera_registry_routes import camera_health
-    from backend.api.system_routes import _pipeline_status
+    from backend.api.system_routes import pipeline_cameras
     from backend.models.alert import Alert
     from backend.models.bolo import Bolo, BoloCamera
     from backend.models.jurisdiction import OfficerProfile
@@ -202,7 +202,7 @@ def command_map(jurisdiction_id: Optional[int] = None, hours: float = 2.0, db: S
                 jid = f.id if f else None
             if jid in inside:
                 keep.add(c.camera_id)
-    beats = _pipeline_status.get("cameras", {})
+    beats = pipeline_cameras()
     lookout = {cid for (cid,) in db.query(BoloCamera.camera_id).join(Bolo).filter(Bolo.status == "active")}
     cam_rows = []
     pos = {}

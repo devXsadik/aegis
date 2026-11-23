@@ -167,9 +167,16 @@ def _is_command(user: User) -> bool:
 
 
 def _scope(db: Session, q, user: User):
-    """Police see incidents in their areas, on their cameras, or assigned to them. Others: all."""
+    """Police see incidents in their areas, on their cameras, or assigned to them. District users
+    (scope_jurisdiction_id) see their district's incidents and those assigned to them. Others: all."""
     if user.role != "police":
-        return q
+        from backend.services import scope
+        areas = scope.area_ids(db, user)
+        if areas is None:
+            return q
+        mine = db.query(IncidentAssignment.incident_id).filter(IncidentAssignment.user_id == user.id)
+        return q.filter(or_(Incident.jurisdiction_id.in_(sorted(areas)), Incident.assigned_to == user.id,
+                            Incident.id.in_(mine)))
     areas = jsvc.officer_area_ids(db, user.id)
     cams = jsvc.officer_camera_ids(db, user.id)
     mine = db.query(IncidentAssignment.incident_id).filter(IncidentAssignment.user_id == user.id)

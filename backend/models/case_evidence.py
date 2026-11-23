@@ -110,3 +110,19 @@ class GroupOperation(Base):
     actor = Column(String(80), nullable=True)
     details = Column(Text, nullable=True)
     at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvidencePerson(Base):
+    """A person seen in a case's evidence file, with clothing colours, for "find the man in the red
+    shirt" inside that case. Only evidence attached to an incident is indexed — never live video."""
+    __tablename__ = "evidence_persons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("evidence_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    t_seconds = Column(Float, nullable=True)                  # video offset; None for a photo
+    bbox = Column(String(60), nullable=False)                 # x1,y1,x2,y2 in the frame
+    upper_color = Column(String(12), nullable=True, index=True)
+    lower_color = Column(String(12), nullable=True, index=True)
+    crop = Column(LargeBinary, nullable=True)                 # small JPEG, sealed like the evidence
+    crop_encrypted = Column(Boolean, nullable=False, default=False, server_default="0")

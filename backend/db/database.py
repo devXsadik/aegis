@@ -139,7 +139,7 @@ Base = declarative_base()
 def init_db():
     from backend.models import (
         user, face_encoding, evidence, audit_log, known_person, person_image,
-        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction, watchlist, detection, bolo, tracking, case_evidence, ml,
+        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction, watchlist, detection, bolo, tracking, case_evidence, ml, dispatch,
     )
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
@@ -175,6 +175,7 @@ _ADDITIVE_COLUMNS = [
     ("cameras", "geometry_updated_at", "TIMESTAMP"),
     ("face_encodings", "image_id", "INTEGER"),
     ("users", "phone", "VARCHAR(30)"),
+    ("users", "scope_jurisdiction_id", "INTEGER REFERENCES jurisdictions(id) ON DELETE SET NULL"),
     ("users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0"),
     ("users", "locked_until", "TIMESTAMP"),
     ("alerts", "escalated_at", "TIMESTAMP"),

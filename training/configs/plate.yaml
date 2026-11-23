@@ -1,0 +1,8 @@
+# Number-plate detector (one class: plate) on vehicle crops / road scenes from our cameras.
+# Dataset: Models & data → task "Number-plate detector", boxes from CVAT / Label Studio (YOLO export).
+weights: yolov8n.pt      # small objects but one class: nano is enough, fast on CPU
+epochs: 120
+imgsz: 640
+batch: 32
+patience: 30
+seed: 13

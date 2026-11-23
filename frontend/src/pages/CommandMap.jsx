@@ -35,12 +35,45 @@ function cone(lat, lng, heading, fov = 60, r = 0.0012) {
   return pts
 }
 
+/* Follow mode: the camera that last saw the target, then the cameras it should reach next (with the
+   expected arrival window), live. Moves along by itself as the target is seen on the next camera. */
+function FollowWall({ track, online, onClose }) {
+  const mins = (s) => (s == null ? '?' : Math.max(0, Math.round(s / 60)))
+  const tiles = [
+    { camera_id: track.last_camera, name: track.trail?.[track.trail.length - 1]?.label || track.last_camera, role: 'Last seen', when: `${timeAgo(track.last_seen)}` },
+    ...track.predicted.slice(0, 5).map((p) => ({ camera_id: p.camera_id, name: p.name, role: `Next (ring ${p.ring})`,
+      when: p.eta_from_s != null ? `expected in ${mins(p.eta_from_s)}–${mins(p.eta_to_s)} min` : '' })),
+  ].filter((t, i, all) => t.camera_id && all.findIndex((x) => x.camera_id === t.camera_id) === i)
+  return (
+    <section className="follow-wall" aria-label={`Following ${track.label}`}>
+      <header>
+        <div>
+          <h2>Following {track.label}</h2>
+          <span className="meta">{track.direction ? `Moving ${track.direction} · ` : ''}{track.lookout ? `Lookout ${track.lookout} · ` : ''}updates by itself when the target is seen again</span>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={onClose}><Icons.close /> Stop following</button>
+      </header>
+      <div className="follow-tiles">
+        {tiles.map((t, i) => (
+          <figure key={t.camera_id} className={`follow-tile ${i === 0 ? 'main' : ''}`}>
+            {online.has(t.camera_id)
+              ? <img src={liveStreamUrl(t.camera_id)} alt={`Live view from ${t.name}`} />
+              : <div className="follow-off"><Icons.camera /><span>No live video from this camera</span></div>}
+            <figcaption><Badge tone={i === 0 ? 'danger' : 'orange'} size="sm">{t.role}</Badge> <b>{t.name}</b> <span className="muted">{t.when}</span></figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function CommandMap({ ctx }) {
   const host = useRef(null)
   const map = useRef(null)
   const layers = useRef({})
   const fitted = useRef(false)
   const [data, setData] = useState(null)
+  const [following, setFollowing] = useState(null)        // track id shown on the video wall
   const [error, setError] = useState('')
   const [areas, setAreas] = useState([])
   const [area, setArea] = useState('')
@@ -151,6 +184,10 @@ export function CommandMap({ ctx }) {
         )}
       </div>
       {error && <ErrorState compact message={error} onRetry={() => setTick((n) => n + 1)} />}
+      {following && data?.tracks.find((t) => t.id === following) && (
+        <FollowWall track={data.tracks.find((t) => t.id === following)} onClose={() => setFollowing(null)}
+          online={new Set(data.cameras.filter((c) => c.status === 'online').map((c) => c.camera_id))} />
+      )}
       <div className="cmd-grid">
         <div ref={host} className="cmd-map" role="application" aria-label="Command map" />
         <aside className="cmd-side">
@@ -179,6 +216,10 @@ export function CommandMap({ ctx }) {
                   <div className="wl-main">
                     <div className="wl-title"><b>{t.label}</b>{t.verified ? <Badge tone="danger" size="sm">Confirmed</Badge> : <Badge tone="warn" size="sm">Unverified</Badge>}{t.direction && <Badge tone="cyan" size="sm">{ARROW[t.direction]} {t.direction}</Badge>}</div>
                     <div className="meta">Last {t.last_camera} · {timeAgo(t.last_seen)}{t.predicted.length ? ` · next: ${t.predicted.map((p) => p.name).slice(0, 3).join(', ')}` : ''}</div>
+                  </div>
+                  <div className="wl-actions">
+                    <button type="button" className={`btn btn-sm ${following === t.id ? '' : 'btn-primary'}`} aria-pressed={following === t.id}
+                      onClick={() => setFollowing(following === t.id ? null : t.id)}>{following === t.id ? 'Following' : 'Follow on video'}</button>
                   </div>
                 </li>
               ))}

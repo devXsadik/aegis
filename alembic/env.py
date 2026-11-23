@@ -8,6 +8,7 @@ from backend.db.database import Base
 from backend.models import (  # noqa: F401
     user, face_encoding, evidence, audit_log, known_person, person_image,
     camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan,
+    jurisdiction, watchlist, detection, bolo, tracking, case_evidence, ml, dispatch,
 )
 
 config = context.config

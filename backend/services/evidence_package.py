@@ -23,6 +23,8 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from backend.models.user import User
+
 NEAR_ALERT = timedelta(minutes=2)        # stills from the alert's camera this close to it
 VIDEO_AROUND = timedelta(seconds=60)     # recordings covering this window around the alert
 MAX_STILLS = 20
@@ -52,6 +54,52 @@ def _jpeg(ev, data: Optional[bytes]) -> Optional[bytes]:
         from backend.utils.encryption import EncryptionManager
         return EncryptionManager().decrypt(data)
     return data
+
+
+MAX_ITEMS = 200
+
+
+def _thumb(data: bytes) -> Optional[bytes]:
+    """Small JPEG for the report (identification only; the original is in the package)."""
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        s = 480 / max(h, w)
+        if s < 1:
+            img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
+    except Exception:
+        return None
+
+
+def _case_report(db: Session, inc, alert, stills: dict, items_info: list, actor) -> bytes:
+    from backend.models.custody import CustodyRecord
+    from backend.models.dispatch import IncidentMessage
+    from backend.models.incident import IncidentAssignment
+    from backend.models.jurisdiction import Jurisdiction, OfficerProfile
+    from backend.services import case_report, reports
+    from clock import utcnow
+    events = sorted(inc.events, key=lambda e: e.created_at or inc.created_at)
+    officers = []
+    for a in db.query(IncidentAssignment).filter(IncidentAssignment.incident_id == inc.id).order_by(IncidentAssignment.assigned_at):
+        u, p = db.get(User, a.user_id), db.get(OfficerProfile, a.user_id)
+        officers.append({"name": (p.full_name if p and p.full_name else (u.username if u else a.user_id)),
+                         "rank": p.rank if p else None, "badge_no": p.badge_no if p else None, "state": a.state,
+                         "assigned_at": a.assigned_at, "out_of_area": a.out_of_area})
+    area = db.get(Jurisdiction, inc.jurisdiction_id) if inc.jurisdiction_id else None
+    still_rows = [{"id": e.id, "time": e.timestamp, "camera": e.camera_location, "sha256": e.content_sha256,
+                   "records": db.query(CustodyRecord).filter(CustodyRecord.evidence_id == e.id).count()} for e in stills.values()]
+    return case_report.build_pdf({
+        "incident": inc, "alert": alert, "events": events, "notes": sorted(inc.notes, key=lambda n: n.created_at or inc.created_at),
+        "messages": db.query(IncidentMessage).filter(IncidentMessage.incident_id == inc.id).order_by(IncidentMessage.created_at).all(),
+        "officers": officers, "stages": reports.stage_times(inc, events), "area": area.name_en if area else None,
+        "stills": still_rows, "items": items_info, "actor": actor.username, "made": utcnow(),
+    })
 
 
 def build_package(db: Session, incident_id: int, actor) -> tuple[str, bytes]:
@@ -125,6 +173,35 @@ def build_package(db: Session, incident_id: int, actor) -> tuple[str, bytes]:
                          "details": c.details} for c in chain],
         }, indent=2).encode()
 
+    # Case evidence (uploads, field photos, system snapshots): original files + custody chain.
+    from backend.models.case_evidence import EvidenceItem
+    from backend.services import case_evidence as cev
+    items_info = []
+    for item in (db.query(EvidenceItem).filter(EvidenceItem.incident_id == inc.id, EvidenceItem.deleted_at.is_(None))
+                 .order_by(EvidenceItem.uploaded_at).limit(MAX_ITEMS)):
+        try:
+            data = cev.read(item)
+        except Exception:
+            data = None
+        ext = (item.original_filename or "").rsplit(".", 1)[-1][:8] if "." in (item.original_filename or "") else "bin"
+        if data is not None:
+            files[f"case_evidence/{item.ref}.{ext}"] = data
+        cev.custody(db, item, "EXPORTED", actor, f"evidence package {inc.ticket_id}")
+        check = cev.verify_chain(db, item)
+        chain = db.query(cev.EvidenceItemCustody).filter(cev.EvidenceItemCustody.item_id == item.id).order_by(cev.EvidenceItemCustody.id).all()
+        files[f"case_evidence/{item.ref}.json"] = json.dumps({
+            "ref": item.ref, "kind": item.kind, "filename": item.original_filename, "content_type": item.content_type,
+            "description": item.description, "location": item.location, "captured_at": _iso(item.captured_at),
+            "uploaded_at": _iso(item.uploaded_at), "sha256": item.sha256, "file_present": data is not None,
+            "custody": [{"at": _iso(c.at), "action": c.action, "actor": c.actor, "sha256": c.sha256,
+                         "prev_hash": c.prev_hash, "record_hash": c.record_hash, "details": c.details} for c in chain],
+        }, indent=2).encode()
+        uploader = db.get(User, item.uploaded_by) if item.uploaded_by else None
+        items_info.append({"ref": item.ref, "kind": item.kind, "filename": item.original_filename, "description": item.description,
+                           "uploaded_at": item.uploaded_at, "by": uploader.username if uploader else None, "sha256": item.sha256,
+                           "chain_ok": bool(check.get("chain_ok")) and bool(check.get("file_ok")), "records": check.get("records", 0),
+                           "thumb": _thumb(data) if data is not None and item.kind == "image" else None})
+
     caps = db.query(AlertCapture)
     caps = caps.filter(AlertCapture.alert_id == alert.id) if alert else caps.filter(False)
     for c in caps.order_by(AlertCapture.timestamp).limit(MAX_STILLS):
@@ -145,13 +222,17 @@ def build_package(db: Session, incident_id: int, actor) -> tuple[str, bytes]:
             if path.exists():
                 files[f"video/{path.name}"] = path.read_bytes()
 
+    files["CASE_REPORT.pdf"] = _case_report(db, inc, alert, stills, items_info, actor)
     manifest = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(files.items())).encode()
     made = utcnow()
     readme = (
         f"Evidence package {inc.ticket_id} — {inc.title}\n"
         f"Exported {made.isoformat()}Z by {actor.username}.\n\n"
         f"{len(stills)} still(s), {sum(n.startswith('captures/') for n in files)} capture(s), "
-        f"{sum(n.startswith('video/') for n in files)} recording(s).\n\n"
+        f"{sum(n.startswith('video/') for n in files)} recording(s), "
+        f"{sum(n.startswith('case_evidence/') and not n.endswith('.json') for n in files)} case evidence file(s).\n"
+        "CASE_REPORT.pdf: the case for court — summary, response times, officers, evidence with SHA-256\n"
+        "and custody-chain check, messages, notes and the full timeline.\n\n"
         "Check that nothing was changed:\n"
         "  1. In this folder run:  sha256sum -c MANIFEST.sha256   (every line must say OK)\n"
         "  2. SIGNATURE.txt is an HMAC-SHA256 of MANIFEST.sha256 made with this system's key; upload the\n"

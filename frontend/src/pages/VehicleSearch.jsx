@@ -1,7 +1,7 @@
 /* Vehicle Search (spec 7.6): recent detections by partial plate, type, colour, make/model, area,
    cameras and time — or by photo (re-ID). Every search needs a reason and is audit-logged. From a
    result: view on map, open an incident, or start a live lookout for the area. */
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Card, Icons, Modal, Seg, timeAgo } from '../components/ui'
 import { Badge, EmptyState, ErrorState, SkeletonList } from '../components/ds'
 import {
@@ -9,6 +9,7 @@ import {
   searchVehiclesByPhoto, startLookout,
 } from '../services/api'
 import { useToast } from '../components/Toast'
+import { fetchRegistryStatus, registryLookup } from '../services/api'
 import { parseTs } from '../lib/time'
 
 const pct = (v) => (v == null ? '' : `${Math.round(v * 100)}%`)
@@ -101,6 +102,49 @@ function ResultCard({ d, onMap, onIncident, onLookout }) {
   )
 }
 
+const REG_LABEL = {
+  registered_owner: 'Registered owner', vehicle_class: 'Class', make: 'Make', model: 'Model', colour: 'Colour', year: 'Year',
+  registration_valid_until: 'Registration valid until', fitness_valid_until: 'Fitness valid until',
+  tax_token_valid_until: 'Tax token valid until',
+}
+
+/* Owner and registration from the vehicle registry (BRTA). Shown only when a registry is connected
+   and the role may use it; each lookup needs a reason and a case number and is audit-logged. */
+function RegistryLookup() {
+  const [status, setStatus] = useState(null)
+  const [f, setF] = useState({ plate: '', reason: '', caseRef: '' })
+  const [res, setRes] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { fetchRegistryStatus().then(setStatus).catch(() => setStatus(null)) }, [])
+  if (!status?.configured || !status.allowed) return null
+  const go = async (e) => {
+    e.preventDefault()
+    setBusy(true); setErr(''); setRes(null)
+    try { setRes(await registryLookup(f.plate.trim(), f.reason.trim(), f.caseRef.trim())) } catch (x) { setErr(x.message || 'Lookup failed') } finally { setBusy(false) }
+  }
+  const ready = f.plate.trim().length >= 3 && f.reason.trim().length >= 10 && f.caseRef.trim().length >= 3
+  return (
+    <Card title="Registration lookup (BRTA)" sub="Owner and papers of a plate, for an open case. Reason and case number are logged; the answer is not stored" className="mb">
+      <form className="vs-reg" onSubmit={go}>
+        <label className="field">Plate<input className="input" lang="bn" value={f.plate} onChange={(e) => setF({ ...f, plate: e.target.value })} placeholder="ঢাকা মেট্রো-গ ১১-২২৩৩" /></label>
+        <label className="field">Case / GD / FIR number<input className="input" value={f.caseRef} onChange={(e) => setF({ ...f, caseRef: e.target.value })} placeholder="Gulshan GD 1234/26" /></label>
+        <label className="field vs-reg-wide">Reason (at least 10 characters)<input className="input" value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="Vehicle seen leaving the robbery scene" /></label>
+        <div><button type="submit" className="btn btn-primary" disabled={!ready || busy}>{busy ? 'Looking up…' : 'Look up'}</button></div>
+      </form>
+      {err && <p className="msg-err" role="alert">{err}</p>}
+      {res && !res.found && <p className="muted" role="status">{res.plate} is not in the registry.</p>}
+      {res?.found && (
+        <dl className="vs-reg-out" aria-label={`Registry record for ${res.plate}`}>
+          <dt>Plate</dt><dd className="plate-chip" lang="bn">{res.plate}</dd>
+          {Object.entries(REG_LABEL).filter(([k]) => res.record[k] != null).map(([k, l]) => (<Fragment key={k}><dt>{l}</dt><dd>{String(res.record[k])}</dd></Fragment>))}
+          {res.record.reported_stolen && <><dt>Status</dt><dd><Badge tone="danger" size="sm">Reported stolen</Badge></dd></>}
+        </dl>
+      )}
+    </Card>
+  )
+}
+
 export function VehicleSearch({ ctx }) {
   const { push: toast } = useToast()
   const [mode, setMode] = useState('attrs')
@@ -161,6 +205,7 @@ export function VehicleSearch({ ctx }) {
 
   return (
     <div className="vs">
+      <RegistryLookup />
       <Card title="Search vehicles" sub="Only the retention period is searchable. Every search is logged with its reason." className="mb">
         <form onSubmit={run} className="vs-form">
           <Seg value={mode} onChange={(m) => { setMode(m); setRes(null) }} options={[{ value: 'attrs', label: 'By plate / attributes' }, { value: 'photo', label: 'By photo' }]} />

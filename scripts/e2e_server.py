@@ -36,6 +36,7 @@ os.environ.update({
     "LAW_ENFORCEMENT_WEBHOOK": "", "EMERGENCY_WEBHOOK": "", "SECURITY_TEAM_WEBHOOK": "",
     "CAD_WEBHOOK": "", "RADIO_WEBHOOK": "", "SMS_WEBHOOK": "",
     "REDIS_URL": "",
+    "APPEARANCE_INDEX": "false",
     "CORS_ORIGINS": "http://localhost:5174",
     "LOGIN_RATE_LIMIT": "200",              # every e2e test signs in from 127.0.0.1
     "WRITE_RATE_LIMIT": "5000",             # …and all four browsers write from it too

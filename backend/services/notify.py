@@ -77,6 +77,19 @@ def _push(users, priority: str) -> None:
         pass
 
 
+def wake(user_ids) -> None:
+    """Wake these users' phones (web push) without making the notification one that must be
+    acknowledged: for messages from dispatch."""
+    ids = [int(u) for u in user_ids if u]
+    if not ids or os.getenv("WEB_PUSH_ENABLED", "true").lower() == "false":
+        return
+    try:
+        from backend.services import web_push
+        run_async(web_push.notify_users, ids)
+    except Exception:
+        pass
+
+
 def _sms(users, text: str, payload: dict) -> None:
     try:
         from backend.services.officer_dispatch import sms_officers

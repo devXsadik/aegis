@@ -1,8 +1,11 @@
 /* The one place every page is listed: grouped, always the same shape, collapsible to icons.
    Set-up pages sit in a folded group at the bottom so daily work stays in front. */
 import { Icons } from './ui'
+import { useI18n } from '../hooks/useI18n'
 
 export function Sidebar({ groups, page, setPage, badges = {}, alerting, collapsed, onToggleCollapsed, setupOpen, onToggleSetup }) {
+  const { t, lang } = useI18n()
+  const label = (p) => (lang === 'en' ? p.label : t(`nav.${p.id}`))
   const item = (p) => {
     const n = badges[p.id] || 0
     return (
@@ -11,11 +14,11 @@ export function Sidebar({ groups, page, setPage, badges = {}, alerting, collapse
         className={`nav-item ${page === p.id ? 'active' : ''}`}
         aria-current={page === p.id ? 'page' : undefined}
         data-alert-nav={alerting && p.id === 'alerts' ? 'true' : undefined}
-        title={collapsed ? `${p.label}${n ? ` (${n})` : ''}` : p.desc}
+        title={collapsed ? `${label(p)}${n ? ` (${n})` : ''}` : p.desc}
         onClick={() => setPage(p.id)}
       >
         <p.icon />
-        <span className="nav-label">{p.label}</span>
+        <span className="nav-label">{label(p)}</span>
         {n > 0 && <span className="nav-badge" aria-label={`${n} need action`}>{n}</span>}
       </button>
     )
@@ -36,11 +39,11 @@ export function Sidebar({ groups, page, setPage, badges = {}, alerting, collapse
             <div className="nav-group" key={g.group}>
               {setup ? (
                 <button type="button" className="nav-group-label nav-group-toggle" aria-expanded={open} onClick={onToggleSetup}>
-                  <span className="nav-label">{g.group}</span>
+                  <span className="nav-label">{lang === 'en' ? g.group : t(`nav.group.${g.group}`)}</span>
                   <span className={`nav-chevron ${open ? 'open' : ''}`} aria-hidden="true">›</span>
                 </button>
               ) : (
-                <div className="nav-group-label"><span className="nav-label">{g.group}</span></div>
+                <div className="nav-group-label"><span className="nav-label">{lang === 'en' ? g.group : t(`nav.group.${g.group}`)}</span></div>
               )}
               {open && g.pages.map(item)}
             </div>

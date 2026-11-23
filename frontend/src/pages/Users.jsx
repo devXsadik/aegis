@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Card, Icons, Tag, Empty, Modal, timeAgo } from '../components/ui'
-import { fetchUsers, createUser, updateUser } from '../services/api'
+import { fetchUsers, createUser, updateUser, fetchJurisdictions } from '../services/api'
 import { can } from '../lib/permissions'
 
 const ROLE_TONE = { admin: 'danger', supervisor: 'orange', police: 'info', operator: 'ok', investigator: 'purple', viewer: 'muted', ml_engineer: 'purple', auditor: 'muted' }
@@ -19,18 +19,23 @@ const ROLES = [
 export function Users({ ctx }) {
   const { auditLogs, me } = ctx
   const [users, setUsers] = useState(null)
-  const [form, setForm] = useState({ username: '', email: '', password: '', role: 'operator', phone: '' })
+  const [form, setForm] = useState({ username: '', email: '', password: '', role: 'operator', phone: '', scope_jurisdiction_id: '' })
+  const [areas, setAreas] = useState([])
+  useEffect(() => { fetchJurisdictions(false).then((d) => setAreas(Array.isArray(d) ? d : [])).catch(() => {}) }, [])
+  const areaName = (id) => areas.find((a) => a.id === id)?.name_en
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
   const isAdmin = can(me?.role, 'user.manage')
   const [editing, setEditing] = useState(null)       // user being edited
-  const [edit, setEdit] = useState({ role: 'viewer', phone: '', is_active: true, new_password: '' })
+  const [edit, setEdit] = useState({ role: 'viewer', phone: '', is_active: true, new_password: '', scope_jurisdiction_id: '' })
   const [editErr, setEditErr] = useState('')
-  const openEdit = (u) => { setEditing(u); setEdit({ role: u.role, phone: u.phone || '', is_active: u.is_active, new_password: '' }); setEditErr('') }
+  const openEdit = (u) => { setEditing(u); setEdit({ role: u.role, phone: u.phone || '', is_active: u.is_active, new_password: '', scope_jurisdiction_id: u.scope_jurisdiction_id ?? '' }); setEditErr('') }
   const saveEdit = async () => {
     try {
       const patch = { role: edit.role, phone: edit.phone, is_active: edit.is_active }
+      const scope = edit.scope_jurisdiction_id === '' ? null : Number(edit.scope_jurisdiction_id)
+      if (scope !== (editing.scope_jurisdiction_id ?? null)) patch.scope_jurisdiction_id = scope
       if (edit.new_password) patch.new_password = edit.new_password
       await updateUser(editing.id, patch)
       setMsg({ ok: true, text: `User "${editing.username}" updated` })
@@ -49,9 +54,9 @@ export function Users({ ctx }) {
     e.preventDefault()
     setBusy(true); setMsg(null)
     try {
-      await createUser(form)
+      await createUser({ ...form, scope_jurisdiction_id: form.scope_jurisdiction_id === '' ? null : Number(form.scope_jurisdiction_id) })
       setMsg({ ok: true, text: `User "${form.username}" created` })
-      setForm({ username: '', email: '', password: '', role: 'operator', phone: '' })
+      setForm({ username: '', email: '', password: '', role: 'operator', phone: '', scope_jurisdiction_id: '' })
       load()
     } catch (err) {
       setMsg({ ok: false, text: err.message })
@@ -69,13 +74,14 @@ export function Users({ ctx }) {
           {users && users.length > 0 && (
             <div className="table-wrap">
             <table className="table">
-              <thead><tr><th scope="col">User</th><th scope="col">Phone</th><th scope="col">Role</th><th scope="col">Status</th>{isAdmin && <th scope="col"><span className="sr-only">Actions</span></th>}</tr></thead>
+              <thead><tr><th scope="col">User</th><th scope="col">Phone</th><th scope="col">Role</th><th scope="col">Works in</th><th scope="col">Status</th>{isAdmin && <th scope="col"><span className="sr-only">Actions</span></th>}</tr></thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id}>
                     <td className="user-cell"><b>{u.username}</b>{me?.id === u.id && <span className="muted"> (you)</span>}<span className="muted">{u.email}</span></td>
                     <td className="muted mono">{u.phone || '—'}</td>
                     <td><Tag tone={ROLE_TONE[u.role] || 'muted'}>{ROLES.find((r) => r.role === u.role)?.label || u.role}</Tag></td>
+                    <td className="muted">{u.scope_jurisdiction_id ? (areaName(u.scope_jurisdiction_id) || `Area ${u.scope_jurisdiction_id}`) : 'Whole country'}</td>
                     <td><Tag tone={u.is_active ? 'ok' : 'muted'}>{u.is_active ? 'Active' : 'Disabled'}</Tag></td>
                     {isAdmin && <td><button className="btn btn-sm" onClick={() => openEdit(u)}>Edit</button></td>}
                   </tr>
@@ -112,6 +118,13 @@ export function Users({ ctx }) {
               <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 {ROLES.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
               </select>
+            </label>
+            <label className="field">Works in
+              <select className="input" value={form.scope_jurisdiction_id} onChange={(e) => setForm({ ...form, scope_jurisdiction_id: e.target.value })}>
+                <option value="">Whole country (national)</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.name_en}{a.level ? ` (${a.level})` : ''}</option>)}
+              </select>
+              <span className="field-hint">A district account sees and manages only that area's incidents, reports, roster and accounts.</span>
             </label>
             <button className="btn btn-primary" type="submit" disabled={busy}>
               <Icons.users /> {busy ? 'Creating…' : 'Create account'}
@@ -171,6 +184,13 @@ export function Users({ ctx }) {
             </label>
             <label className="field">Phone (SMS alerts for police)
               <input className="input" type="tel" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="+8801XXXXXXXXX" />
+            </label>
+            <label className="field">Works in
+              <select className="input" value={edit.scope_jurisdiction_id} onChange={(e) => setEdit({ ...edit, scope_jurisdiction_id: e.target.value })}>
+                <option value="">Whole country (national)</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.name_en}{a.level ? ` (${a.level})` : ''}</option>)}
+              </select>
+              <span className="field-hint">A district account sees and manages only that area's incidents, reports, roster and accounts.</span>
             </label>
             <label className="field">New password (leave empty to keep the current one)
               <input className="input" type="password" autoComplete="new-password" value={edit.new_password} onChange={(e) => setEdit({ ...edit, new_password: e.target.value })} />

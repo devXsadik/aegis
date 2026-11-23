@@ -8,9 +8,9 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -303,29 +303,37 @@ def segment_thumb(clip_id: int, db: Session = Depends(get_db), user: User = Depe
 # PTZ
 # ---------------------------------------------------------------------------
 
+def _st(db: Session, camera_id: str):
+    return ptz_svc.ensure_loaded(db, camera_id)
+
+
 @router.get("/ptz/{camera_id}")
-def ptz_status(camera_id: str, user: User = Depends(operator_or_admin)):
-    return ptz_svc.state_dict(ptz_svc.get_state(camera_id))
+def ptz_status(camera_id: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    return ptz_svc.state_dict(_st(db, camera_id))
 
 
 @router.post("/ptz/{camera_id}/mode")
-def ptz_mode(camera_id: str, body: PTZMode, user: User = Depends(operator_or_admin)):
+def ptz_mode(camera_id: str, body: PTZMode, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
     try:
         st = ptz_svc.set_mode(camera_id, body.mode)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    ptz_svc.persist(db, st)
+    db.commit()
     return ptz_svc.state_dict(st)
 
 
 @router.post("/ptz/{camera_id}/move")
-def ptz_move(camera_id: str, body: PTZMove, user: User = Depends(operator_or_admin)):
+def ptz_move(camera_id: str, body: PTZMove, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
     st = ptz_svc.continuous_move(camera_id, body.pan, body.tilt, body.zoom)
     return ptz_svc.state_dict(st)
 
 
 @router.post("/ptz/{camera_id}/absolute")
-def ptz_absolute(camera_id: str, body: PTZAbsolute, user: User = Depends(operator_or_admin)):
-    st = ptz_svc.get_state(camera_id)
+def ptz_absolute(camera_id: str, body: PTZAbsolute, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    st = _st(db, camera_id)
     if st.mode == "digital":
         st = ptz_svc.digital_absolute(camera_id, body.pan, body.tilt, body.zoom)
     else:
@@ -340,38 +348,97 @@ def ptz_absolute(camera_id: str, body: PTZAbsolute, user: User = Depends(operato
 
 
 @router.post("/ptz/{camera_id}/stop")
-def ptz_stop(camera_id: str, user: User = Depends(operator_or_admin)):
+def ptz_stop(camera_id: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
     return ptz_svc.state_dict(ptz_svc.stop(camera_id))
 
 
-@router.post("/ptz/{camera_id}/home")
-def ptz_home(camera_id: str, user: User = Depends(operator_or_admin)):
+def _home(camera_id: str):
     st = ptz_svc.get_state(camera_id)
     if st.mode == "digital":
-        return ptz_svc.state_dict(ptz_svc.digital_home(camera_id))
+        return ptz_svc.digital_home(camera_id)
     st.onvif_pan = st.onvif_tilt = st.onvif_zoom = 0.0
     if st.onvif_host:
         try:
             ptz_svc._onvif_absolute(st, 0, 0, 0)
         except Exception as e:
             st.last_error = str(e)
-    return ptz_svc.state_dict(st)
+    return st
+
+
+@router.post("/ptz/{camera_id}/home")
+def ptz_home(camera_id: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
+    return ptz_svc.state_dict(_home(camera_id))
 
 
 @router.post("/ptz/{camera_id}/presets")
-def ptz_save_preset(camera_id: str, body: PTZPreset, user: User = Depends(operator_or_admin)):
-    return ptz_svc.state_dict(ptz_svc.save_preset(camera_id, body.name))
+def ptz_save_preset(camera_id: str, body: PTZPreset, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
+    st = ptz_svc.save_preset(camera_id, body.name)
+    ptz_svc.persist(db, st)
+    db.commit()
+    return ptz_svc.state_dict(st)
 
 
 @router.post("/ptz/{camera_id}/presets/{name}/goto")
-def ptz_goto(camera_id: str, name: str, user: User = Depends(operator_or_admin)):
+def ptz_goto(camera_id: str, name: str, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    _st(db, camera_id)
     try:
         return ptz_svc.state_dict(ptz_svc.goto_preset(camera_id, name))
     except KeyError as e:
         raise HTTPException(404, str(e))
 
 
+class FollowBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/ptz/{camera_id}/follow")
+def ptz_follow(camera_id: str, body: FollowBody, request: Request, db: Session = Depends(get_db),
+               user: User = Depends(operator_or_admin)):
+    """Let the pipeline steer this camera to keep a critical subject in view (logged)."""
+    if user.role not in ("operator", "supervisor", "admin"):
+        raise HTTPException(403, "Only the command centre can hand a camera to the tracker")
+    st = _st(db, camera_id)
+    st.follow = body.enabled
+    if not body.enabled:
+        ptz_svc.stop(camera_id)
+    ptz_svc.persist(db, st)
+    from backend.services.audit import log_audit
+    log_audit(db, user, "PTZ_FOLLOW", "camera", camera_id, "on" if body.enabled else "off", request)
+    db.commit()
+    return ptz_svc.state_dict(st)
+
+
+class TrackCmd(BaseModel):
+    action: str = Field(pattern="^(move|stop|home)$")
+    pan: float = Field(default=0, ge=-1, le=1)
+    tilt: float = Field(default=0, ge=-1, le=1)
+    zoom: float = Field(default=0, ge=-1, le=1)
+
+
+@router.post("/ptz/{camera_id}/track")
+def ptz_track(camera_id: str, body: TrackCmd, db: Session = Depends(get_db),
+              x_internal_key: Optional[str] = Header(default=None, alias="X-Internal-Key")):
+    """From the pipeline's follower (internal key). Ignored unless follow is on for the camera."""
+    verify_internal_key(x_internal_key)
+    st = _st(db, camera_id)
+    if not st.follow:
+        return {"following": False}
+    if body.action == "move":
+        ptz_svc.continuous_move(camera_id, body.pan, body.tilt, body.zoom)
+    elif body.action == "stop":
+        ptz_svc.stop(camera_id)
+    else:
+        _home(camera_id)
+    return {"following": True, "action": body.action}
+
+
 @router.post("/ptz/{camera_id}/onvif")
-def configure_onvif(camera_id: str, body: OnvifConfig, user: User = Depends(admin_only)):
+def configure_onvif(camera_id: str, body: OnvifConfig, db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    _st(db, camera_id)
     st = ptz_svc.configure_onvif(camera_id, body.host, body.username, body.password, body.profile_token)
+    ptz_svc.persist(db, st)
+    db.commit()
     return ptz_svc.state_dict(st)

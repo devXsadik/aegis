@@ -89,8 +89,11 @@ def list_host_cameras() -> list[dict]:
     from urllib.parse import urlsplit
     import urllib.request
     parts = urlsplit(bridge)
+    if parts.scheme not in ("http", "https"):
+        logger.warning(f"LOCAL_CAMERA_URL must be http(s): {parts.scheme}")
+        return []
     try:
-        with urllib.request.urlopen(f"{parts.scheme}://{parts.netloc}/devices", timeout=3) as r:
+        with urllib.request.urlopen(f"{parts.scheme}://{parts.netloc}/devices", timeout=3) as r:  # nosec B310 - scheme checked
             return json.loads(r.read()).get("devices", [])
     except Exception as e:  # noqa: BLE001  an old bridge or none at all: nothing to list
         logger.debug(f"Could not list host cameras through the bridge: {e}")

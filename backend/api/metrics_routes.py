@@ -38,7 +38,8 @@ def _label(value) -> str:
 @router.get("", dependencies=[Depends(metrics_auth)])
 def prometheus_metrics(db: Session = Depends(get_db)):
     from backend.utils.websocket import manager
-    from backend.api.system_routes import _pipeline_status
+    from backend.api.system_routes import pipeline_status
+    _pipeline_status = pipeline_status()
 
     lines = [
         "# HELP aegis_websocket_connections Active WebSocket connections",
@@ -71,5 +72,7 @@ def prometheus_metrics(db: Session = Depends(get_db)):
     ):
         lines.append(f'aegis_alerts{{type="{_label(alert_type)}",severity="{_label(severity)}"}} {count}')
 
+    from backend.observability import prometheus_lines
+    lines += prometheus_lines()
     body = "\n".join(lines) + "\n"
     return Response(body, media_type="text/plain; version=0.0.4")

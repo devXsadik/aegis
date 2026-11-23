@@ -38,6 +38,7 @@ class PTZState:
     onvif_pass: Optional[str] = None
     onvif_profile: Optional[str] = None
     last_error: Optional[str] = None
+    follow: bool = False          # "Follow target": the pipeline steers this camera (ptz_follow.py)
 
 
 _states: dict[str, PTZState] = {}
@@ -49,6 +50,61 @@ def get_state(camera_id: str) -> PTZState:
         if camera_id not in _states:
             _states[camera_id] = PTZState(camera_id=camera_id)
         return _states[camera_id]
+
+
+_loaded: dict = {}                 # camera_id -> monotonic time the saved settings were read
+RELOAD_SECONDS = 15                # other API workers' changes show up within this
+
+
+def _key(camera_id: str) -> str:
+    return f"ptz:{camera_id}"
+
+
+def ensure_loaded(db, camera_id: str) -> PTZState:
+    """Apply the saved settings (ONVIF address, credentials, presets, follow) to this worker's state.
+    Re-read every RELOAD_SECONDS so all workers agree."""
+    import json
+    import time
+    from backend.models.config_entry import ConfigEntry
+    st = get_state(camera_id)
+    if time.monotonic() - _loaded.get(camera_id, -1e9) < RELOAD_SECONDS:
+        return st
+    _loaded[camera_id] = time.monotonic()
+    row = db.query(ConfigEntry).filter(ConfigEntry.key == _key(camera_id)).first()
+    if not row or not row.value:
+        return st
+    try:
+        saved = json.loads(row.value)
+    except ValueError:
+        return st
+    st.mode = saved.get("mode", st.mode)
+    st.onvif_host, st.onvif_user, st.onvif_profile = saved.get("host"), saved.get("user"), saved.get("profile")
+    if saved.get("pass"):
+        import base64
+        from backend.utils.at_rest import unseal
+        st.onvif_pass = unseal(base64.b64decode(saved["pass"]), bool(saved.get("pass_sealed"))).decode()
+    st.presets = saved.get("presets") or {}
+    st.follow = bool(saved.get("follow"))
+    return st
+
+
+def persist(db, st: PTZState) -> None:
+    """Save this camera's PTZ settings (password sealed with ENCRYPTION_KEY). Caller commits."""
+    import base64
+    import json
+    from backend.models.config_entry import ConfigEntry
+    from backend.utils.at_rest import seal
+    sealed, enc = seal(st.onvif_pass.encode()) if st.onvif_pass else (None, False)
+    value = json.dumps({"mode": st.mode, "host": st.onvif_host, "user": st.onvif_user, "profile": st.onvif_profile,
+                        "pass": base64.b64encode(sealed).decode() if sealed else None, "pass_sealed": enc,
+                        "presets": st.presets, "follow": st.follow})
+    row = db.query(ConfigEntry).filter(ConfigEntry.key == _key(st.camera_id)).first()
+    if row:
+        row.value = value
+    else:
+        db.add(ConfigEntry(key=_key(st.camera_id), value=value, description="PTZ settings"))
+    import time
+    _loaded[st.camera_id] = time.monotonic()
 
 
 def configure_onvif(
@@ -158,6 +214,7 @@ def state_dict(st: PTZState) -> dict:
     return {
         "camera_id": st.camera_id,
         "mode": st.mode,
+        "follow": st.follow,
         "digital": {"pan": st.pan, "tilt": st.tilt, "zoom": st.zoom},
         "onvif": {
             "pan": st.onvif_pan, "tilt": st.onvif_tilt, "zoom": st.onvif_zoom,

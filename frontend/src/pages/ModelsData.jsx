@@ -5,14 +5,60 @@ import { Card, Icons, Modal, Seg, timeAgo } from '../components/ui'
 import { Badge, EmptyState, ErrorState, SkeletonList } from '../components/ds'
 import {
   addDatasetItems, createDataset, datasetExportUrl, datasetFromReview, dismissReview, fetchDataset, fetchDatasets,
-  fetchModels, fetchReviewQueue, fetchVehicleCatalog, freezeDataset, labelItem, promoteModel, rollbackModel,
+  fetchModels, fetchReviewQueue, fetchVehicleCatalog, freezeDataset, fetchShadow, labelItem, promoteModel, rollbackModel, startShadow, stopShadow,
   splitDataset, versionDataset,
 } from '../services/api'
 import { useToast } from '../components/Toast'
 
-const TASKS = { vehicle_attr: 'Colour / type / model', vehicle_detect: 'Vehicle detector', vehicle_reid: 'Vehicle re-ID', face: 'Face' }
-const FORMATS = { vehicle_attr: ['attributes'], vehicle_detect: ['yolo', 'coco'], vehicle_reid: ['reid'], face: ['reid'] }
-const STAGE = { production: 'ok', staging: 'info', archived: 'muted' }
+const TASKS = { vehicle_attr: 'Colour / type / model', vehicle_detect: 'Vehicle detector', vehicle_reid: 'Vehicle re-ID', face: 'Face', plate_detect: 'Number-plate detector', weapon_detect: 'Weapon detector' }
+const FORMATS = { vehicle_attr: ['attributes'], vehicle_detect: ['yolo', 'coco'], vehicle_reid: ['reid'], face: ['reid'], plate_detect: ['yolo', 'coco'], weapon_detect: ['yolo', 'coco'] }
+const STAGE = { production: 'ok', shadow: 'purple', staging: 'info', archived: 'muted' }
+const SHADOW_TASKS = ['vehicle_attr']
+const HEAD_LABEL = { vehicle_type: 'Type', color: 'Colour', make_model: 'Make / model' }
+
+/* A candidate answering live traffic next to production; only production's answer is used. */
+function ShadowPanel({ task, onChanged }) {
+  const { push: toast } = useToast()
+  const [s, setS] = useState(null)
+  useEffect(() => {
+    let off = false
+    const load = () => fetchShadow(task).then((d) => { if (!off) setS(d) }).catch(() => {})
+    load()
+    const t = setInterval(load, 15000)
+    return () => { off = true; clearInterval(t) }
+  }, [task])
+  if (!s?.model) return null
+  const stop = async () => { try { await stopShadow(task); toast('Shadow run stopped', 'ok'); onChanged() } catch (e) { toast(e.message, 'danger') } }
+  return (
+    <div className="shadow-panel" role="status">
+      <div className="shadow-head">
+        <span><Badge tone="purple" size="sm">Shadow</Badge> <b>{s.model.version}</b> is answering live requests next to production (its answers are not used)</span>
+        <button type="button" className="btn btn-sm" onClick={stop}>Stop shadow run</button>
+      </div>
+      {s.samples === 0
+        ? <p className="muted">No live samples yet. Agreement appears once cameras send vehicles.</p>
+        : (
+          <div className="shadow-heads">
+            <span className="muted">{s.samples} live samples</span>
+            {Object.entries(s.heads).map(([k, h]) => (
+              <span key={k}>
+                {HEAD_LABEL[k] || k}: <b>{h.agreement == null ? '—' : `${Math.round(h.agreement * 100)} %`}</b> agree
+                {h.mean_confidence != null && <span className="muted"> · confidence {Math.round(h.mean_confidence * 100)} %</span>}
+              </span>
+            ))}
+          </div>
+        )}
+      {s.examples?.length > 0 && (
+        <details className="shadow-examples">
+          <summary>Latest disagreements ({s.examples.length})</summary>
+          <ul>{s.examples.map((e, i) => (
+            <li key={i}>{Object.entries(e.diff).map(([k, d]) => `${HEAD_LABEL[k] || k}: production “${d.production ?? '—'}”, candidate “${d.shadow ?? '—'}”`).join(' · ')}</li>
+          ))}</ul>
+        </details>
+      )}
+    </div>
+  )
+}
 
 function useLoad(fn, key) {
   const [d, setD] = useState(null)
@@ -76,7 +122,7 @@ function DatasetDetail({ id, cat, onClose, onChanged }) {
                     {(cat[{ vehicle_type: 'type', color: 'color', make_model: 'model' }[k]] || []).map((c) => <option key={c.code} value={c.code}>{c.name_en}</option>)}
                   </select>
                 ))}
-                {d.task !== 'vehicle_attr' && <input className="input" disabled={frozen} defaultValue={it.labels.identity || ''} placeholder={d.task === 'vehicle_detect' ? 'boxes via CVAT import' : 'identity'}
+                {d.task !== 'vehicle_attr' && <input className="input" disabled={frozen} defaultValue={it.labels.identity || ''} placeholder={d.task.endsWith('_detect') ? 'boxes via CVAT import' : 'identity'}
                   onBlur={(e) => e.target.value !== (it.labels.identity || '') && setLabel(it, 'identity', e.target.value)} aria-label="Identity" />}
               </li>
             ))}
@@ -127,7 +173,7 @@ function Registry() {
   const act = async (fn, msg) => { try { await fn(); toast(msg, 'ok'); reload() } catch (e) { toast(e.message, 'danger') } }
   const tasks = [...new Set((list || []).map((m) => m.task))]
   return (
-    <Card title="Model registry" sub="Register from training/register.py; promotion swaps the live model, rollback restores the previous one" flush>
+    <Card title="Model registry" sub="Register from training/register.py. Run a candidate in shadow to compare it on live traffic; promotion swaps the live model, rollback restores the previous one" flush>
       {err && <ErrorState compact message={err} onRetry={reload} />}
       {!list && !err && <SkeletonList rows={3} />}
       {list?.length === 0 && <EmptyState compact icon={Icons.ai} title="No models registered">Train with training/, then register the run.</EmptyState>}
@@ -137,6 +183,7 @@ function Registry() {
             <h3 className="inc-section-title">{TASKS[t] || t}</h3>
             <button type="button" className="btn btn-sm" onClick={() => act(() => rollbackModel(t), 'Rolled back')}>Roll back</button>
           </div>
+          {SHADOW_TASKS.includes(t) && <ShadowPanel task={t} onChanged={reload} />}
           <ul className="wl-list">{list.filter((m) => m.task === t).map((m) => (
             <li key={m.id} className="wl-item">
               <div className="wl-main">
@@ -144,7 +191,13 @@ function Registry() {
                 <div className="meta mono">{Object.entries(m.metrics).map(([k, v]) => `${k} ${typeof v === 'number' ? v.toFixed(3) : v}`).join(' · ') || 'no metrics'}</div>
                 <div className="meta">{m.format} · registered {timeAgo(m.created_at)}{m.promoted_at ? ` · promoted ${timeAgo(m.promoted_at)}` : ''}</div>
               </div>
-              <div className="wl-actions">{m.stage !== 'production' && <button type="button" className="btn btn-sm btn-primary" onClick={() => act(() => promoteModel(m.id), `${m.version} is now in production`)}>Promote</button>}</div>
+              <div className="wl-actions">
+                {SHADOW_TASKS.includes(m.task) && m.format === 'onnx' && (m.stage === 'staging' || m.stage === 'archived') && (
+                  <button type="button" className="btn btn-sm" title="Run next to production on live traffic and compare, without using its answers"
+                    onClick={() => act(() => startShadow(m.id), `${m.version} is running in shadow`)}>Run in shadow</button>
+                )}
+                {m.stage !== 'production' && <button type="button" className="btn btn-sm btn-primary" onClick={() => act(() => promoteModel(m.id), `${m.version} is now in production`)}>Promote</button>}
+              </div>
             </li>
           ))}</ul>
         </section>

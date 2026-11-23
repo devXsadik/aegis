@@ -62,3 +62,26 @@ Set `INGEST_ASYNC=true` and `BUS_URL=redis://…` so the API only validates and 
 * Locust (`pip install locust`) for mixed dashboard + officer traffic; one user class per role,
   WebSocket clients via `websocket-client`.
 * Prometheus `/metrics` (already exposed) + Grafana: request latency, pool checkouts, stream length.
+
+## Results — 2026-11-23, dev MacBook (Apple M2, 8 GB, on battery: expect better on AC), SQLite, 8 simulated cameras
+
+`ingest_bench.py --cameras 8 --seconds 20 --plate-hit 0.002` (0.2 % watchlist hits), load generator
+on the same machine.
+
+| Setup | Target /s | Achieved /s | p50 | p95 | p99 | Errors |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 API worker, inline matching | 50 | 49.9 | 6 ms | 9 ms | 16 ms | 0 |
+| 1 API worker, inline matching | 150 | 122.7 | 163 ms | 1,991 ms | 4,057 ms | 0 |
+| 1 API worker, inline matching | 300 | 171.6 | 153 ms | 1,503 ms | 3,144 ms | 0 |
+| 2 API workers + Redis, `INGEST_ASYNC`, 2 matcher workers | 150 | 149.9 | 3 ms | 5 ms | 180 ms | 0 |
+| same | 300 | 299.9 | 6 ms | 11 ms | 172 ms | 0 |
+| same | 600 | 275.0 | 113 ms | 335 ms | 512 ms | 0 |
+
+The matcher workers drained the queue (consumer-group lag 0) within ~20 s of the 600/s run ending;
+watchlist hits raised `VEHICLE_MATCH` alerts throughout.
+
+Reading: inline matching on one worker handles ~50 events/s comfortably (about 25–100 cameras
+depending on how chatty they are); queued ingest doubles the clean range on the same laptop, which
+is then CPU-bound (API, two workers, Redis and the load generator share 8 cores) and writing to
+SQLite. These numbers say nothing about 5,000 cameras: tests 2–7 above need the target servers,
+PostgreSQL (+ pgvector) and the load generator on separate machines.

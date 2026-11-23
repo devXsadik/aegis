@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from backend.auth.auth import admin_only, operator_or_admin
 from backend.db.database import get_db
@@ -29,6 +30,26 @@ _pipeline_status: dict = {
     "cameras": {},
     "version": "5.0.0",
 }
+
+
+def pipeline_cameras() -> dict:
+    """camera -> last heartbeat meta, from every API worker when Redis is in use."""
+    from backend.services import cluster
+    shared = cluster.beats()
+    return shared if shared is not None else _pipeline_status["cameras"]
+
+
+def pipeline_status() -> dict:
+    from backend.services import cluster
+    meta = cluster.pipeline_meta() or {}
+    return {**_pipeline_status, **{k: v for k, v in meta.items() if v is not None}, "cameras": pipeline_cameras()}
+
+
+def forget_camera(camera_id: str) -> None:
+    from backend.services import cluster
+    _pipeline_status["cameras"].pop(camera_id, None)
+    _live_analytics.pop(camera_id, None)
+    cluster.drop_beat(camera_id)
 
 
 class HeartbeatPayload(BaseModel):
@@ -71,7 +92,8 @@ def get_system_status(user: User = Depends(operator_or_admin)):
 
     cameras = {}
     offline = 0
-    for cam_id, meta in _pipeline_status.get("cameras", {}).items():
+    status = pipeline_status()
+    for cam_id, meta in status["cameras"].items():
         sla = camera_offline_sla(meta.get("last_seen"))
         if sla == "offline":
             # Paused, unplugged or crashed: counted, but no longer listed as a reporting camera.
@@ -81,8 +103,15 @@ def get_system_status(user: User = Depends(operator_or_admin)):
 
     from backend.services.model_health import model_status
 
+    extra = {}
+    if user.role == "admin":
+        from backend.main import _production_checks
+        from backend.services import blobstore, cluster
+        extra = {"production_checks": _production_checks(), "evidence_store": blobstore.health(),
+                 "cluster": {"shared_state": cluster.enabled(), "node": cluster.NODE}}
     return {
-        **_pipeline_status,
+        **status,
+        **extra,
         "models": model_status(),
         "cameras": cameras,
         "offline_cameras": offline,
@@ -113,6 +142,9 @@ async def pipeline_heartbeat(
         "ai_age_s": body.ai_age_s,
         "last_seen": now,
     }
+    from backend.services import cluster
+    if cluster.enabled():
+        await run_in_threadpool(cluster.put_beat, body.camera_id, _pipeline_status["cameras"][body.camera_id], now)
 
     payload = build_event_payload(
         event_type="PIPELINE_HEARTBEAT",
@@ -138,11 +170,15 @@ async def pipeline_heartbeat(
 
 
 def get_live_analytics() -> dict:
-    return _live_analytics
+    from backend.services import cluster
+    shared = cluster.analytics()
+    return shared if shared is not None else _live_analytics
 
 
 def update_live_analytics(camera_id: str, data: dict) -> None:
+    from backend.services import cluster
     _live_analytics[camera_id] = {**data, "camera_id": camera_id, "updated_at": utcnow().isoformat()}
+    cluster.put_analytics(camera_id, _live_analytics[camera_id])
 
 
 _persisted: dict = {}

@@ -111,7 +111,63 @@ services:
       backend: { condition: service_healthy }
     restart: unless-stopped
 
+  # --- optional, by profile ---------------------------------------------------------------
+  # HTTPS: docker compose --profile https up -d   (set DOMAIN, and COOKIE_SECURE=true in .env)
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [web]
+    restart: unless-stopped
+
+  # Object storage for evidence and off-site backups: docker compose --profile storage up -d
+  # then in .env: EVIDENCE_STORE=s3, S3_ENDPOINT_URL=http://minio:9000, S3_BUCKET=aegis-evidence,
+  # S3_ACCESS_KEY / S3_SECRET_KEY = MINIO_ROOT_USER / _PASSWORD (or a narrower MinIO user),
+  # S3_OBJECT_LOCK_DAYS=3650, BACKUP_S3_BUCKET=aegis-backups. In production put MinIO (or S3)
+  # on other machines / disks than the API: a copy on the same disk is not a backup.
+  minio:
+    image: minio/minio:latest
+    profiles: ["storage"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aegis}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}   # set in .env (8+ chars) before using this profile
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9001:9001"      # console, local only
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  minio-init:                       # creates the buckets once: evidence with Object Lock (write-once)
+    image: minio/mc:latest
+    profiles: ["storage"]
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aegis}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}   # set in .env (8+ chars) before using this profile
+    entrypoint: >
+      sh -c "mc alias set m http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+             mc mb --ignore-existing --with-lock m/aegis-evidence &&
+             mc mb --ignore-existing --with-versioning m/aegis-backups &&
+             mc ilm rule add --expire-days 90 m/aegis-backups || true"
+    restart: "no"
+
 volumes:
+  caddy_data:
+  minio_data:
   postgres_data:
   redis_data:
   recordings:

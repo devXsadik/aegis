@@ -48,6 +48,11 @@ flowchart LR
 | 12–13 Evidence | `services/case_evidence.py`, `services/face_grouping.py`, `api/case_evidence_routes.py` | Evidence → Upload / Case evidence / People in evidence |
 | 14 Governance | `auth/policy.py`, `services/audit.py` (hash chain), `api/governance_routes.py` | Settings → Data retention, Analytics → Accuracy |
 | 16 Simulation | `scripts/simulate.py`, `scripts/loadtest/`, `docs/LOAD_TEST.md` | — |
+| Production | `services/cluster.py` (Redis: workers, WS, frames, limits, leader), `services/blobstore.py` (S3 / MinIO), `observability.py`, `services/backup.py` (off-site) | `docs/PRODUCTION.md` |
+| Dispatch | `api/dispatch_routes.py` (incident messages, roster), `services/routing.py` (OSRM ETA), `services/scope.py` (district accounts) | Incident → Messages; Responders → Your incidents; Shifts → Duty roster; Users → Works in |
+| Reports | `services/reports.py`, `services/case_report.py` (court PDF in the evidence package) | Reports → Response times / Patterns / Camera uptime |
+| Detection | `recognition/embedder.py` (ArcFace option), `analysis/anpr.py` (plate detector), `tracking/tracker.py` (BoT-SORT), `analysis/scene_events.py`, `analysis/ptz_follow.py`, `analysis/shadow.py` | Zones → one-way; Live → Follow target; Command map → Follow on video; Models & data → Run in shadow |
+| Search | `services/appearance_index.py` (clothing colours in a case's evidence), `services/registry_lookup.py` (BRTA connector) | Incident → Evidence → Find by clothing; Vehicle search → Registration lookup |
 
 ## Setup
 
@@ -80,6 +85,14 @@ Real thana boundaries: replace the simplified rectangles with official BBS / LGE
 | `EVIDENCE_MAX_MB` | 100 | Upload size limit |
 | `AEGIS_CAMERAS_YAML`, `AEGIS_UPLOADS_DIR`, `AEGIS_DATASETS_DIR`, `AEGIS_MODEL_STORE`, `AEGIS_MODELS_DIR` | repo paths | Move files elsewhere (tests and the e2e server use temp dirs) |
 | `LOGIN_RATE_LIMIT`, `WRITE_RATE_LIMIT` | 10, 240 /min/IP | Request limits |
+| `API_WORKERS`, `REDIS_URL` | 1, — | Several API workers share live state through Redis |
+| `EVIDENCE_STORE`, `S3_*`, `BACKUP_S3_BUCKET` | local | Evidence in S3 / MinIO (write-once), off-site backups (`docs/PRODUCTION.md`) |
+| `SENTRY_DSN`, `LOG_FORMAT`, `METRICS_TOKEN` | —, text, — | Error tracking (scrubbed), JSON logs, Prometheus |
+| `FACE_EMBEDDER`, `FACE_ARCFACE_MODEL` | sface | `arcface` + a 512-d ONNX model; then `scripts/reembed_faces.py` |
+| `OSRM_URL`, `ROUTE_SPEED_KMH`, `ROUTE_DETOUR` | —, 20, 1.4 | Officer ETA by road, or the labelled estimate |
+| `VEHICLE_REGISTRY_URL`, `VEHICLE_REGISTRY_TOKEN` | — | Registration lookups (needs an agreement) |
+| `APPEARANCE_INDEX`, `APPEARANCE_MODEL` | true, yolov8s | Clothing search in case evidence |
+| `REPORT_TZ`, `CASE_REPORT_FONT` | Asia/Dhaka, — | Report hours; a Bengali TTF for Bangla in the PDF |
 
 Thresholds editable in Settings: face alert / possible similarity, vehicle matching weights, night
 colour weight, re-ID threshold.
@@ -125,8 +138,8 @@ confirmation itself. For RTSP: `python scripts/simulate.py rtsp` with MediaMTX a
 ## Tests
 
 ```sh
-pytest tests/                          # 480+ tests, isolated temp DB / files
-cd frontend && npm test && PW_CHANNEL=chrome npm run e2e     # unit + 16 browser flows
+pytest tests/                          # 520+ tests, isolated temp DB / files
+cd frontend && npm test && PW_CHANNEL=chrome npm run e2e     # unit + 18 browser flows
 ```
 
 ## Known limits
@@ -134,7 +147,12 @@ cd frontend && npm test && PW_CHANNEL=chrome npm run e2e     # unit + 16 browser
 * Vehicle type / colour / make-model and re-ID run on baselines until trained on Bangladeshi footage.
 * Bangla plate OCR uses EasyOCR; the parser handles Bangla and English text, but OCR quality on
   real plates needs a dedicated recogniser (train with the detector pipeline on plate crops).
-* PTZ follow-the-target is not implemented (ONVIF PTZ is available per camera via `/vms`).
+* PTZ follow-the-target steers ONVIF cameras with ContinuousMove; tune `core/analysis/ptz_follow.py`
+  on your camera models (speeds differ by vendor).
+* Wrong-way, unattended-bag and crowd-surge alerts are heuristics (`scene_events:` in config.yaml),
+  off except wrong-way (which needs a one-way zone): measure before enabling.
+* Bangla UI covers navigation and the officer's phone screens (Responders, notifications,
+  messages); the command-centre pages are English.
 * Officer GPS comes from the phone (`PUT /officers/me/duty` with position); no MDM integration.
 * Scale beyond one machine needs the queued mode, Postgres + pgvector, object storage and the load
   tests in `docs/LOAD_TEST.md`.

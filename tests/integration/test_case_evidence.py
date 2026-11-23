@@ -1,4 +1,5 @@
 """Evidence upload (spec 12) and face folders (spec 13)."""
+import io
 import hashlib
 import uuid
 
@@ -170,3 +171,81 @@ def test_police_only_see_their_incidents_evidence(ctx):
     assert items["total"] == 0
     assert client.post("/api/v1/evidence-items", headers=ctx["police"], data={"incident_id": ctx["inc"]["id"]},
                        files=[("files", ("x.png", face_img(0, 99), "image/png"))]).status_code == 404
+
+
+class FakeS3:
+    """The four calls blobstore makes, with S3's write-once semantics under Object Lock."""
+
+    def __init__(self):
+        self.objects, self.puts = {}, []
+
+    def head_object(self, Bucket, Key):
+        if (Bucket, Key) not in self.objects:
+            raise KeyError(Key)
+
+    def put_object(self, Bucket, Key, Body, ContentType, **extra):
+        self.puts.append({"key": Key, **extra})
+        self.objects[(Bucket, Key)] = Body
+
+    def get_object(self, Bucket, Key):
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
+
+    def head_bucket(self, Bucket):
+        return {}
+
+
+def test_evidence_goes_to_object_storage_sealed_and_locked(ctx, monkeypatch):
+    from backend.services import blobstore
+    fake = FakeS3()
+    blobstore.set_client(fake)
+    monkeypatch.setenv("EVIDENCE_STORE", "s3")
+    monkeypatch.setenv("S3_BUCKET", "aegis-evidence")
+    monkeypatch.setenv("S3_OBJECT_LOCK_DAYS", "3650")
+    try:
+        pdf = b"%PDF-1.4 stored in s3 " + R.encode()
+        r = up(ctx, [("s3.pdf", pdf, "application/pdf")]).json()["results"][0]
+        assert r["ok"]
+        (key, stored), = [(k, v) for (b, k), v in fake.objects.items() if b == "aegis-evidence"]
+        assert key.startswith("evidence/") and key.endswith(".bin")
+        assert stored != pdf                                        # the provider only sees ciphertext
+        assert fake.puts[0]["ObjectLockMode"] == "COMPLIANCE" and fake.puts[0]["ObjectLockRetainUntilDate"]
+        f = client.get(f"/api/v1/evidence-items/{r['ref']}/file", headers=ctx["op"])
+        assert f.status_code == 200 and f.content == pdf
+        assert blobstore.health() == {"backend": "s3", "ok": True, "object_lock_days": 3650}
+    finally:
+        blobstore.set_client(None)
+
+
+class FakePeople:
+    """Finds one person: a red top over blue trousers, painted into the test image."""
+
+    def detect(self, frame):
+        return [([40, 20, 100, 180], 0.9, 0)]
+
+
+def _person_img():
+    img = np.full((200, 160, 3), 128, np.uint8)
+    img[20:110, 40:100] = (40, 40, 220)          # BGR red top
+    img[110:180, 40:100] = (200, 60, 20)         # BGR blue trousers
+    return cv2.imencode(".png", img)[1].tobytes()
+
+
+def test_find_people_in_case_evidence_by_clothing(ctx, monkeypatch):
+    from backend.services import appearance_index
+    monkeypatch.setenv("APPEARANCE_INDEX", "true")
+    appearance_index.set_detector(FakePeople())
+    try:
+        r = up(ctx, [("crowd.png", _person_img(), "image/png")]).json()["results"][0]
+        assert r["ok"]
+        iid = ctx["inc"]["id"]
+        hit = client.get(f"/api/v1/evidence-appearance?incident_id={iid}&upper=red&lower=blue", headers=ctx["op"]).json()
+        mine = [x for x in hit["results"] if x["ref"] == r["ref"]]
+        assert len(mine) == 1 and mine[0]["upper"] == "red" and mine[0]["lower"] == "blue"
+        assert not [x for x in client.get(f"/api/v1/evidence-appearance?incident_id={iid}&upper=green", headers=ctx["op"]).json()["results"]
+                    if x["ref"] == r["ref"]]
+        crop = client.get(f"/api/v1/evidence-appearance/{mine[0]['id']}/crop", headers=ctx["op"])
+        assert crop.status_code == 200 and crop.content[:2] == b"\xff\xd8"
+        assert client.get(f"/api/v1/evidence-appearance?incident_id={iid}&upper=purple", headers=ctx["op"]).status_code == 400
+        assert client.get(f"/api/v1/evidence-appearance?incident_id={iid}", headers=ctx["police"]).status_code in (403, 404)
+    finally:
+        appearance_index.set_detector(None)

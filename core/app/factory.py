@@ -183,14 +183,24 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     anpr = None
     plate_db = None
     if anpr_cfg.get("enabled", False):
+        plate_path = model_path(base_dir, model_dir, "plate_detector", "plate_yolo.pt")
+        plate_det = None
+        if os.path.exists(plate_path):
+            from core.analysis.anpr import PlateDetector
+            plate_det = _shared(("plate", plate_path),
+                                lambda: PlateDetector(plate_path, anpr_cfg.get("plate_conf", 0.35), device))
+            logger.info(f"ANPR: plate detector {plate_path}")
+        else:
+            logger.warning("ANPR: no plate detector (models/plate_yolo.pt): OCR runs on whole vehicle crops")
         anpr = _shared(
-            ("anpr", tuple(anpr_cfg.get("languages", ["en"]))),
+            ("anpr", tuple(anpr_cfg.get("languages", ["en"])), plate_path if plate_det else None),
             lambda: LicensePlateRecognizer(
                 languages=anpr_cfg.get(
                     "languages",
                     model_setting(base_dir, "anpr_ocr", "languages", ["en"]),
                 ),
                 gpu=anpr_cfg.get("gpu", model_setting(base_dir, "anpr_ocr", "gpu", False)),
+                plate_detector=plate_det,
             ),
         )
         plate_db = LicensePlateDatabase(loader=watchlist_store.load_watchlisted_plates)
@@ -198,12 +208,22 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         logger.warning("ANPR disabled (anpr.enabled: false)")
 
     pipeline = SurveillancePipeline()
+    scene_cfg = cfg.get("scene_events", {}) or {}
+    ww_cfg, ab_cfg, cs_cfg = (scene_cfg.get(k, {}) or {} for k in ("wrong_way", "abandoned_object", "crowd_surge"))
+    from core.analysis.scene_events import AbandonedObjectDetector, CrowdSurgeDetector, WrongWayDetector
+    wrong_way = WrongWayDetector(ww_cfg.get("max_angle", 120), ww_cfg.get("min_travel", 0.06)) \
+        if ww_cfg.get("enabled", True) and mode != "off" else None          # needs a one_way zone to do anything
+    abandoned = AbandonedObjectDetector(ab_cfg.get("still_seconds", 60), ab_cfg.get("alone_seconds", 30),
+                                        ab_cfg.get("owner_radius", 0.12)) if ab_cfg.get("enabled", False) else None
+    crowd_surge = CrowdSurgeDetector(cs_cfg.get("window_seconds", 60), cs_cfg.get("min_people", 10),
+                                     cs_cfg.get("factor", 2.0)) if cs_cfg.get("enabled", False) else None
     pipeline.add_stage(DetectionStage(
         human_detector=human_detector,
         vehicle_detector=vehicle_detector,
         weapon_detector=weapon_detector,
         fire_detector=fire_detector,
         vehicles_from_people=mode == "fast",
+        bags=abandoned is not None,
     ))
     pipeline.add_stage(TrackingStage(
         human_tracker=human_tracker,
@@ -221,6 +241,9 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         plate_db=plate_db,
         action_recognizer=action_recognizer,
         fight_detector=fight_detector,
+        wrong_way=wrong_way,
+        abandoned=abandoned,
+        crowd_surge=crowd_surge,
         pose_every_n=pose_cfg.get("every_n_frames", 2),
         anpr_every_n=anpr_cfg.get("every_n_frames", 3),
     ))
@@ -236,6 +259,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
             unheld_min_score=float(weapon_cfg.get("unheld_min_score", 0.65)),
             reach=float(weapon_cfg.get("hand_reach", 0.25)),
         ),
+        ptz_follow=bool((cfg.get("ptz_follow") or {}).get("enabled", True)),
     ))
 
     return pipeline, criminal_names, loc

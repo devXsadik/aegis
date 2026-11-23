@@ -3,6 +3,18 @@
 set -euo pipefail
 cd /app
 
+# Docker / Kubernetes secrets: FOO_FILE=/run/secrets/foo sets FOO from that file, so secrets need
+# not sit in .env or the container's environment listing.
+for var in SECRET_KEY ENCRYPTION_KEY ENCRYPTION_SALT INTERNAL_API_KEY POSTGRES_PASSWORD DATABASE_URL \
+           ADMIN_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY SENTRY_DSN METRICS_TOKEN SMS_WEBHOOK; do
+  file_var="${var}_FILE"
+  if [ -n "${!file_var:-}" ]; then
+    [ -r "${!file_var}" ] || { echo "[entrypoint] ERROR: $file_var=${!file_var} not readable" >&2; exit 1; }
+    export "$var"="$(cat "${!file_var}")"
+    unset "$file_var"
+  fi
+done
+
 # Started as root so the app can run as whoever owns the mounted config/. On a Linux host
 # that is the user who cloned the repo, whatever their uid: the dashboard can then write
 # cameras.yaml and the file stays theirs. Docker Desktop (macOS/Windows) and rootless
@@ -45,7 +57,12 @@ case "$role" in
     wait_for_db
     python scripts/db_upgrade.py          # create/upgrade schema (Alembic-aware)
     python scripts/bootstrap_admin.py     # first start only: creates the admin account
-    exec uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+    # Several workers need Redis (REDIS_URL): live state is shared there (backend/services/cluster.py).
+    workers="${API_WORKERS:-1}"
+    if [ "$workers" != "1" ] && [ -z "${REDIS_URL:-}" ]; then
+      echo "[entrypoint] API_WORKERS=$workers needs REDIS_URL; starting 1 worker" >&2; workers=1
+    fi
+    exec uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers "$workers" --proxy-headers
     ;;
   pipeline)
     wait_for_db

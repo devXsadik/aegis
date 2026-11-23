@@ -38,7 +38,13 @@ class ConnectionManager:
             logger.error(f"Error sending personal message: {e}")
 
     async def broadcast(self, message: dict, channel: str = "alerts"):
-        """Broadcast message to all connections in a channel"""
+        """Send to this worker's clients of `channel` and, with Redis, to the other workers'."""
+        await self.broadcast_local(message, channel)
+        from backend.services import cluster
+        cluster.publish_ws(message, channel)
+
+    async def broadcast_local(self, message: dict, channel: str = "alerts"):
+        """Broadcast message to this worker's connections in a channel"""
         if channel not in self.active_connections:
             return
 

@@ -331,7 +331,7 @@ export function ZoneEditor({ ctx }) {
                 <span className={`ze-swatch ${z.type}`} /> <b>{z.name}</b>
                 {z.schedule && <Tag tone="muted" title="Has active hours">{z.schedule.start}–{z.schedule.end}</Tag>}
                 {z.max_people && <Tag tone="muted" title="Occupancy limit">max {z.max_people}</Tag>}
-                <Tag tone={z.type === 'restricted' ? 'danger' : 'info'}>{z.type}</Tag>
+                <Tag tone={z.type === 'restricted' ? 'danger' : z.type === 'one_way' ? 'warn' : 'info'}>{z.type === 'one_way' ? 'one-way' : z.type}</Tag>
               </button>
             ))}
             {lines.map((l, i) => (
@@ -355,6 +355,24 @@ export function ZoneEditor({ ctx }) {
                     onChange={(e) => setZones((z) => z.map((s, i) => (i === sel.i ? { ...s, type: e.target.value } : s)))}>
                     <option value="monitor">Monitor — crowd and dwell checks</option>
                     <option value="restricted">Restricted — alert when anyone enters</option>
+                    <option value="one_way">One-way road — alert on wrong-way vehicles</option>
+                  </select>
+                </label>
+              )}
+              {sel.kind === 'zone' && selShape.type === 'one_way' && (
+                <label className="field">
+                  <span>Allowed direction</span>
+                  <select value={selShape.direction ?? ''} disabled={!canEdit} required
+                    onChange={(e) => setZones((z) => z.map((s, i) => (i === sel.i ? { ...s, direction: e.target.value === '' ? undefined : Number(e.target.value) } : s)))}>
+                    <option value="">Choose the direction traffic should move</option>
+                    <option value="270">↑ Up the picture (away from the camera)</option>
+                    <option value="90">↓ Down the picture (towards the camera)</option>
+                    <option value="0">→ Left to right</option>
+                    <option value="180">← Right to left</option>
+                    <option value="315">↗ Up and right</option>
+                    <option value="225">↖ Up and left</option>
+                    <option value="45">↘ Down and right</option>
+                    <option value="135">↙ Down and left</option>
                   </select>
                 </label>
               )}

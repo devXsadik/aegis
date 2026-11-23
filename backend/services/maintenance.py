@@ -176,9 +176,9 @@ def _switched_on() -> set:
 
 def _last_seen() -> dict:
     """camera -> epoch seconds of its last heartbeat (stored as naive UTC ISO text)."""
-    from backend.api.system_routes import _pipeline_status
+    from backend.api.system_routes import pipeline_cameras
     out = {}
-    for cam, meta in _pipeline_status.get("cameras", {}).items():
+    for cam, meta in pipeline_cameras().items():
         try:
             out[cam] = datetime.fromisoformat(meta["last_seen"]).replace(tzinfo=timezone.utc).timestamp()
         except (KeyError, TypeError, ValueError):

@@ -7,6 +7,7 @@ import { ackNotification, fetchMyNotifications } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useToast } from './Toast'
 import { parseTs } from '../lib/time'
+import { useI18n } from '../hooks/useI18n'
 
 const KIND = {
   target_detected: { tone: 'danger', label: 'Target detected', icon: Icons.alert },
@@ -14,6 +15,7 @@ const KIND = {
   escalation: { tone: 'warn', label: 'Escalated to you', icon: Icons.bell },
   lost: { tone: 'muted', label: 'Track lost', icon: Icons.eye },
   assigned: { tone: 'info', label: 'Assigned', icon: Icons.users },
+  message: { tone: 'info', label: 'Message', icon: Icons.incident },
 }
 const ANSWERS = [
   { state: 'en_route', label: 'On my way', cls: 'btn-primary', icon: Icons.dispatch },
@@ -25,16 +27,19 @@ const ANSWER_LABEL = { acknowledged: 'Seen it', en_route: 'On my way', located: 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 function Countdown({ deadline }) {
+  const { t } = useI18n()
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
   const d = parseTs(deadline)
   if (!d) return null
   const s = Math.round((d.getTime() - now) / 1000)
-  return <Badge tone={s < 0 ? 'danger' : s < 30 ? 'warn' : 'muted'} size="sm" icon={Icons.clock}>{s < 0 ? 'Overdue — escalated' : `Answer within ${mmss(s)}`}</Badge>
+  return <Badge tone={s < 0 ? 'danger' : s < 30 ? 'warn' : 'muted'} size="sm" icon={Icons.clock}>{s < 0 ? t('inbox.overdue') : t('inbox.answerWithin', { t: mmss(s) })}</Badge>
 }
 
 function Item({ n, onAnswer, busy }) {
+  const { t } = useI18n()
   const k = KIND[n.kind] || { tone: 'muted', label: n.kind, icon: Icons.bell }
+  const answers = n.kind === 'message' ? ANSWERS.filter((a) => a.state === 'acknowledged') : ANSWERS
   const p = n.payload || {}
   const maps = p.lat != null ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}` : null
   return (
@@ -42,21 +47,21 @@ function Item({ n, onAnswer, busy }) {
       {p.snapshot && <img className="inbox-photo" src={p.snapshot} alt="Snapshot of the target" loading="lazy" />}
       <div className="inbox-body">
         <div className="wl-title">
-          <Badge tone={k.tone} icon={k.icon} size="sm">{k.label}</Badge>
-          {p.direction && <Badge tone="cyan" size="sm" icon={Icons.map}>Moving {p.direction}</Badge>}
+          <Badge tone={k.tone} icon={k.icon} size="sm">{KIND[n.kind] ? t(`kind.${n.kind}`) : k.label}</Badge>
+          {p.direction && <Badge tone="cyan" size="sm" icon={Icons.map}>{t('inbox.moving', { d: p.direction })}</Badge>}
           {!n.acked_at && n.ack_deadline && <Countdown deadline={n.ack_deadline} />}
           <span className="meta">{timeAgo(n.created_at)}</span>
         </div>
         <h3 className="inbox-title">{n.title}</h3>
         {n.body && <p className="inbox-text">{n.body}</p>}
         {n.acked_at ? (
-          <p className="meta"><Icons.check /> You answered “{ANSWER_LABEL[n.ack_state] || n.ack_state}” {timeAgo(n.acked_at)}</p>
+          <p className="meta"><Icons.check /> {t('inbox.youAnswered', { a: ANSWER_LABEL[n.ack_state] ? t(`ans.${n.ack_state}`) : n.ack_state })} {timeAgo(n.acked_at)}</p>
         ) : (
           <div className="inbox-actions">
-            {ANSWERS.map((a) => (
-              <button key={a.state} type="button" className={`btn ${a.cls}`} disabled={busy} onClick={() => onAnswer(n, a.state)}><a.icon /> {a.label}</button>
+            {answers.map((a) => (
+              <button key={a.state} type="button" className={`btn ${a.cls}`} disabled={busy} onClick={() => onAnswer(n, a.state)}><a.icon /> {t(`ans.${a.state}`)}</button>
             ))}
-            {maps && <a className="btn" href={maps} target="_blank" rel="noreferrer"><Icons.map /> Directions</a>}
+            {maps && <a className="btn" href={maps} target="_blank" rel="noreferrer"><Icons.map /> {t('rsp.directions')}</a>}
           </div>
         )}
       </div>
@@ -66,6 +71,7 @@ function Item({ n, onAnswer, busy }) {
 
 export function OfficerInbox({ me, onOpenCount }) {
   const { push: toast } = useToast()
+  const { t } = useI18n()
   const [items, setItems] = useState(null)
   const [busy, setBusy] = useState(false)
   const load = useCallback(() => fetchMyNotifications().then(setItems).catch(() => setItems([])), [])
@@ -82,7 +88,7 @@ export function OfficerInbox({ me, onOpenCount }) {
     try {
       const updated = await ackNotification(n.id, state)
       setItems((list) => list.map((x) => (x.id === n.id ? updated : x)))
-      toast(`Answered: ${ANSWER_LABEL[state]}`, 'ok')
+      toast(t('inbox.answeredToast', { a: t(`ans.${state}`) }), 'ok')
     } catch (e) {
       toast(e.message || 'Could not send', 'danger')
     } finally {
@@ -97,14 +103,14 @@ export function OfficerInbox({ me, onOpenCount }) {
     <section className="inbox" aria-labelledby="inbox-h">
       <header className="rsp-section-head">
         <div>
-          <h2 id="inbox-h">Notifications for you</h2>
-          <span className="meta">Targets in or heading into your area</span>
+          <h2 id="inbox-h">{t('inbox.title')}</h2>
+          <span className="meta">{t('inbox.sub')}</span>
         </div>
-        {open.length > 0 && <Badge tone="danger">{open.length} to answer</Badge>}
+        {open.length > 0 && <Badge tone="danger">{t('inbox.toAnswer', { n: open.length })}</Badge>}
       </header>
-      {items.length === 0 && <EmptyState compact icon={Icons.bell} title="Nothing for you right now">When a tracked target enters or heads into your area, it appears here and your phone buzzes.</EmptyState>}
+      {items.length === 0 && <EmptyState compact icon={Icons.bell} title={t('inbox.emptyTitle')}>{t('inbox.emptyMsg')}</EmptyState>}
       {open.map((n) => <Item key={n.id} n={n} onAnswer={answer} busy={busy} />)}
-      {done.length > 0 && <h3 className="inbox-sub">Answered</h3>}
+      {done.length > 0 && <h3 className="inbox-sub">{t('inbox.answered')}</h3>}
       {done.map((n) => <Item key={n.id} n={n} onAnswer={answer} busy={busy} />)}
     </section>
   )

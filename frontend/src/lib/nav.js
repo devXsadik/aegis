@@ -21,7 +21,7 @@ export const NAV = [
       { id: 'respond', label: 'Responders', desc: 'Alerts to go to: directions, and on my way / on scene / resolved.', icon: Icons.dispatch },
       { id: 'incidents', label: 'Incidents', desc: 'Cases opened from alerts, and where each one stands.', icon: Icons.incident },
       { id: 'evidence', label: 'Evidence', desc: 'Snapshots and clips saved from detections.', icon: Icons.evidence },
-      { id: 'shift', label: 'Shift log', desc: 'Notes during the shift, and the handover to the next one.', icon: Icons.clock },
+      { id: 'shift', label: 'Shifts', desc: 'Shift notes and handover, and the officers\' duty roster.', icon: Icons.clock },
     ],
   },
   {
@@ -31,7 +31,7 @@ export const NAV = [
       { id: 'vehicles', label: 'Vehicles', desc: 'Number plates read by the cameras.', icon: Icons.vehicle },
       { id: 'search', label: 'Vehicle search', desc: 'Find a vehicle by plate, type, colour or photo; start a lookout.', icon: Icons.search },
       { id: 'analytics', label: 'Analytics', desc: 'Trends over time, and everything the cameras detected.', icon: Icons.chart },
-      { id: 'reports', label: 'Reports', desc: 'Summaries you can print or export.', icon: Icons.report },
+      { id: 'reports', label: 'Reports', desc: 'Summaries to export, response times, when and where incidents happen, camera uptime.', icon: Icons.report },
     ],
   },
   {
@@ -51,7 +51,7 @@ export const TAB_PAGES = ['overview', 'live', 'alerts', 'map'].map((id) => ALL_P
 // Officers on the move start from their responder list.
 export const POLICE_TABS = ['respond', 'alerts', 'map', 'overview'].map((id) => ALL_PAGES.find((p) => p.id === id))
 // Views inside a page (PAGE_VIEWS). An old link (#/watchlist, #/detection) opens its view.
-export const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history', accuracy: 'Accuracy' }
+export const VIEW_LABELS = { faces: 'Registry', watchlist: 'Watchlist sightings', analytics: 'Trends', detection: 'Detection history', accuracy: 'Accuracy', reports: 'Summary', response: 'Response times', patterns: 'Patterns', uptime: 'Camera uptime', shift: 'Shift log', roster: 'Duty roster' }
 // Views the search palette lists by their old names, so "watchlist" still finds them.
 export const PALETTE_VIEWS = [
   { id: 'watchlist', label: 'Watchlist sightings', desc: 'Where watchlist people were seen (People page).', icon: Icons.watchlist },

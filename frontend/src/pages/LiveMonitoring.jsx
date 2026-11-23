@@ -7,7 +7,7 @@ import { Card, Icons, Seg, Pill, Tag, Empty, timeAgo, useConfirm } from '../comp
 import {
   liveStreamUrl, setCameraPower,
   fetchVmsTimeline, fetchPtz, ptzMove, ptzStop, ptzHome, ptzSetMode,
-  ptzSavePreset, ptzGotoPreset, openVmsPlayback,
+  ptzSavePreset, ptzGotoPreset, ptzFollow, openVmsPlayback,
 } from '../services/api'
 
 const STATUS = {
@@ -137,7 +137,7 @@ export function CamFullscreen({ cam, alerting, onClose }) {
   )
 }
 
-function PtzPad({ cameraId }) {
+function PtzPad({ cameraId, canFollow }) {
   const [state, setState] = useState(null)
   const [presetName, setPresetName] = useState('Gate')
   const { push: toast } = useToast()
@@ -185,6 +185,17 @@ function PtzPad({ cameraId }) {
           {state?.onvif?.configured ? `ONVIF ${state.onvif.host}` : 'No motorised camera set up'}
         </Tag>
       </div>
+
+      {canFollow && (
+        <label className="ptz-follow">
+          <input type="checkbox" checked={!!state?.follow}
+            onChange={(e) => run(() => ptzFollow(cameraId, e.target.checked), 'Could not change follow mode')} />
+          <span>
+            <b>Follow target</b>
+            <span className="muted">The camera turns and zooms to keep an armed person or a watchlist match in view. Moving it by hand still works; switching off stops it (logged).</span>
+          </span>
+        </label>
+      )}
 
       <div className="ptz-pad">
         <button type="button" className="ptz-btn" onPointerDown={() => move(0, 1)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} aria-label="Tilt up"><Chevron dir="up" /></button>
@@ -487,7 +498,7 @@ export function LiveMonitoring({ ctx }) {
           {me?.role && me.role !== 'viewer' && <CaptureBasket captureEvent={captureEvent} />}
           {can(me?.role, 'ptz') && (
             <Card title="Pan, tilt and zoom" sub={activeInfo?.name || 'No camera selected'}>
-              <PtzPad cameraId={activeCam} />
+              <PtzPad cameraId={activeCam} canFollow={['operator', 'supervisor', 'admin'].includes(me?.role)} />
             </Card>
           )}
         </div>

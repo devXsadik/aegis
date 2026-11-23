@@ -43,7 +43,8 @@ def _recv(inp):
         return None
     (n,) = struct.unpack(">Q", head)
     data = inp.read(n)
-    return pickle.loads(data) if len(data) == n else None
+    # Only ever our own parent/child process over an anonymous pipe: never network or user data.
+    return pickle.loads(data) if len(data) == n else None  # nosec B301
 
 
 def _serve() -> None:

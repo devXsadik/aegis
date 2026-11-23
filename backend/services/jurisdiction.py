@@ -144,22 +144,36 @@ def eligible_officers(db: Session, *, camera_id: Optional[str], lat=None, lng=No
             areas_by_user.setdefault(lk.user_id, []).append(by_id[lk.jurisdiction_id])
     counts = active_counts(db, ids)
 
-    cards = []
+    cards, origins = [], {}
     for u in users:
         prof = profs.get(u.id)
-        dist = None
+        dist, src = None, None
         if lat is not None:
             if prof and prof.last_lat is not None:
-                dist = geo.haversine_m(lat, lng, prof.last_lat, prof.last_lng)
+                origins[u.id], src = (prof.last_lat, prof.last_lng), "gps"
             else:
                 st = prof.station if prof and prof.station else None
                 c = geo.centroid(st.geojson) if st else None
                 if c:
-                    dist = geo.haversine_m(lat, lng, c[0], c[1])
-        cards.append(officer_card(u, prof, areas_by_user.get(u.id, []), distance_m=dist,
-                                  active=counts.get(u.id, 0), out_of_area=u.id in neighbour_only))
-    cards.sort(key=lambda c: (c["out_of_area"], DUTY_ORDER.get(c["duty_status"], 9),
-                              c["distance_m"] if c["distance_m"] is not None else 1e12, c["active_incidents"], c["name"]))
+                    origins[u.id], src = (c[0], c[1]), "station"
+            if u.id in origins:
+                dist = geo.haversine_m(lat, lng, *origins[u.id])
+        card = officer_card(u, prof, areas_by_user.get(u.id, []), distance_m=dist,
+                            active=counts.get(u.id, 0), out_of_area=u.id in neighbour_only)
+        card["location_source"] = src
+        cards.append(card)
+    from backend.api.dispatch_routes import on_shift_now
+    shift = on_shift_now(db, [c["id"] for c in cards])
+    for c in cards:
+        c["on_shift"] = c["id"] in shift
+    if lat is not None and origins:
+        from backend.services import routing
+        times = routing.etas((lat, lng), origins)
+        for c in cards:
+            c.update(times.get(c["id"], {}))
+    # Who to send: in-area first, then duty status, then who gets there soonest, then load.
+    cards.sort(key=lambda c: (c["out_of_area"], DUTY_ORDER.get(c["duty_status"], 9), not c["on_shift"],
+                              c.get("eta_s") if c.get("eta_s") is not None else 1e12, c["active_incidents"], c["name"]))
     area = None
     leaf = min((by_id[i] for i in cover), key=lambda j: LEVEL_ORDER.get(j.level, 9), default=None)
     if leaf:
@@ -193,3 +207,9 @@ def officer_camera_ids(db: Session, user_id: int) -> Set[str]:
         if jid in areas:
             cams.add(cam.camera_id)
     return cams
+
+
+def descendants(db: Session, jid: int) -> Set[int]:
+    """`jid` and every area under it (district → its thanas)."""
+    by_id = _all(db)
+    return {j for j in by_id if jid in ancestors(j, by_id)}

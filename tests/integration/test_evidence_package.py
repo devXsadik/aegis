@@ -112,3 +112,29 @@ def test_verify_catches_a_changed_file_and_a_forged_signature():
 def test_missing_incident_and_auth():
     assert client.get("/api/v1/incidents/999999/package", headers=_auth()).status_code == 404
     assert client.get("/api/v1/incidents/1/package").status_code == 401
+
+
+def test_package_has_case_evidence_and_a_court_report():
+    import cv2
+    import numpy as np
+    iid = _incident()
+    hdr = _auth()
+    img = cv2.imencode(".png", np.random.default_rng(3).integers(0, 255, (120, 160, 3), dtype=np.uint8))[1].tobytes()
+    up = client.post("/api/v1/evidence-items", headers=hdr, data={"incident_id": iid, "description": "Scene photo"},
+                     files=[("files", ("scene.png", img, "image/png"))]).json()["results"][0]
+    assert up["ok"], up
+    client.post(f"/api/v1/incidents/{iid}/messages", headers=hdr, json={"body": "Officer en route", "evidence_ref": up["ref"]})
+    z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/v1/incidents/{iid}/package", headers=hdr).content))
+    names = set(z.namelist())
+    assert f"case_evidence/{up['ref']}.png" in names and z.read(f"case_evidence/{up['ref']}.png") == img
+    meta = __import__("json").loads(z.read(f"case_evidence/{up['ref']}.json"))
+    assert meta["sha256"] == hashlib.sha256(img).hexdigest() and meta["custody"][-1]["action"] == "EXPORTED"
+    pdf = z.read("CASE_REPORT.pdf")
+    assert pdf.startswith(b"%PDF") and len(pdf) > 3000
+    assert "CASE_REPORT.pdf" in z.read("MANIFEST.sha256").decode()            # covered by the signature
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return
+    text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+    assert "Case report TKT-EP" in text and up["ref"] in text and "Officer en route" in text and "intact" in text

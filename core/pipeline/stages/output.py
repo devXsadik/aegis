@@ -22,7 +22,8 @@ class OutputStage(PipelineStage):
     def __init__(self, camera_location: str = "",
                  evidence_throttle_seconds: float = 10.0,
                  alarm_interval_seconds: float = 5.0,
-                 alarm_callback=None, enabled: bool = True, weapon_screen: WeaponScreen | None = None):
+                 alarm_callback=None, enabled: bool = True, weapon_screen: WeaponScreen | None = None,
+                 ptz_follow: bool = False):
         super().__init__(name="output", enabled=enabled)
         self.camera_location = camera_location
         self.evidence_throttle = evidence_throttle_seconds
@@ -34,6 +35,8 @@ class OutputStage(PipelineStage):
         self._plates_published: set = set()
         self.capturer = AlertCapturer()
         self.cross_camera = shared_tracker()
+        self.ptz_follow = ptz_follow          # core/analysis/ptz_follow.py; the backend gates it per camera
+        self._followers: dict = {}
         self.weapon_confirmer = WeaponConfirmer(window=5, min_hits=3)
         self.weapon_screen = weapon_screen or WeaponScreen()
         # Fire/smoke flickers more than weapons do: demand a longer persistence.
@@ -277,8 +280,17 @@ class OutputStage(PipelineStage):
                 camera_lng=ctx.camera_lng,
                 zone=anomaly.get("zone"),
                 track_id=anomaly.get("track_id"),
-                anomaly_type={"intrusion": "INTRUSION", "occupancy": "OCCUPANCY_LIMIT"}.get(anomaly.get("type"), "ANOMALY_DETECTED"),
+                anomaly_type={"intrusion": "INTRUSION", "occupancy": "OCCUPANCY_LIMIT", "wrong_way": "WRONG_WAY",
+                              "abandoned_object": "ABANDONED_OBJECT", "crowd_surge": "CROWD_SURGE",
+                              }.get(anomaly.get("type"), "ANOMALY_DETECTED"),
             )
+
+        if self.ptz_follow and camera_id:
+            try:
+                from core.analysis.ptz_follow import PtzFollower
+                self._followers.setdefault(camera_id, PtzFollower(camera_id)).update(ctx)
+            except Exception as e:
+                logger.debug(f"PTZ follow error: {e}")
 
         ctx.threat_score = min(
             100,

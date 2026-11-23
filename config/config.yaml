@@ -30,6 +30,7 @@ vehicle_detection: fast
 # --- Tracking ---
 tracking:
   algorithm: deepsort              # deepsort | bytetrack (motion+IoU, keeps ids through occlusion, no embedding cost)
+                                   # | botsort (bytetrack + camera-motion compensation; + re-ID with appearance: reid)
   appearance: histogram           # histogram (fast) | reid | cnn — reid/cnn too slow for CPU (~290 ms/frame)
 
 # --- Pose (raised arms, fall suspicion) ---
@@ -57,6 +58,26 @@ fight:
   arm_speed: 1.6                   # wrist speed, in body-heights per second, for both people
   window: 6                        # pose passes looked at ...
   min_hits: 4                      # ... and how many of them must show it
+
+# Scene events (core/analysis/scene_events.py). Heuristics: measure on your own clips first.
+#   wrong_way        draw a zone of type "one_way" with the allowed direction in Zones; on when such a zone exists
+#   abandoned_object backpacks / handbags / suitcases left alone (adds bag classes to the person pass)
+#   crowd_surge      people in a zone at least double within the window (crush early warning)
+scene_events:
+  wrong_way:
+    enabled: true
+    max_angle: 120                 # degrees away from the allowed direction
+    min_travel: 0.06               # share of the frame the vehicle must move before judging
+  abandoned_object:
+    enabled: false
+    still_seconds: 60
+    alone_seconds: 30
+    owner_radius: 0.12             # share of the frame: a person this close still "has" the bag
+  crowd_surge:
+    enabled: false
+    window_seconds: 60
+    min_people: 10
+    factor: 2.0
 
 # Camera tamper alerts (core/analysis/tamper.py): covered, blurred, moved, frozen picture.
 # Checked once a second on the raw frames. Tested on ~97 min of the dev webcams: no false alerts.
@@ -108,11 +129,16 @@ retention:
   archive_path: "evidence/archive" # a JSON note per purged item
 
 # --- ANPR (opt-in; needs a plate detector for reliable results) ---
+# Plate detector: models/plate_yolo.pt (train: python -m training.train_detector --config
+# training/configs/plate.yaml, register --task plate_detect --weights pt, promote). With it, OCR
+# reads only the plate crop (two lines joined); without it, OCR scans the whole vehicle.
+# Bangladeshi plates are in Bangla: add "bn" to languages (EasyOCR downloads it on first use).
 anpr:
   enabled: false
   languages:
     - "en"
   gpu: false
+  plate_conf: 0.35
 
 # --- Logging ---
 logging:

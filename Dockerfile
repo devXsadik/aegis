@@ -35,5 +35,5 @@ RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh \
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-# One API worker on purpose: the live-frame buffer, WebSocket hub and rate limiter are in-process.
+# API_WORKERS (default 1): more than one needs REDIS_URL, where live state is shared.
 CMD ["api"]

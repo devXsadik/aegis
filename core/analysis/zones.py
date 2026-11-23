@@ -87,10 +87,11 @@ def schedule_active(schedule: Optional[dict], when: datetime) -> bool:
 @dataclass
 class Zone:
     name: str
-    type: str = "monitor"            # monitor | restricted
+    type: str = "monitor"            # monitor | restricted | one_way
     polygon: List[Point] = field(default_factory=list)
     schedule: Optional[dict] = None  # when the zone raises alerts (see module docstring)
     max_people: Optional[int] = None # occupancy limit: an alert when more people are inside
+    direction: Optional[float] = None  # one_way: allowed travel direction, degrees (0 right, 90 down)
 
     def contains(self, nx: float, ny: float) -> bool:
         return point_in_polygon(nx, ny, self.polygon)
@@ -111,8 +112,10 @@ def parse_zones(raw: Optional[list]) -> List[Zone]:
     for z in raw or []:
         poly = [tuple(map(float, p)) for p in z.get("polygon", [])]
         if len(poly) >= 3:
+            d = z.get("direction")
             out.append(Zone(str(z["name"]), z.get("type", "monitor"), poly,
-                            z.get("schedule") or None, z.get("max_people") or None))
+                            z.get("schedule") or None, z.get("max_people") or None,
+                            float(d) % 360 if d not in (None, "") else None))
     return out
 
 
@@ -126,7 +129,7 @@ def parse_lines(raw: Optional[list]) -> List[Line]:
 MAX_ZONES = 20
 MAX_LINES = 10
 MAX_POINTS = 40
-ZONE_TYPES = ("monitor", "restricted")
+ZONE_TYPES = ("monitor", "restricted", "one_way")
 
 
 def _point(p, where: str):
@@ -203,6 +206,11 @@ def validate_geometry(zones, lines) -> dict:
             if not 1 <= limit <= 500:
                 raise ValueError(f"{name}: max people must be between 1 and 500")
             zone["max_people"] = limit
+        if ztype == "one_way":
+            try:
+                zone["direction"] = float(z.get("direction")) % 360
+            except (TypeError, ValueError):
+                raise ValueError(f"{name}: a one-way zone needs the allowed direction (0-359 degrees)")
         out_zones.append(zone)
 
     out_lines = []

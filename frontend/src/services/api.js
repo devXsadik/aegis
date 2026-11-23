@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
+export const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
 // The session is an httpOnly cookie set by the server at sign-in: scripts never see the token,
 // and every request (fetch, <img>, MJPEG, WebSocket) carries it by itself.
@@ -435,6 +435,9 @@ export async function ptzSavePreset(cameraId, name) {
     method: 'POST', body: JSON.stringify({ name }),
   });
 }
+export async function ptzFollow(cameraId, enabled) {
+  return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/follow`, { method: 'POST', body: JSON.stringify({ enabled }) });
+}
 export async function ptzGotoPreset(cameraId, name) {
   return apiFetch(`/vms/ptz/${encodeURIComponent(cameraId)}/presets/${encodeURIComponent(name)}/goto`, {
     method: 'POST',
@@ -842,3 +845,28 @@ export const datasetExportUrl = (id, fmt) => `${API_BASE}/ml/datasets/${id}/expo
 export const fetchModels = () => apiFetch('/ml/models')
 export const promoteModel = (id) => apiFetch(`/ml/models/${id}/promote`, { method: 'POST' })
 export const rollbackModel = (task) => apiFetch(`/ml/models/rollback?task=${task}`, { method: 'POST' })
+export const fetchShadow = (task) => apiFetch(`/ml/shadow?task=${task}`)
+export const startShadow = (id) => apiFetch(`/ml/models/${id}/shadow`, { method: 'POST' })
+export const stopShadow = (task) => apiFetch(`/ml/shadow?task=${task}`, { method: 'DELETE' })
+
+// Command reports (response times, patterns, camera uptime)
+const _area = (id) => (id ? `&jurisdiction_id=${id}` : '')
+export const fetchResponseTimes = (days = 30, area = null) => apiFetch(`/reports/response-times?days=${days}${_area(area)}`)
+export const fetchPatterns = (days = 30, area = null) => apiFetch(`/reports/patterns?days=${days}${_area(area)}`)
+export const fetchCameraUptime = (days = 7) => apiFetch(`/reports/camera-uptime?days=${days}`)
+
+// Dispatch ↔ field messages, duty roster
+export const fetchIncidentMessages = (id) => apiFetch(`/incidents/${id}/messages`)
+export const sendIncidentMessage = (id, body) => apiFetch(`/incidents/${id}/messages`, { method: 'POST', body: JSON.stringify(body) })
+export const fetchRoster = (params = {}) => apiFetch(`/roster${qs(params)}`)
+export const fetchRosterOfficers = () => apiFetch('/roster/officers')
+export const addShift = (body) => apiFetch('/roster', { method: 'POST', body: JSON.stringify(body) })
+export const removeShift = (id) => apiFetch(`/roster/${id}`, { method: 'DELETE' })
+
+// Vehicle registration lookup (BRTA connector; reason + case number logged)
+export const fetchRegistryStatus = () => apiFetch('/vehicles/registry/status')
+export const registryLookup = (plate, reason, caseRef) => apiFetch(`/vehicles/registry${qs({ plate, reason, case_ref: caseRef })}`)
+
+// Find people in a case's evidence by clothing colour (audit-logged)
+export const searchEvidenceAppearance = (incidentId, upper, lower) =>
+  apiFetch(`/evidence-appearance${qs({ incident_id: incidentId, upper: upper || undefined, lower: lower || undefined })}`)

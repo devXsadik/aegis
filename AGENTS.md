@@ -63,3 +63,9 @@ cd frontend && npm run dev
 - Tests never touch dev data: `tests/conftest.py` sets a temp DB and `AEGIS_CAMERAS_YAML`, `AEGIS_UPLOADS_DIR`, `AEGIS_DATASETS_DIR`, `AEGIS_MODEL_STORE`, `AEGIS_MODELS_DIR`; the e2e server does the same
 - Request handlers must not open a second DB session (pool starvation); async routes take their connection on the event loop
 - Modals are portalled to `<body>` (`components/ui.jsx`)
+- Several API workers: needs `REDIS_URL`; shared state is in `backend/services/cluster.py` (WS fan-out, heartbeats via `system_routes.pipeline_cameras()`, frames, rate limits, `run_as_leader` for background loops, `startup_lock`). Read camera heartbeats through `pipeline_cameras()` / `pipeline_status()`, never `_pipeline_status` directly
+- Tests run without Redis and with `APPEARANCE_INDEX=false` (conftest); `tests/integration/test_cluster.py` starts its own redis-server
+- `alembic/env.py` must import every model module (same list as `init_db`), or `alembic check` fails on foreign keys
+- WebSocket broadcasts on shared channels carry ids only for anything personal (e.g. `INCIDENT_MESSAGE`); clients re-fetch through the API, which applies visibility
+- Production deployment: `docs/PRODUCTION.md`
+

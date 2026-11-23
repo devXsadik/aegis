@@ -7,6 +7,8 @@ import { StatusSelector } from './StatusSelector'
 import { OfficerChip, OfficerPicker } from './Officers'
 import { EvidenceGallery } from './EvidenceGallery'
 import { EvidenceUploader } from './EvidenceUploader'
+import { IncidentMessages } from './IncidentMessages'
+import { ClothingSearch } from './ClothingSearch'
 import { parseTs } from '../lib/time'
 import { can } from '../lib/permissions'
 import { downloadEvidencePackage, fetchJurisdictions } from '../services/api'
@@ -150,6 +152,11 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
                   ))}</div>}
             </section>
 
+            <section className="inc-sec" aria-labelledby="inc-msg-h">
+              <h3 id="inc-msg-h" className="inc-section-title">Messages with officers</h3>
+              <IncidentMessages incidentId={incident.id} me={me} canWrite={canEdit} />
+            </section>
+
             <section className="inc-sec" aria-labelledby="inc-ev-h">
               <div className="inc-sec-head">
                 <h3 id="inc-ev-h" className="inc-section-title">Evidence</h3>
@@ -157,6 +164,12 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
               </div>
               {uploading && <EvidenceUploader incidentId={incident.id} onUploaded={() => setEvReload((n) => n + 1)} />}
               <EvidenceGallery me={me} incidentId={incident.id} reloadKey={evReload} />
+              {canEdit && me?.role !== 'police' && (
+                <details className="cs-wrap">
+                  <summary>Find a person in this case's photos and videos by clothing</summary>
+                  <ClothingSearch incidentId={incident.id} />
+                </details>
+              )}
             </section>
 
             <section className="inc-sec" aria-labelledby="inc-tl-h">

@@ -280,7 +280,7 @@ class NotificationHub:
 
         dispatch_alert(
             alert_type=anomaly_type,
-            severity="high" if anomaly_type == "INTRUSION" else "medium",
+            severity="high" if anomaly_type in ("INTRUSION", "WRONG_WAY", "ABANDONED_OBJECT", "CROWD_SURGE") else "medium",
             zone=zone,
             track_id=track_id,
             camera_location=camera_location,

@@ -15,7 +15,9 @@ from pathlib import Path
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("run")
-    ap.add_argument("--task", required=True, choices=("vehicle_detect", "vehicle_attr", "vehicle_reid", "face"))
+    ap.add_argument("--task", required=True, choices=("vehicle_detect", "vehicle_attr", "vehicle_reid", "face", "plate_detect", "weapon_detect"))
+    ap.add_argument("--weights", choices=("onnx", "pt"), default="onnx",
+                    help="pt: upload train/weights/best.pt (plate / weapon detectors load .pt)")
     ap.add_argument("--version", required=True)
     ap.add_argument("--name")
     ap.add_argument("--dataset-id", type=int)
@@ -24,7 +26,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     import requests
     run = Path(args.run)
-    files = {"file": ("model.onnx", (run / "model.onnx").read_bytes())}
+    if args.weights == "pt":
+        files = {"file": ("model.pt", (run / "train" / "weights" / "best.pt").read_bytes())}
+    else:
+        files = {"file": ("model.onnx", (run / "model.onnx").read_bytes())}
     if (run / "labels.json").exists():
         files["labels"] = ("labels.json", (run / "labels.json").read_bytes())
     metrics = json.loads((run / "metrics.json").read_text()) if (run / "metrics.json").exists() else {}

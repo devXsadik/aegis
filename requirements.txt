@@ -11,14 +11,14 @@ numpy==2.0.2
 onnx==1.23.2                     # build models/action_stgcn_ntu60.onnx (scripts/export_action_model.py)
 
 # Backend / security
-fastapi==0.115.0
+fastapi==0.165.0
 uvicorn[standard]==0.32.0
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 pgvector==0.3.2
-python-jose[cryptography]==3.3.0
-python-multipart==0.0.12
-cryptography==43.0.3
+PyJWT==2.15.1                    # was python-jose (unmaintained; its ecdsa dependency has an unfixed timing flaw)
+python-multipart==0.0.34
+cryptography==50.0.2
 pydantic==2.9.2
 
 # Detection extras
@@ -26,7 +26,7 @@ easyocr==1.7.2
 httpx==0.27.2
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.4
 alembic>=1.13.0
 
 # Previously imported but undeclared
@@ -39,3 +39,8 @@ PyYAML>=6.0
 # Optional: scripts/convert_heic.py
 # Pillow>=10.0.0
 # pillow-heif>=0.16.0
+
+# --- Production services (optional at runtime: used only when configured) ---
+boto3>=1.34                      # EVIDENCE_STORE=s3 / BACKUP_S3_BUCKET (S3, MinIO)
+sentry-sdk>=2.0                  # SENTRY_DSN error tracking (scrubbed: backend/observability.py)
+reportlab==4.4.4                 # case report PDF (backend/services/case_report.py)

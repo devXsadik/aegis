@@ -3,11 +3,11 @@
 
 export const ROLE_PAGES = {
   viewer: new Set(['overview', 'live', 'map', 'alerts']),
-  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings', 'search', 'command', 'accuracy']),
-  police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift', 'settings']),
+  operator: new Set(['overview', 'live', 'map', 'detection', 'alerts', 'incidents', 'evidence', 'shift', 'faces', 'analytics', 'reports', 'cameras', 'settings', 'search', 'command', 'accuracy', 'response', 'patterns', 'uptime', 'roster']),
+  police: new Set(['overview', 'live', 'map', 'alerts', 'respond', 'incidents', 'shift', 'roster', 'settings']),
   investigator: new Set(['overview', 'alerts', 'incidents', 'evidence', 'faces', 'watchlist', 'vehicles', 'analytics', 'reports', 'settings', 'search']),
   ml_engineer: new Set(['settings', 'models']),
-  auditor: new Set(['settings', 'accuracy']),
+  auditor: new Set(['settings', 'accuracy', 'response', 'patterns', 'uptime']),
   supervisor: null,   // null = every page
   admin: null,
 }
@@ -33,6 +33,8 @@ const ACTIONS = {
 export const PAGE_VIEWS = {
   faces: ['faces', 'watchlist'],
   analytics: ['analytics', 'detection', 'accuracy'],
+  reports: ['reports', 'response', 'patterns', 'uptime'],
+  shift: ['shift', 'roster'],
 }
 
 function allows(role, id) {

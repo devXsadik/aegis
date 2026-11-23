@@ -32,7 +32,11 @@ LIVE_NAMES = {
     "vehicle_reid": ("vehicle_reid.onnx", None),
     "vehicle_detect": ("vehicle_detect.onnx", "vehicle_detect.labels.json"),
     "face": ("face_recognition_custom.onnx", None),
+    # YOLO detectors the pipeline loads through Ultralytics: promote the .pt weights.
+    "plate_detect": ("plate_yolo.onnx", "plate_yolo.labels.json"),
+    "weapon_detect": ("weapon_yolo.onnx", "weapon_yolo.labels.json"),
 }
+DETECT_TASKS = ("vehicle_detect", "plate_detect", "weapon_detect")
 ATTR_FIELDS = ("vehicle_type", "color", "make_model")
 
 
@@ -343,7 +347,9 @@ def register(db: Session, *, task: str, name: str, version: str, data: bytes, fi
 
 def promote(db: Session, m: ModelVersion, user_id: Optional[int]) -> Optional[ModelVersion]:
     """Make `m` the production model of its task. Returns the one it replaced (now archived)."""
-    if m.format != "onnx" and m.task != "vehicle_detect":
+    if m.stage == "shadow":
+        stop_shadow(db, m.task)
+    if m.format != "onnx" and m.task not in DETECT_TASKS:
         raise MLError("Only ONNX models can go to production for this task (export first)")
     live_name, live_labels = LIVE_NAMES[m.task]
     if m.format != "onnx":
@@ -366,6 +372,49 @@ def promote(db: Session, m: ModelVersion, user_id: Optional[int]) -> Optional[Mo
     except Exception:
         pass
     return prev
+
+
+SHADOW_TASKS = ("vehicle_attr",)
+
+
+def shadow_dir() -> Path:
+    d = live_models_dir() / "shadow"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def start_shadow(db: Session, m: ModelVersion) -> None:
+    """Run `m` next to production on live traffic without using its answers. Per task, one shadow;
+    the comparison (agreement with production) shows in the registry before anyone promotes."""
+    if m.task not in SHADOW_TASKS:
+        raise MLError(f"Shadow runs are available for: {', '.join(SHADOW_TASKS)}")
+    if m.format != "onnx":
+        raise MLError("Only ONNX models can run in shadow")
+    if m.stage not in ("staging", "archived"):
+        raise MLError(f"A {m.stage} model cannot go to shadow")
+    live_name, live_labels = LIVE_NAMES[m.task]
+    for other in db.query(ModelVersion).filter(ModelVersion.task == m.task, ModelVersion.stage == "shadow"):
+        other.stage = "staging"
+    tmp = shadow_dir() / (live_name + ".tmp")
+    shutil.copyfile(m.artifact_path, tmp)
+    tmp.replace(shadow_dir() / live_name)
+    if live_labels and m.labels_path:
+        shutil.copyfile(m.labels_path, shadow_dir() / live_labels)
+    m.stage = "shadow"
+    from core.analysis import shadow
+    shadow.reset(m.task)
+    shadow.reload()
+
+
+def stop_shadow(db: Session, task: str) -> None:
+    live_name, live_labels = LIVE_NAMES[task]
+    for name in (live_name, live_labels):
+        if name and (shadow_dir() / name).exists():
+            (shadow_dir() / name).unlink()
+    for m in db.query(ModelVersion).filter(ModelVersion.task == task, ModelVersion.stage == "shadow"):
+        m.stage = "staging"
+    from core.analysis import shadow
+    shadow.reload()
 
 
 def rollback(db: Session, task: str, user_id: Optional[int]) -> ModelVersion:

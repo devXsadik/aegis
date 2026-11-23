@@ -102,3 +102,49 @@ jobs:
         with:
           name: playwright-traces
           path: frontend/test-results
+
+  # Known-vulnerable dependencies, risky code patterns, leaked secrets, and the image's OS packages.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                    # gitleaks scans history too
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Python dependencies (pip-audit)
+        run: |
+          pip install pip-audit bandit
+          # setuptools: torch caps it below the fixed release; it is only used to install packages,
+          # never at run time. Remove these ignores when torch allows setuptools >= 84.1.
+          pip-audit -r requirements.txt --progress-spinner off \
+            --ignore-vuln PYSEC-2026-3447 --ignore-vuln GHSA-xmj3-9gf7-h52w
+      - name: Python code (bandit, medium+ severity and confidence)
+        run: bandit -q -r backend core utils -ll -ii -x tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dashboard dependencies (npm audit, high+)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Secrets in the repository (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the application image
+        run: docker build -t aegis-app:ci .
+      - name: Scan the image (Trivy, fail on fixable critical)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: aegis-app:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

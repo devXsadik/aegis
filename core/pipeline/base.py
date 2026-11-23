@@ -39,6 +39,7 @@ class FrameContext:
     human_detections: list = field(default_factory=list)    # [(bbox, conf, cls)]
     vehicle_detections: list = field(default_factory=list)  # [{"bbox", "score", ...}]
     weapon_detections: list = field(default_factory=list)   # [{"bbox", "score", ...}]
+    bag_detections: list = field(default_factory=list)      # backpacks / handbags / suitcases
 
     # --- Tracking results ---
     tracks: list = field(default_factory=list)              # DeepSORT tracks

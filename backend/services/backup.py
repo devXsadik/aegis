@@ -92,8 +92,33 @@ def run_backup(keep: int = None, recordings: bool = None) -> dict:
     for p in old:
         shutil.rmtree(p)
     info["removed_old"] = [p.name for p in old]
+    if os.getenv("BACKUP_S3_BUCKET"):
+        info["offsite"] = upload_offsite(dest)
     logger.info(f"Backup {dest.name}: {size / 1e6:.1f} MB ({len(old)} old removed)")
     return info
+
+
+def upload_offsite(dest: Path) -> dict:
+    """Copy the backup off this machine: one tar.gz, sealed (AES-GCM, ENCRYPTION_KEY) so the
+    storage provider sees ciphertext, to BACKUP_S3_BUCKET (S3 / MinIO; same S3_* credentials as
+    evidence). The bucket's own lifecycle rule decides how long copies are kept.
+    Restore: download, `python -m backend.services.backup unseal <file> > backup.tar.gz`."""
+    import io
+    import tarfile
+    from backend.services import blobstore
+    from backend.utils.at_rest import seal
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(dest, arcname=dest.name)
+    blob, enc = seal(buf.getvalue())
+    key = f"{os.getenv('BACKUP_S3_PREFIX', 'backups/')}{dest.name}.tar.gz{'.sealed' if enc else ''}"
+    try:
+        blobstore._s3().put_object(Bucket=os.environ["BACKUP_S3_BUCKET"], Key=key, Body=blob,
+                                   ContentType="application/octet-stream")
+    except Exception as e:  # noqa: BLE001 - the local copy exists; report, alert via logs
+        logger.error(f"Off-site backup upload failed: {e}")
+        return {"ok": False, "error": str(e)[:200]}
+    return {"ok": True, "key": key, "bytes": len(blob), "encrypted": enc}
 
 
 def list_backups() -> list:
@@ -106,3 +131,13 @@ def list_backups() -> list:
         if p.is_dir() and NAME.match(p.name) and meta.exists():
             out.append(json.loads(meta.read_text()))
     return out
+
+
+if __name__ == "__main__":   # python -m backend.services.backup unseal <file> > backup.tar.gz
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == "unseal":
+        from backend.utils.at_rest import unseal
+        sys.stdout.buffer.write(unseal(Path(sys.argv[2]).read_bytes(), True))
+    else:
+        print("usage: python -m backend.services.backup unseal <file.tar.gz.sealed> > backup.tar.gz", file=sys.stderr)
+        sys.exit(2)

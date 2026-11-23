@@ -4,7 +4,8 @@ from datetime import timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 import bcrypt
 from sqlalchemy.orm import Session
 from backend.db.database import get_db
@@ -23,7 +24,9 @@ security = HTTPBearer(auto_error=False)
 # it, and <img>/<video>/WebSocket requests carry it without a token in the URL. SameSite=Strict
 # keeps other sites from riding on it. Scripts and API clients keep using a Bearer header.
 SESSION_COOKIE = "aegis_session"
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}   # true behind HTTPS
+# Secure (HTTPS-only) session cookie: on by default in production, where the dashboard must be
+# served over HTTPS (docker compose --profile https, or your own proxy). COOKIE_SECURE overrides.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if os.getenv("ENVIRONMENT") == "production" else "false").lower() in {"1", "true", "yes"}
 
 
 def request_token(conn) -> Optional[str]:

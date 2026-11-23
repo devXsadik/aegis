@@ -59,20 +59,15 @@ def kind_of(content_type: str, data: bytes) -> str:
 
 def store(data: bytes) -> Tuple[str, bool, str]:
     """Write sealed bytes under the SHA-256 of the original. Returns (path, encrypted, sha256)."""
+    from backend.services import blobstore
     sha = hashlib.sha256(data).hexdigest()
-    folder = uploads_dir() / sha[:2]
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{sha}.bin"
     blob, enc = seal(data)
-    if not path.exists():
-        tmp = path.with_suffix(".tmp")
-        tmp.write_bytes(blob)
-        tmp.replace(path)
-    return str(path), enc, sha
+    return blobstore.put(f"{sha[:2]}/{sha}.bin", blob, uploads_dir()), enc, sha
 
 
 def read(item: EvidenceItem) -> bytes:
-    data = unseal(Path(item.storage_path).read_bytes(), item.encrypted)
+    from backend.services import blobstore
+    data = unseal(blobstore.get(item.storage_path), item.encrypted)
     if hashlib.sha256(data).hexdigest() != item.sha256:
         raise EvidenceError("Stored file does not match its SHA-256: integrity failure", 500)
     return data

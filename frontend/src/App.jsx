@@ -6,6 +6,7 @@ import { parseTs } from './lib/time'
 import { can, canViewPage, PAGE_VIEWS } from './lib/permissions'
 import { ALL_PAGES, NAV, PALETTE_VIEWS, POLICE_TABS, TAB_PAGES, THREAT, VIEW_LABELS } from './lib/nav'
 import { useTheme } from './hooks/useTheme'
+import { useI18n } from './hooks/useI18n'
 import { useSession } from './hooks/useSession'
 import { useIdleLogout } from './hooks/useIdleLogout'
 import { TwoFactor } from './components/TwoFactor'
@@ -43,20 +44,26 @@ const FaceRegistryPage = lazyPage(() => import('./pages/FaceRegistryPage'), 'Fac
 const Vehicles = lazyPage(() => import('./pages/Vehicles'), 'Vehicles')
 const VehicleSearch = lazyPage(() => import('./pages/VehicleSearch'), 'VehicleSearch')
 const Reports = lazyPage(() => import('./pages/Reports'), 'Reports')
+const ResponseTimes = lazyPage(() => import('./pages/CommandReports'), 'ResponseTimes')
+const Patterns = lazyPage(() => import('./pages/CommandReports'), 'Patterns')
+const CameraUptime = lazyPage(() => import('./pages/CommandReports'), 'CameraUptime')
 const Responder = lazyPage(() => import('./pages/Responder'), 'Responder')
 const ShiftLog = lazyPage(() => import('./pages/ShiftLog'), 'ShiftLog')
+const Roster = lazyPage(() => import('./pages/Roster'), 'Roster')
 const Users = lazyPage(() => import('./pages/Users'), 'Users')
 const Settings = lazyPage(() => import('./pages/Settings'), 'Settings')
 const ZoneEditor = lazyPage(() => import('./pages/ZoneEditor'), 'ZoneEditor')
 
 const PAGE_COMPONENTS = {
   overview: Overview, live: LiveMonitoring, map: MapPage, command: CommandMap,
-  alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage, shift: ShiftLog,
-  vehicles: Vehicles, search: VehicleSearch, reports: Reports,
+  alerts: Triage, respond: Responder, incidents: Incidents, evidence: EvidencePage,
+  vehicles: Vehicles, search: VehicleSearch,
   cameras: Cameras, models: ModelsData, zones: ZoneEditor, users: Users, settings: Settings,
 }
 const VIEW_COMPONENTS = {
   faces: FaceRegistryPage, watchlist: Watchlist, analytics: Analytics, detection: DetectionCenter, accuracy: AccuracyView,
+  shift: ShiftLog, roster: Roster,
+  reports: Reports, response: ResponseTimes, patterns: Patterns, uptime: CameraUptime,
 }
 
 /** A page made of views: tabs for the ones this role may open, then the chosen view. */
@@ -64,6 +71,7 @@ function ViewSwitch({ pageId, view, onView, role, ctx }) {
   const views = PAGE_VIEWS[pageId].filter((v) => canViewPage(role, v))
   const current = views.includes(view) ? view : views[0]
   const Current = VIEW_COMPONENTS[current]
+  if (!Current) return null          // role not known yet (profile loading), or no view allowed
   return (
     <>
       {views.length > 1 && (
@@ -80,6 +88,8 @@ function ViewSwitch({ pageId, view, onView, role, ctx }) {
    its hook (hooks/use*.js); this component wires them together and lays out the page. */
 function App() {
   const { push: toast } = useToast()
+  const { t, lang } = useI18n()
+  const navLabel = (p) => (!p ? '' : lang === 'en' ? p.label : t(`nav.${p.id}`))
   const [theme, setTheme] = useTheme()
   const { page, view, setPage } = useRoute()
   const [reloadTick, setReloadTick] = useState(0)
@@ -243,7 +253,7 @@ function App() {
       <header className="appbar">
         <span className="brand-logo appbar-logo" aria-hidden="true"><img src="/logo.svg" alt="" width="30" height="30" /></span>
         <div className="appbar-title">
-          <h1>{activePage?.label}</h1>
+          <h1>{navLabel(activePage)}</h1>
           <p>{activePage?.desc}</p>
         </div>
         <div className="appbar-right">
@@ -347,7 +357,7 @@ function App() {
                   onClick={() => setPage(p.id)}
                 >
                   <Icon />
-                  {p.label.split(' ')[0]}
+                  {lang === 'en' ? p.label.split(' ')[0] : navLabel(p)}
                   {p.id === 'alerts' && alertCount > 0 && <span className="nav-badge">{alertCount}</span>}
                 </button>
               )

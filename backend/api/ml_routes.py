@@ -313,3 +313,35 @@ def rollback(request: Request, task: str = Query(...), db: Session = Depends(get
     log_audit(db, user, "MODEL_ROLLBACK", "model", str(m.id), f"{task} → {m.version}", request)
     db.commit()
     return model_out(m)
+
+
+@router.get("/shadow")
+def shadow_status(task: str = Query("vehicle_attr"), db: Session = Depends(get_db), user: User = Depends(ml_or_admin)):
+    """The candidate running in shadow for `task` and how often it agrees with production."""
+    from core.analysis import shadow
+    m = db.query(ModelVersion).filter(ModelVersion.task == task, ModelVersion.stage == "shadow").first()
+    return {"model": model_out(m) if m else None, **shadow.summary(task)}
+
+
+@router.post("/models/{mid}/shadow")
+def start_shadow(mid: int, request: Request, db: Session = Depends(get_db), user: User = Depends(ml_or_admin)):
+    m = db.get(ModelVersion, mid)
+    if not m:
+        raise HTTPException(404, "Model not found")
+    try:
+        ml.start_shadow(db, m)
+    except ml.MLError as e:
+        _err(e)
+    log_audit(db, user, "MODEL_SHADOW_START", "model", str(mid), f"{m.task} {m.version}", request)
+    db.commit()
+    return model_out(m)
+
+
+@router.delete("/shadow")
+def stop_shadow(request: Request, task: str = Query(...), db: Session = Depends(get_db), user: User = Depends(ml_or_admin)):
+    if task not in ml.LIVE_NAMES:
+        raise HTTPException(400, "Unknown task")
+    ml.stop_shadow(db, task)
+    log_audit(db, user, "MODEL_SHADOW_STOP", "model", task, task, request)
+    db.commit()
+    return {"ok": True}

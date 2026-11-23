@@ -90,3 +90,24 @@ def test_unknown_algorithm_is_rejected():
     import pytest
     with pytest.raises(ValueError):
         HumanTracker(algorithm="sort")
+
+
+def test_botsort_keeps_id_through_a_low_confidence_dip():
+    """BoT-SORT: ByteTrack association plus camera-motion compensation."""
+    t = HumanTracker(algorithm="botsort")
+    frames = [[(300 + 6 * i, 100, 420 + 6 * i, 400, 0.9 if i not in (4, 5) else 0.3)] for i in range(10)]
+    ids = {i for frame in _walk(t, frames) for i in frame}
+    assert len(ids) == 1
+
+
+def test_botsort_with_reid_uses_our_embedder(monkeypatch):
+    import core.tracking.tracker as T
+    calls = []
+
+    def fake(frame, boxes):
+        calls.append(boxes)
+        return [np.ones(768, np.float32) / np.sqrt(768) for _ in boxes]
+    monkeypatch.setattr(T, "reid_embeds", fake)
+    t = HumanTracker(algorithm="botsort", appearance="reid")
+    _walk(t, [[(300, 100, 420, 400, 0.9)]] * 3)
+    assert calls and abs(calls[0][0][0] - 300) < 1 and abs(calls[0][0][3] - 400) < 1

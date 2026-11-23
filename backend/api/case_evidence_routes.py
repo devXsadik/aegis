@@ -24,7 +24,7 @@ from backend.models.incident import Incident
 from backend.models.known_person import KnownPerson
 from backend.models.user import User
 from backend.services import case_evidence as ce
-from backend.services import face_grouping
+from backend.services import appearance_index, face_grouping
 from backend.services.audit import log_audit
 from backend.services.incident_service import add_event
 from backend.utils.at_rest import unseal
@@ -97,6 +97,7 @@ async def upload(request: Request, incident_id: int = Form(...), files: List[Upl
             results.append({"filename": f.filename, "ok": False, "error": str(e), "code": e.code})
     for iid in done:
         face_grouping.schedule(iid)
+        appearance_index.schedule(iid)
     return {"incident_id": inc.id, "results": results, "uploaded": len(done)}
 
 
@@ -184,6 +185,7 @@ async def new_version(ref: str, request: Request, file: UploadFile = File(...), 
     db.commit()
     ce.custody(db, parent, "VERSIONED", user, f"new version {item.ref}: {note}", _ip(request))
     face_grouping.schedule(item.id)
+    appearance_index.schedule(item.id)
     return item_out(db, item)
 
 
@@ -398,3 +400,35 @@ def verify_face(fid: int, body: VerifyBody, request: Request, db: Session = Depe
     _op(db, user, "verify", {"face": fid, "decision": body.decision, "note": body.note, "group": g.id if g else None}, request)
     db.commit()
     return {"face_id": fid, "verify_status": f.verify_status, "group_id": f.group_id}
+
+
+# ——— find people in a case's evidence by clothing colour ———
+
+@router.get("/evidence-appearance")
+def appearance_search(request: Request, incident_id: int, upper: Optional[str] = None, lower: Optional[str] = None,
+                      db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    """People seen in this incident's photos and videos, filtered by upper / lower clothing colour.
+    Only this case's evidence is searched; the search is audit-logged."""
+    from backend.api.incident_routes import _load
+    from core.analysis.appearance import COLOURS
+    if user.role not in UPLOAD_ROLES:
+        raise HTTPException(403, "Your role cannot search evidence")
+    for c in (upper, lower):
+        if c and c not in COLOURS:
+            raise HTTPException(400, f"Colour must be one of {', '.join(COLOURS)}")
+    inc = _load(db, incident_id, user)
+    log_audit(db, user, "APPEARANCE_SEARCH", "incident", inc.ticket_id, f"upper={upper or '*'} lower={lower or '*'}", request)
+    db.commit()
+    return {"results": appearance_index.search(db, inc.id, upper, lower),
+            "summary": appearance_index.colours_in_case(db, inc.id), "indexing": appearance_index.enabled()}
+
+
+@router.get("/evidence-appearance/{pid}/crop")
+def appearance_crop(pid: int, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
+    from backend.api.incident_routes import _load
+    from backend.models.case_evidence import EvidencePerson
+    p = db.get(EvidencePerson, pid)
+    if not p or not p.crop or user.role not in UPLOAD_ROLES:
+        raise HTTPException(404, "Not found")
+    _load(db, p.incident_id, user)
+    return Response(content=unseal(p.crop, p.crop_encrypted), media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})

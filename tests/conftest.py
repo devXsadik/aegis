@@ -24,6 +24,8 @@ os.environ["AEGIS_UPLOADS_DIR"] = os.path.join(_TEST_DB_DIR, "uploads")
 os.environ["AEGIS_DATASETS_DIR"] = os.path.join(_TEST_DB_DIR, "datasets")
 os.environ["AEGIS_MODEL_STORE"] = os.path.join(_TEST_DB_DIR, "registry")
 os.environ["AEGIS_MODELS_DIR"] = os.path.join(_TEST_DB_DIR, "models_live")
+os.environ["REDIS_URL"] = ""          # tests that need Redis start their own (test_cluster.py)
+os.environ["APPEARANCE_INDEX"] = "false"  # no YOLO on every test upload; test_case_evidence turns it on
 
 try:
     import face_recognition  # noqa: F401

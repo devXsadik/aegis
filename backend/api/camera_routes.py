@@ -211,8 +211,8 @@ def list_devices(db: Session = Depends(get_db), user: User = Depends(operator_or
 
 def _forget_heartbeat(camera_id: str):
     """A camera that was just paused must not keep showing as streaming."""
-    from backend.api.system_routes import _pipeline_status
-    _pipeline_status["cameras"].pop(camera_id, None)
+    from backend.api.system_routes import forget_camera
+    forget_camera(camera_id)
 
 
 def _write_cameras_yaml(path: Path, data: dict):

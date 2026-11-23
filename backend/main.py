@@ -24,6 +24,7 @@ from backend.api.tracking_routes import router as tracking_router
 from backend.api.case_evidence_routes import router as case_evidence_router
 from backend.api.governance_routes import router as governance_router
 from backend.api.ml_routes import router as ml_router
+from backend.api.dispatch_routes import router as dispatch_router
 import backend.services.matching  # noqa: E402,F401  (registers the matchers with the event router)
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
@@ -89,14 +90,36 @@ def _validate_secrets():
         )
 
 
+def _production_checks() -> list:
+    """Settings a real deployment should have. Logged at start-up (not fatal: a pilot on one
+    machine may knowingly skip some) and shown in Settings → System."""
+    if os.getenv("ENVIRONMENT") != "production":
+        return []
+    from backend.auth.auth import COOKIE_SECURE
+    from backend.services import blobstore
+    db_url = os.getenv("DATABASE_URL", "")
+    checks = [
+        (COOKIE_SECURE, "COOKIE_SECURE is off: serve the dashboard over HTTPS and set it"),
+        (not db_url.startswith("sqlite") and os.getenv("USE_SQLITE", "false").lower() != "true",
+         "SQLite in production: use PostgreSQL"),
+        (bool(os.getenv("REDIS_URL")), "No REDIS_URL: one API worker only, no fail-over"),
+        (blobstore.backend() == "s3", "Evidence on this server's disk: set EVIDENCE_STORE=s3"),
+        (bool(os.getenv("BACKUP_S3_BUCKET")), "Backups stay on this machine: set BACKUP_S3_BUCKET"),
+        (bool(os.getenv("SENTRY_DSN")) or bool(os.getenv("METRICS_TOKEN")), "No error tracking or metrics token"),
+        (os.getenv("MFA_REQUIRED", "false").lower() == "true", "Two-step sign-in not required (MFA_REQUIRED)"),
+    ]
+    return [msg for ok, msg in checks if not ok]
+
+
 def _warn_if_multi_worker():
-    """Live frames, pipeline status, WebSocket clients and rate limits live in this process.
-    With several workers each would see only part of them (a camera "offline" on one, alerts
-    missing on another). Every launcher here starts one worker; say so loudly if that changes."""
+    """Without Redis, live frames, pipeline status, WebSocket clients and rate limits live in this
+    process: with several workers each would see only part of them (a camera "offline" on one,
+    alerts missing on another). With REDIS_URL they are shared (backend/services/cluster.py)."""
+    from backend.services import cluster
     workers = int(os.getenv("WEB_CONCURRENCY", "1") or 1)
-    if workers > 1:
+    if workers > 1 and not cluster.enabled():
         logger.error(f"WEB_CONCURRENCY={workers}: Aegis keeps live state in-process and needs exactly "
-                     "one API worker. Run uvicorn with --workers 1.")
+                     "one API worker. Run uvicorn with --workers 1, or set REDIS_URL.")
 
 
 # ---------------------------------------------------------------------------
@@ -106,15 +129,21 @@ def _warn_if_multi_worker():
 async def lifespan(app: FastAPI):
     _validate_secrets()
     _warn_if_multi_worker()
-    init_db()
+    for msg in _production_checks():
+        logger.warning(f"Production check: {msg}")
+    from backend.services import cluster
+    from scripts.seed_cameras import seed_cameras
+    with cluster.startup_lock():           # several workers start together: one at a time here
+        init_db()
+        seed_cameras()
     from backend.services.escalation import escalation_loop
-    escalation_task = asyncio.create_task(escalation_loop())
     from backend.services.maintenance import health_watch_loop, maintenance_loop
     from backend.services.tracking_loop import tracking_loop
-    background = [asyncio.create_task(maintenance_loop()), asyncio.create_task(health_watch_loop()),
-                  asyncio.create_task(tracking_loop())]
-    from scripts.seed_cameras import seed_cameras
-    seed_cameras()
+    cluster.start_subscriber(asyncio.get_running_loop())
+    # With Redis and several workers, each job runs on exactly one of them (it moves if that dies).
+    escalation_task = asyncio.create_task(cluster.run_as_leader("escalation", escalation_loop))
+    background = [asyncio.create_task(cluster.run_as_leader(n, f)) for n, f in
+                  (("maintenance", maintenance_loop), ("health-watch", health_watch_loop), ("tracking", tracking_loop))]
     try:
         from utils.config import load_yaml, expand_env
         from utils.alerts.event_publisher import set_auto_alerts_enabled
@@ -127,6 +156,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Config auto_alerts load skipped: {e}")
     logger.info("✅ AI-SSS Backend started successfully")
     yield
+    cluster.stop_subscriber()
     for task in (escalation_task, *background):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -160,6 +190,10 @@ app.add_middleware(
 )
 
 app.add_middleware(RateLimitMiddleware)
+from backend.observability import RequestContextMiddleware, configure_logging, init_sentry  # noqa: E402
+configure_logging()
+init_sentry()
+app.add_middleware(RequestContextMiddleware)     # outermost: ids and latency cover everything
 
 # ---------------------------------------------------------------------------
 # Routes (prefixed under /api/v1 for versioning)
@@ -202,6 +236,7 @@ app.include_router(tracking_router, prefix=API_V1)
 app.include_router(case_evidence_router, prefix=API_V1)
 app.include_router(governance_router, prefix=API_V1)
 app.include_router(ml_router, prefix=API_V1)
+app.include_router(dispatch_router, prefix=API_V1)
 
 
 @app.get("/health")
@@ -227,7 +262,8 @@ def health_check():
     except Exception as e:
         checks["redis"] = str(e)
     try:
-        from backend.api.system_routes import _pipeline_status
+        from backend.api.system_routes import pipeline_status
+        _pipeline_status = pipeline_status()
         checks["pipeline"] = "online" if _pipeline_status.get("online") else "standby"
         if _pipeline_status.get("last_heartbeat"):
             checks["last_heartbeat"] = _pipeline_status["last_heartbeat"]

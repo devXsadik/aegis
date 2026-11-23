@@ -142,3 +142,51 @@ def test_registry_promote_and_rollback(u):
     assert client.post(f"/api/v1/ml/models/{a['id']}/promote", headers=u["op"]).status_code == 403
     logs = client.get("/api/v1/audit/?action=MODEL_PROMOTE", headers=u["admin"]).json()
     assert len(logs) >= 2
+
+
+def _attr_model():
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    wc = numpy_helper.from_array(np.array([[1.0, -1.0], [0, 0], [0, 0]], np.float32), "wc")
+    wt = numpy_helper.from_array(np.array([[0, 0], [1.0, -1.0], [0, 0]], np.float32), "wt")
+    g = helper.make_graph(
+        [helper.make_node("GlobalAveragePool", ["x"], ["p"]), helper.make_node("Flatten", ["p"], ["f"]),
+         helper.make_node("MatMul", ["f", "wc"], ["c"]), helper.make_node("MatMul", ["f", "wt"], ["t"])],
+        "attr", [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 3, 32, 32])],
+        [helper.make_tensor_value_info("c", TensorProto.FLOAT, [1, 2]), helper.make_tensor_value_info("t", TensorProto.FLOAT, [1, 2])],
+        [wc, wt])
+    m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 13)])
+    m.ir_version = 8
+    labels = {"version": "cand-1", "input_size": 32, "heads": [
+        {"name": "color", "output": "c", "classes": ["red", "blue"]},
+        {"name": "type", "output": "t", "classes": ["car", "bus"]}]}
+    return m.SerializeToString(), json.dumps(labels).encode()
+
+
+def test_shadow_run_compares_with_production_then_promote_ends_it(u):
+    import numpy as np
+    pytest.importorskip("onnx")
+    from core.analysis import shadow, vehicle_attrs
+    h = u["ml"]
+    model, labels = _attr_model()
+    m = client.post("/api/v1/ml/models", headers=h, data={"task": "vehicle_attr", "name": "attr-cand", "version": f"s-{R}"},
+                    files={"file": ("m.onnx", model), "labels": ("labels.json", labels)}).json()
+    assert client.post(f"/api/v1/ml/models/{m['id']}/shadow", headers=u["op"]).status_code == 403
+    r = client.post(f"/api/v1/ml/models/{m['id']}/shadow", headers=h)
+    assert r.status_code == 200 and r.json()["stage"] == "shadow"
+    crop = np.full((40, 60, 3), (30, 30, 200), np.uint8)        # red (BGR) car-ish crop
+    live = vehicle_attrs.classify(crop, "car", 0.9)
+    assert live["model"] != "cand-1"                             # production answer is what's used
+    st = client.get("/api/v1/ml/shadow?task=vehicle_attr", headers=h).json()
+    assert st["model"]["id"] == m["id"] and st["samples"] == 1
+    assert set(st["heads"]) >= {"color", "vehicle_type"}
+    out = client.post(f"/api/v1/ml/models/{m['id']}/promote", headers=h).json()
+    assert out["promoted"]["stage"] == "production"
+    assert client.get("/api/v1/ml/shadow?task=vehicle_attr", headers=h).json()["model"] is None
+    assert vehicle_attrs._shadow_net() is None
+    shadow.reset("vehicle_attr")
+    for name in ("vehicle_attr.onnx", "vehicle_attr.labels.json"):     # later tests expect the baseline
+        os.remove(os.path.join(os.environ["AEGIS_MODELS_DIR"], name))
+    vehicle_attrs._net.cache_clear()
+    vehicle_attrs._attr_labels.cache_clear()

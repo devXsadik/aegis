@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from backend.db.database import Base
 
@@ -20,5 +20,8 @@ class User(Base):
     totp_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
     totp_last_step = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
+    # District / area administration: this user's view and powers are limited to this area and
+    # the areas under it (services/scope.py). None = national.
+    scope_jurisdiction_id = Column(Integer, ForeignKey("jurisdictions.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
