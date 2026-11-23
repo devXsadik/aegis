@@ -9,7 +9,7 @@ async function signIn(page, user) {
 }
 
 // Phase 10: the officer answers a notification from the phone; the incident follows.
-test('officer answers "En route" on a target notification', async ({ page }) => {
+test('officer answers "On my way" on a target notification', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page, 'e2e_off_karim')
   await page.goto('/#/respond')
@@ -18,8 +18,9 @@ test('officer answers "En route" on a target notification', async ({ page }) => 
   await expect(card.getByText('Moving N', { exact: true })).toBeVisible()
   await expect(card.getByText(/Answer within/)).toBeVisible()
   await page.screenshot({ path: 'test-results/officer-inbox.png', fullPage: true })
-  await card.getByRole('button', { name: 'En route' }).click()
-  await expect(card.getByText(/You answered “en route”/)).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'Duty status' })).toBeVisible()
+  await card.getByRole('button', { name: 'On my way' }).click()
+  await expect(card.getByText(/You answered “On my way”/)).toBeVisible()
 })
 
 // Phase 11: the command map shows the followed target with its predicted next camera.

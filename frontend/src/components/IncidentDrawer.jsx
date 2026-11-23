@@ -82,7 +82,8 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
     try { if (await onNote(note.trim())) setNote('') } finally { setSaving(false) }
   }
 
-  return (
+  // Portalled to <body>: inside the page's animated container a fixed sheet is clipped to the page's height.
+  return createPortal(
     <div className="drawer-scrim" onClick={onClose}>
       <aside ref={ref} className="drawer inc-drawer" role="dialog" aria-modal="true" aria-labelledby="inc-drawer-title"
         onClick={(e) => e.stopPropagation()}>
@@ -107,6 +108,11 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
                 onChange={(s, n) => onStatus(incident, s, n)} />
               <SeverityBadge level={incident.priority} />
               <AlertTypeBadge type={incident.incident_type} />
+              {canAssign && (
+                <button type="button" className="btn btn-sm btn-primary inc-assign-top" onClick={() => setPicker(true)}>
+                  <Icons.dispatch /> {incident.assignments.length ? 'Assign more officers' : 'Assign officers'}
+                </button>
+              )}
             </div>
 
             <div className="inc-media">
@@ -120,9 +126,9 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
 
             <dl className="inc-detail-grid">
               <div><dt>Camera</dt><dd>{incident.camera_location || '—'}{incident.camera_id && <span className="muted mono"> · {incident.camera_id}</span>}</dd></div>
-              <div><dt>Jurisdiction</dt><dd>{area ? `${area.name_en}${area.name_bn ? ` · ${area.name_bn}` : ''}` : '—'}</dd></div>
+              <div><dt>Jurisdiction</dt><dd>{area ? `${area.name_en}${area.name_bn ? ` · ${area.name_bn}` : ''}` : <span className="muted">Not recorded</span>}</dd></div>
               <div><dt>Opened</dt><dd title={fmt(incident.created_at)}>{timeAgo(incident.created_at)} · {incident.created_by_name || 'SYSTEM'}</dd></div>
-              <div><dt>Case owner</dt><dd>{incident.assigned_name || '—'}</dd></div>
+              <div><dt>Case owner</dt><dd>{incident.assigned_name || <span className="muted">Nobody yet</span>}</dd></div>
               {incident.person_name && <div><dt>Subject</dt><dd><Icons.watchlist /> {incident.person_name}</dd></div>}
               {incident.plate_number && <div><dt>Plate</dt><dd className="mono">{incident.plate_number}</dd></div>}
               {incident.lat != null && <div><dt>GPS</dt><dd className="mono">{Number(incident.lat).toFixed(5)}, {Number(incident.lng).toFixed(5)}</dd></div>}
@@ -137,7 +143,7 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
               {incident.assignments.length === 0
                 ? <EmptyState compact icon={Icons.users} title="No officer assigned"
                     action={canAssign && <button type="button" className="btn btn-sm" onClick={() => setPicker(true)}>Find officers in this jurisdiction</button>}>
-                    Only officers whose jurisdiction covers this camera can be assigned.
+                    Officers whose jurisdiction covers this camera are listed first.
                   </EmptyState>
                 : <div className="off-chips">{incident.assignments.map((a) => (
                     <OfficerChip key={a.user_id} a={a} onRemove={canAssign ? (x) => onUnassign(incident, x) : null} />
@@ -194,6 +200,7 @@ export function IncidentDrawer({ incident, loading, error, onRetry, spec, me, on
               onAssign={(ids, opts) => onAssign(incident, ids, opts)} />
           </div>, document.body)}
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -36,13 +36,13 @@ export function Watchlist({ ctx }) {
       </div>
 
       <div className="toolbar mb">
-        <span className="muted">Photos are added and removed on the Faces page.</span>
+        <span className="muted">Photos are added and removed under People → Registry.</span>
         <span className="spacer" />
         <button className="btn btn-primary btn-sm" onClick={() => setPage('faces')}><Icons.watchlist /> Manage faces</button>
       </div>
 
       {knownPersons.length === 0 ? (
-        <Card><Empty icon={Icons.watchlist}>No face records yet. Add one on the Faces page.</Empty></Card>
+        <Card><Empty icon={Icons.watchlist}>No face records yet. Add one under People → Registry.</Empty></Card>
       ) : (
         <div className="grid grid-3 mb">
           {knownPersons.map((p) => {
@@ -67,7 +67,7 @@ export function Watchlist({ ctx }) {
                   <Tag tone={['wanted', 'convicted', 'suspect'].includes(p.criminal_status) ? 'danger' : 'ok'}>{p.criminal_status}</Tag>
                 </div>
                 <dl className="kv">
-                  <dt>Category</dt><dd>{p.category || '—'}</dd>
+                  <dt>Category</dt><dd className="cap">{(p.category || '—').replace(/_/g, ' ')}</dd>
                   <dt>Risk level</dt><dd><Tag tone={THREAT_TONE(p.threat_level)}>Level {p.threat_level}</Tag></dd>
                   <dt>Last seen</dt><dd>{seen ? timeAgo(seen) : 'Not in recent alerts'}</dd>
                   <dt>Detections</dt><dd>{count}</dd>

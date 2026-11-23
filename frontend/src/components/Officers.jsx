@@ -160,10 +160,20 @@ export function OfficerPicker({ incident, canOverride, onClose, onAssign }) {
         {canOverride && (
           <label className="off-override">
             <input type="checkbox" checked={neighbours} onChange={(e) => setNeighbours(e.target.checked)} />
-            Show neighbouring jurisdictions <span className="muted">(logged)</span>
+            {data?.unmapped ? 'Show all officers' : 'Show neighbouring jurisdictions'} <span className="muted">(logged)</span>
           </label>
         )}
       </div>
+      {data?.unmapped && (
+        <div className="off-note" role="note">
+          <Icons.alert />
+          <span>
+            <b>This camera is not inside a mapped jurisdiction</b>, so no officer covers it automatically.
+            Draw its thana in Settings → Jurisdictions, or set the camera's position in Cameras → Registry.
+            {canOverride ? ' You can still pick any officer below; the reason is audit-logged.' : ' A supervisor or admin can assign any officer meanwhile.'}
+          </span>
+        </div>
+      )}
       <label className="ds-search" style={{ marginBottom: 12 }}>
         <Icons.search />
         <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)}
@@ -172,13 +182,16 @@ export function OfficerPicker({ incident, canOverride, onClose, onAssign }) {
       {loading && <SkeletonList rows={4} label="Loading officers" />}
       {!loading && error && <ErrorState compact message={error} onRetry={() => setAttempt((n) => n + 1)} />}
       {!loading && !error && list.length === 0 && (
-        <EmptyState compact icon={Icons.users} title={q ? 'No officer matches' : 'No officer covers this camera'}
+        <EmptyState compact icon={Icons.users} title={q ? 'No officer matches' : neighbours ? 'No officers found' : 'No officer covers this camera'}
           action={!q && canOverride && !neighbours && (
-            <button type="button" className="btn btn-sm" onClick={() => setNeighbours(true)}>Show neighbouring jurisdictions</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setNeighbours(true)}>
+              {data?.unmapped ? 'Show all officers' : 'Show neighbouring jurisdictions'}
+            </button>
           )}>
           {q ? 'Try a different name or badge number.'
-            : canOverride ? 'Nobody is assigned to this jurisdiction. A supervisor can look in neighbouring areas.'
-              : 'Nobody is assigned to this jurisdiction. Ask a supervisor to assign from a neighbouring area.'}
+            : neighbours ? 'No active field officer or supervisor accounts exist yet. Add them in Users, with role Police.'
+              : canOverride ? 'Nobody is assigned to this jurisdiction yet. You can look further afield (logged).'
+                : 'Nobody is assigned to this jurisdiction. Ask a supervisor to assign from a neighbouring area.'}
         </EmptyState>
       )}
       {!loading && !error && list.length > 0 && (

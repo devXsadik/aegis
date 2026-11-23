@@ -3,7 +3,7 @@ import { Card, Icons, Tag, Empty, Modal, timeAgo } from '../components/ui'
 import { fetchUsers, createUser, updateUser } from '../services/api'
 import { can } from '../lib/permissions'
 
-const ROLE_TONE = { admin: 'danger', supervisor: 'orange', police: 'info', operator: 'ok', investigator: 'purple', viewer: 'muted' }
+const ROLE_TONE = { admin: 'danger', supervisor: 'orange', police: 'info', operator: 'ok', investigator: 'purple', viewer: 'muted', ml_engineer: 'purple', auditor: 'muted' }
 
 const ROLES = [
   { role: 'admin', label: 'Administrator', perms: 'Full system control · users · watchlist · audit · settings' },
@@ -11,6 +11,9 @@ const ROLES = [
   { role: 'police', label: 'Police', perms: 'Receive dispatches · live GPS pins · update incident status' },
   { role: 'operator', label: 'Operator', perms: 'Live monitoring · alert triage · evidence viewing · reports' },
   { role: 'investigator', label: 'Investigator', perms: 'Evidence deep-dive · watchlist queries · vehicle history' },
+  { role: 'ml_engineer', label: 'ML engineer', perms: 'Training datasets · model registry · review queue (no live data)' },
+  { role: 'auditor', label: 'Auditor', perms: 'Audit log · accuracy reports · read-only' },
+  { role: 'viewer', label: 'Wall display', perms: 'Read-only screens for the video wall' },
 ]
 
 export function Users({ ctx }) {
@@ -66,12 +69,11 @@ export function Users({ ctx }) {
           {users && users.length > 0 && (
             <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>User</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th>{isAdmin && <th></th>}</tr></thead>
+              <thead><tr><th scope="col">User</th><th scope="col">Phone</th><th scope="col">Role</th><th scope="col">Status</th>{isAdmin && <th scope="col"><span className="sr-only">Actions</span></th>}</tr></thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td><b>{u.username}</b>{me?.id === u.id && <span className="muted"> (you)</span>}</td>
-                    <td className="muted">{u.email}</td>
+                    <td className="user-cell"><b>{u.username}</b>{me?.id === u.id && <span className="muted"> (you)</span>}<span className="muted">{u.email}</span></td>
                     <td className="muted mono">{u.phone || '—'}</td>
                     <td><Tag tone={ROLE_TONE[u.role] || 'muted'}>{ROLES.find((r) => r.role === u.role)?.label || u.role}</Tag></td>
                     <td><Tag tone={u.is_active ? 'ok' : 'muted'}>{u.is_active ? 'Active' : 'Disabled'}</Tag></td>

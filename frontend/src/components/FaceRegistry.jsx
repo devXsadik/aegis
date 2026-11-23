@@ -271,7 +271,7 @@ export function VerifyPanel({ persons }) {
   const verdict = res && VERDICT[res.status]
 
   return (
-    <Card title="Verify a face" sub="match a photo against enrolled records">
+    <Card title="Verify a face" sub="Check a photo against everyone enrolled">
       <div style={{ display: 'grid', gap: 10 }}>
         <input className="input" type="file" accept="image/jpeg,image/png"
           onChange={(e) => { setFile(e.target.files[0] || null); setRes(null); setError('') }} />
@@ -385,7 +385,7 @@ export function EvidenceCheck({ evidence }) {
   const counts = Object.values(results).reduce((c, r) => { if (r.status) c[r.status] = (c[r.status] || 0) + 1; return c }, {})
 
   return (
-    <Card title="Evidence check" sub="is a captured image a match or not?"
+    <Card title="Evidence check" sub="Was a captured image really this person?"
       actions={<button className="btn btn-sm btn-primary" disabled={bulk || busyId !== null || !items.length} onClick={checkAll}>
         {bulk ? 'Checking…' : `Check latest ${items.length}`}</button>}>
       {Object.keys(results).length > 0 && (

@@ -127,6 +127,13 @@ def eligible_officers(db: Session, *, camera_id: Optional[str], lat=None, lng=No
     direct = {co.user_id for co in db.query(CameraOfficer).filter(CameraOfficer.camera_id == camera_id).all()} \
         if camera_id else set()
     in_area |= direct
+    unmapped = not cover
+    if unmapped and include_neighbours:
+        # The place lies in no mapped jurisdiction: the override (supervisor / admin, reason
+        # required, audit-logged) may pick any active officer, each flagged as out of area.
+        everyone = {u.id for u in db.query(User.id).filter(User.is_active == True,  # noqa: E712
+                                                           User.role.in_(OFFICER_ROLES))}
+        neighbour_only = everyone - in_area
     ids = in_area | neighbour_only
     users = db.query(User).filter(User.id.in_(ids), User.is_active == True,  # noqa: E712
                                   User.role.in_(OFFICER_ROLES)).all() if ids else []
@@ -158,7 +165,7 @@ def eligible_officers(db: Session, *, camera_id: Optional[str], lat=None, lng=No
     if leaf:
         area = {"id": leaf.id, "name": leaf.name_en, "name_bn": leaf.name_bn, "level": leaf.level}
     return {"camera_id": camera_id, "lat": lat, "lng": lng, "area": area, "officers": cards,
-            "neighbours_included": include_neighbours}
+            "neighbours_included": include_neighbours, "unmapped": unmapped}
 
 
 def is_eligible(db: Session, user_id: int, *, camera_id, lat=None, lng=None, include_neighbours=False) -> bool:

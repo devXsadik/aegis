@@ -19,7 +19,6 @@ from backend.auth.auth import operator_or_admin
 from backend.db.database import get_db
 from backend.models.alert import Alert
 from backend.models.camera import Camera
-from backend.models.camera_officer import CameraOfficer
 from backend.models.capture import AlertCapture
 from backend.models.incident import Incident, IncidentEvent
 from backend.models.user import User
@@ -60,7 +59,9 @@ def _progress(db: Session, alert_id: int):
 @router.get("/alerts")
 def my_alerts(hours: int = 24, db: Session = Depends(get_db), user: User = Depends(operator_or_admin)):
     since = utcnow() - timedelta(hours=min(max(hours, 1), 168))
-    mine = [c for (c,) in db.query(CameraOfficer.camera_id).filter(CameraOfficer.user_id == user.id)]
+    # An officer's cameras: mapped to them directly, or inside one of their jurisdictions.
+    from backend.services import jurisdiction as jsvc
+    mine = sorted(jsvc.officer_camera_ids(db, user.id))
     q = db.query(Alert).filter(Alert.timestamp >= since, Alert.dismissed == False,  # noqa: E712
                                Alert.severity.in_(["critical", "high"]))
     if mine:

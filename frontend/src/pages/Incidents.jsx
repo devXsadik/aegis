@@ -305,6 +305,7 @@ export function Incidents({ ctx }) {
         </div>
         <div className="inc-filters-row2">
           <div className="inc-chipset" role="group" aria-label="Status">
+            <span className="chip-label" aria-hidden="true">Status</span>
             {spec.statuses.map((s) => (
               <button key={s.id} type="button" className="inc-chip" aria-pressed={filters.status.includes(s.id)} onClick={() => toggleIn('status', s.id)}>
                 {t(`status.${s.id}`)}{by[s.id] ? ` · ${by[s.id]}` : ''}
@@ -314,10 +315,12 @@ export function Incidents({ ctx }) {
               onClick={() => setF({ status: OPEN_STATUSES })}>All open</button>
           </div>
           <div className="inc-chipset" role="group" aria-label="Severity">
+            <span className="chip-label" aria-hidden="true">Severity</span>
             {SEVERITIES.map((s) => (
               <button key={s} type="button" className="inc-chip" aria-pressed={filters.priority.includes(s)} onClick={() => toggleIn('priority', s)}>{t(`severity.${s}`)}</button>
             ))}
           </div>
+          <span className="chip-label" aria-hidden="true">Opened</span>
           <label>From <input className="input" type="date" value={filters.date_from} onChange={(e) => setF({ date_from: e.target.value })} /></label>
           <label>To <input className="input" type="date" value={filters.date_to} onChange={(e) => setF({ date_to: e.target.value })} /></label>
           {active && <button type="button" className="link-btn" onClick={() => { setFilters(EMPTY_FILTERS); setQuery(''); setPage(0) }}>{t('incidents.clearFilters')}</button>}

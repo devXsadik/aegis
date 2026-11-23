@@ -23,11 +23,14 @@ export function FaceRegistryPage({ ctx }) {
   return (
     <>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <input className="input" style={{ maxWidth: 280 }} placeholder="Search name or ID…"
-          value={query} onChange={(e) => setQuery(e.target.value)} />
+        <label className="ds-search" style={{ maxWidth: 300, flex: 1 }}>
+          <Icons.search />
+          <input className="input" type="search" placeholder="Search name or ID" aria-label="Search people"
+            value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
         <span className="spacer" />
         {canEdit ? (
-          <button className="btn btn-primary" onClick={() => setEnrolling(true)}>+ Enroll face</button>
+          <button type="button" className="btn btn-primary" onClick={() => setEnrolling(true)}><Icons.plus /> Enroll a person</button>
         ) : (
           <span className="meta">Supervisor or admin access is required to enroll faces</span>
         )}
@@ -35,7 +38,7 @@ export function FaceRegistryPage({ ctx }) {
 
       <div className="grid grid-2" style={{ marginBottom: 14, alignItems: 'start' }}>
         <VerifyPanel persons={knownPersons} />
-        <Card title="How it works" sub="enroll once, matched everywhere">
+        <Card title="How it works" sub="Enroll once, matched on every camera">
           <ol className="meta" style={{ paddingLeft: 18, lineHeight: 1.7 }}>
             <li>Enroll a person with one or more clear, front-facing photos.</li>
             <li>Each photo becomes a face embedding stored in the database.</li>
@@ -43,7 +46,7 @@ export function FaceRegistryPage({ ctx }) {
             <li>Use Verify to test any photo: you get MATCH, NO MATCH or NO FACE.</li>
           </ol>
           <div className="meta" style={{ marginTop: 8 }}>
-            {knownPersons.length} record(s) · {knownPersons.reduce((n, p) => n + (p.encoding_count || 0), 0)} embeddings
+            {knownPersons.length} {knownPersons.length === 1 ? 'person' : 'people'} enrolled · {knownPersons.reduce((n, p) => n + (p.encoding_count || 0), 0)} usable face photos
           </div>
         </Card>
       </div>
@@ -73,9 +76,9 @@ export function FaceRegistryPage({ ctx }) {
                 <Tag tone={['wanted', 'convicted', 'suspect'].includes(p.criminal_status) ? 'danger' : 'ok'}>{p.criminal_status}</Tag>
               </div>
               <dl className="kv">
-                <dt>Category</dt><dd>{(p.category || '—').replace(/_/g, ' ')}</dd>
-                <dt>Risk Level</dt><dd><Tag tone={THREAT_TONE(p.threat_level)}>Level {p.threat_level}</Tag></dd>
-                <dt>Photos</dt><dd>{p.image_count} · {p.encoding_count} embeddings</dd>
+                <dt>Category</dt><dd className="cap">{(p.category || '—').replace(/_/g, ' ')}</dd>
+                <dt>Risk level</dt><dd><Tag tone={THREAT_TONE(p.threat_level)}>Level {p.threat_level}</Tag></dd>
+                <dt>Photos</dt><dd>{p.image_count} photo{p.image_count === 1 ? '' : 's'} · {p.encoding_count ? `${p.encoding_count} usable` : <span className="text-warn">no usable face yet</span>}</dd>
               </dl>
               <div className="row" style={{ gap: 8, marginTop: 10 }}>
                 <button className="btn btn-sm" onClick={() => setManaging(p)}>{canEdit ? 'Manage' : 'View'}</button>

@@ -16,11 +16,13 @@ const KIND = {
   assigned: { tone: 'info', label: 'Assigned', icon: Icons.users },
 }
 const ANSWERS = [
-  { state: 'acknowledged', label: 'Acknowledge', cls: '' },
-  { state: 'en_route', label: 'En route', cls: 'btn-primary' },
-  { state: 'located', label: 'Located', cls: '' },
-  { state: 'unable', label: 'Unable', cls: 'btn-ghost' },
+  { state: 'en_route', label: 'On my way', cls: 'btn-primary', icon: Icons.dispatch },
+  { state: 'acknowledged', label: 'Seen it', cls: '', icon: Icons.check },
+  { state: 'located', label: 'Target located', cls: '', icon: Icons.eye },
+  { state: 'unable', label: "Can't respond", cls: 'inbox-unable', icon: Icons.close },
 ]
+const ANSWER_LABEL = { acknowledged: 'Seen it', en_route: 'On my way', located: 'Target located', unable: "Can't respond" }
+const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 function Countdown({ deadline }) {
   const [now, setNow] = useState(() => Date.now())
@@ -28,7 +30,7 @@ function Countdown({ deadline }) {
   const d = parseTs(deadline)
   if (!d) return null
   const s = Math.round((d.getTime() - now) / 1000)
-  return <Badge tone={s < 0 ? 'danger' : s < 30 ? 'warn' : 'muted'} size="sm" icon={Icons.clock}>{s < 0 ? 'Overdue — escalated' : `Answer within ${s}s`}</Badge>
+  return <Badge tone={s < 0 ? 'danger' : s < 30 ? 'warn' : 'muted'} size="sm" icon={Icons.clock}>{s < 0 ? 'Overdue — escalated' : `Answer within ${mmss(s)}`}</Badge>
 }
 
 function Item({ n, onAnswer, busy }) {
@@ -48,13 +50,13 @@ function Item({ n, onAnswer, busy }) {
         <h3 className="inbox-title">{n.title}</h3>
         {n.body && <p className="inbox-text">{n.body}</p>}
         {n.acked_at ? (
-          <p className="meta"><Icons.check /> You answered “{(n.ack_state || '').replace('_', ' ')}” {timeAgo(n.acked_at)}</p>
+          <p className="meta"><Icons.check /> You answered “{ANSWER_LABEL[n.ack_state] || n.ack_state}” {timeAgo(n.acked_at)}</p>
         ) : (
           <div className="inbox-actions">
             {ANSWERS.map((a) => (
-              <button key={a.state} type="button" className={`btn rsp-btn ${a.cls}`} disabled={busy} onClick={() => onAnswer(n, a.state)}>{a.label}</button>
+              <button key={a.state} type="button" className={`btn ${a.cls}`} disabled={busy} onClick={() => onAnswer(n, a.state)}><a.icon /> {a.label}</button>
             ))}
-            {maps && <a className="btn rsp-btn" href={maps} target="_blank" rel="noreferrer"><Icons.map /> Directions</a>}
+            {maps && <a className="btn" href={maps} target="_blank" rel="noreferrer"><Icons.map /> Directions</a>}
           </div>
         )}
       </div>
@@ -62,7 +64,7 @@ function Item({ n, onAnswer, busy }) {
   )
 }
 
-export function OfficerInbox({ me }) {
+export function OfficerInbox({ me, onOpenCount }) {
   const { push: toast } = useToast()
   const [items, setItems] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -80,21 +82,29 @@ export function OfficerInbox({ me }) {
     try {
       const updated = await ackNotification(n.id, state)
       setItems((list) => list.map((x) => (x.id === n.id ? updated : x)))
-      toast(`Answered: ${state.replace('_', ' ')}`, 'ok')
+      toast(`Answered: ${ANSWER_LABEL[state]}`, 'ok')
     } catch (e) {
       toast(e.message || 'Could not send', 'danger')
     } finally {
       setBusy(false)
     }
   }
+  const open = (items || []).filter((n) => !n.acked_at)
+  const done = (items || []).filter((n) => n.acked_at).slice(0, 5)
+  useEffect(() => { onOpenCount?.(open.length) }, [open.length, onOpenCount])
   if (items === null) return null
-  const open = items.filter((n) => !n.acked_at)
-  const done = items.filter((n) => n.acked_at).slice(0, 5)
   return (
-    <section className="inbox" aria-label="My notifications">
-      <h2 className="inc-section-title">Notifications for you {open.length > 0 && <Badge tone="danger" size="sm">{open.length} to answer</Badge>}</h2>
-      {items.length === 0 && <EmptyState compact icon={Icons.bell} title="No notifications">Targets in or heading into your area appear here.</EmptyState>}
+    <section className="inbox" aria-labelledby="inbox-h">
+      <header className="rsp-section-head">
+        <div>
+          <h2 id="inbox-h">Notifications for you</h2>
+          <span className="meta">Targets in or heading into your area</span>
+        </div>
+        {open.length > 0 && <Badge tone="danger">{open.length} to answer</Badge>}
+      </header>
+      {items.length === 0 && <EmptyState compact icon={Icons.bell} title="Nothing for you right now">When a tracked target enters or heads into your area, it appears here and your phone buzzes.</EmptyState>}
       {open.map((n) => <Item key={n.id} n={n} onAnswer={answer} busy={busy} />)}
+      {done.length > 0 && <h3 className="inbox-sub">Answered</h3>}
       {done.map((n) => <Item key={n.id} n={n} onAnswer={answer} busy={busy} />)}
     </section>
   )

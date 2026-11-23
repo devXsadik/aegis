@@ -243,7 +243,7 @@ export function PersonWatchlist({ role }) {
       actions={<div className="ds-toolbar">
         <label className="ds-search" style={{ minWidth: 200 }}><Icons.search /><input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, alias, case no." aria-label="Search people" /></label>
         <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-          <option value="">All</option>{Object.entries(WL_STATUS).filter(([k]) => k !== 'scheduled').map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          <option value="">All statuses</option>{Object.entries(WL_STATUS).filter(([k]) => k !== 'scheduled').map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
       </div>}>
       {error && <ErrorState compact message={error} onRetry={load} />}
@@ -393,11 +393,11 @@ export function VehicleWatchlist({ role }) {
   const canDecide = COMMAND.includes(role)
 
   return (
-    <Card title="Vehicles" sub="Plate and / or type, colour and model. Plate-less entries alert only inside a lookout area." flush
+    <Card title="Vehicle watchlist" sub="Wanted vehicles by plate, or by type, colour and model. Entries without a plate only alert inside an active lookout." flush
       actions={<div className="ds-toolbar">
-        <label className="ds-search" style={{ minWidth: 200 }}><Icons.search /><input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Plate (Bangla or English), case" aria-label="Search vehicles" /></label>
+        <label className="ds-search" style={{ minWidth: 200 }}><Icons.search /><input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search plate or case no." aria-label="Search vehicles" /></label>
         <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-          <option value="">All</option>{Object.entries(WL_STATUS).filter(([k]) => k !== 'scheduled').map(([k, x]) => <option key={k} value={k}>{x.label}</option>)}
+          <option value="">All statuses</option>{Object.entries(WL_STATUS).filter(([k]) => k !== 'scheduled').map(([k, x]) => <option key={k} value={k}>{x.label}</option>)}
         </select>
         {canRequest && <button type="button" className="btn btn-sm btn-primary" onClick={() => setForm({})}><Icons.plus /> Add vehicle</button>}
       </div>}>

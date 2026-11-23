@@ -111,13 +111,13 @@ export function EvidenceGallery({ me, incidentId: fixedIncident, groupId, reload
           <select className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} aria-label="Type">
             {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <input className="input" type="date" value={f.date_from} onChange={(e) => setF({ ...f, date_from: e.target.value })} aria-label="From" />
-          <input className="input" type="date" value={f.date_to} onChange={(e) => setF({ ...f, date_to: e.target.value })} aria-label="To" />
+          <label className="date-field">From <input className="input" type="date" value={f.date_from} onChange={(e) => setF({ ...f, date_from: e.target.value })} /></label>
+          <label className="date-field">To <input className="input" type="date" value={f.date_to} onChange={(e) => setF({ ...f, date_to: e.target.value })} /></label>
         </div>
       )}
       {error && <ErrorState compact message={error} onRetry={() => setTick((n) => n + 1)} />}
       {!error && !data && <SkeletonList rows={3} />}
-      {data && data.items.length === 0 && <EmptyState compact icon={Icons.evidence} title="No evidence yet">Upload photos, video, audio or documents to an incident.</EmptyState>}
+      {data && data.items.length === 0 && <EmptyState compact icon={Icons.evidence} title="No evidence yet">Upload photos, video, audio or documents to an incident from the Upload tab, or from an incident's Evidence section.</EmptyState>}
       {data && data.items.length > 0 && (
         <ul className="ev-grid" aria-label="Evidence">
           {data.items.map((i) => {

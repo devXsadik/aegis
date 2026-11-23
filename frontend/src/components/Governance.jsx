@@ -4,6 +4,7 @@ import { Card, Icons, Seg } from './ui'
 import { Badge, EmptyState, ErrorState, SettingRow, SkeletonList } from './ds'
 import { fetchAccuracy, fetchRetention, saveRetention } from '../services/api'
 import { useToast } from './Toast'
+import { eventLabel } from '../lib/events'
 
 const FIELDS = [
   ['detection_days', 'Detections, plate reads, vehicle attributes (days)', 'Not matched to a watchlist; then deleted automatically'],
@@ -44,7 +45,7 @@ export function RetentionEditor({ isAdmin }) {
   )
 }
 
-function Table({ title, rows }) {
+function Table({ title, rows, label }) {
   if (!rows.length) return null
   return (
     <Card title={title} flush>
@@ -54,7 +55,7 @@ function Table({ title, rows }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.key}>
-                <td className="mono">{r.key}</td><td>{r.matches}</td><td>{r.confirmed}</td><td>{r.rejected}</td><td>{r.pending}</td>
+                <td>{label ? label(r.key) : r.key}</td><td>{r.matches}</td><td>{r.confirmed}</td><td>{r.rejected}</td><td>{r.pending}</td>
                 <td>{r.false_positive_rate == null ? '—' : (
                   <span className="fp-cell"><span className="fp-bar"><span style={{ width: `${Math.round(r.false_positive_rate * 100)}%` }} /></span>{Math.round(r.false_positive_rate * 100)}%</span>
                 )}</td>
@@ -92,7 +93,7 @@ export function AccuracyDashboard() {
               <div key={l} className="stat"><span className="label">{l}</span><span className="value">{v}</span></div>
             ))}
           </div>
-          <Table title="By alert type" rows={d.by_type} />
+          <Table title="By alert type" rows={d.by_type} label={eventLabel} />
           <Table title="By camera" rows={d.by_camera} />
           <Table title="By model" rows={d.by_model} />
           <Table title="By score" rows={d.by_score} />

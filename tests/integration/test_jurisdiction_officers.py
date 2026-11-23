@@ -175,3 +175,21 @@ def test_audit_chain_is_sealed_and_append_only(world):
         db.commit()
     db.rollback()
     db.close()
+
+
+def test_unmapped_camera_override_lists_all_officers(world):
+    """A camera outside every mapped area: nobody covers it; the supervisor override lists every
+    officer (flagged out of area, reason required), the operator still gets nothing."""
+    o = world["officers"]
+    inc = client.post(f"{API}/incidents/", headers=world["op"], json={"title": f"Unmapped {RUN}", "priority": "high",
+                                                                      "lat": 10.0, "lng": 10.0}).json()
+    res = client.get(f"{API}/incidents/{inc['id']}/eligible-officers", headers=world["op"]).json()
+    assert res["unmapped"] is True and res["officers"] == []
+    res = client.get(f"{API}/incidents/{inc['id']}/eligible-officers?neighbours=true", headers=world["sup"]).json()
+    ids = {x["id"] for x in res["officers"]}
+    assert {o["a_free"][0], o["b"][0]} <= ids and all(x["out_of_area"] for x in res["officers"])
+    assert client.post(f"{API}/incidents/{inc['id']}/assignments", headers=world["sup"],
+                       json={"user_ids": [o["b"][0]], "include_neighbours": True}).status_code == 400
+    got = client.post(f"{API}/incidents/{inc['id']}/assignments", headers=world["sup"],
+                      json={"user_ids": [o["b"][0]], "include_neighbours": True, "reason": "area not mapped"})
+    assert got.status_code == 200, got.text

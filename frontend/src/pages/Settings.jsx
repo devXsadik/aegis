@@ -20,14 +20,14 @@ import { canViewPage } from '../lib/permissions'
 
 const SECTION_KEY = 'aegis.settings.section'
 
-/* Order = side-nav order. `phase` marks sections whose full editor arrives later in the roadmap.
+/* Order = side-nav order.
    `all` sections are personal and open to every role; the rest are for command roles. The server
    enforces every rule again: this only keeps buttons that would fail off the screen. */
 const COMMAND = new Set(['admin', 'supervisor'])
 const SECTIONS = [
   { id: 'profile', icon: DsIcons.user, all: true },
   { id: 'notifications', icon: Icons.bell, all: true },
-  { id: 'cameras', icon: Icons.camera, phase: 'Phase 5' },
+  { id: 'cameras', icon: Icons.camera },
   { id: 'jurisdictions', icon: DsIcons.map },
   { id: 'watchlists', icon: Icons.watchlist, roles: ['operator', 'investigator'] },
   { id: 'thresholds', icon: DsIcons.sliders, all: true },
@@ -203,10 +203,12 @@ function CamerasSection({ ctx }) {
         <SettingRow label="Registered cameras"><b>{list.length}</b></SettingRow>
         <SettingRow label="Sending a heartbeat now"><Badge tone={reporting ? 'ok' : 'warn'}>{reporting}</Badge></SettingRow>
       </Card>
-      <Card>
-        <EmptyState compact icon={Icons.camera} title="Nationwide camera registry">
-          Protocol, encrypted credentials, thana, road, heading arrow on a map, capabilities and CSV import come in Phase 5.
-        </EmptyState>
+      <Card title="Where cameras are managed" sub="Everything about a camera lives on the Cameras page">
+        <ul className="settings-list">
+          <li><b>Registry</b> — protocol, encrypted credentials, thana, road, heading and capabilities</li>
+          <li><b>Import CSV</b> — add many cameras at once</li>
+          <li><b>Health</b> — which cameras are online, offline or stale</li>
+        </ul>
       </Card>
     </>
   )

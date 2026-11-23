@@ -4,11 +4,12 @@ import { VehicleWatchlist } from '../components/WatchlistAdmin'
 export function Vehicles({ ctx }) {
   const { vehicleDetections, me } = ctx
   return (
-    <div className="grid grid-23">
-      <Card title="Vehicle detections" sub="ANPR / number plate recognition" flush>
+    <div className="stack-page">
+      <VehicleWatchlist role={me?.role} />
+      <Card title="Plates read recently" sub="Number plates the cameras read (ANPR)" flush>
         {(!vehicleDetections || vehicleDetections.length === 0) ? (
           <div style={{ padding: 16 }}>
-            <Empty icon={Icons.vehicle}>No vehicle detections yet — ANPR runs automatically in the pipeline</Empty>
+            <Empty icon={Icons.vehicle}>No plates read yet. Plates appear here once detection is running on a camera that sees traffic.</Empty>
           </div>
         ) : (
           <div className="table-wrap table-stack">
@@ -28,7 +29,6 @@ export function Vehicles({ ctx }) {
           </div>
         )}
       </Card>
-      <VehicleWatchlist role={me?.role} />
     </div>
   )
 }

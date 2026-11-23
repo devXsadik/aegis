@@ -256,7 +256,7 @@ function DetailPane({ item, detail, mode, setMode, busy, canAct, onConfirm, onRe
             <Icons.close /> Reject <kbd>D</kbd>
           </button>
           <button type="button" className="btn" disabled={busy} onClick={onDispatch}><Icons.dispatch /> Dispatch police</button>
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onIncident}>Create incident <kbd>I</kbd></button>
+          <button type="button" className="btn" disabled={busy} onClick={onIncident}><Icons.incident /> Create incident <kbd>I</kbd></button>
         </div>
       )}
     </div>
@@ -451,7 +451,10 @@ export function Triage({ ctx }) {
               </button>
             ))}
           </div>
-          <div className="tq-keys"><kbd>J</kbd><kbd>K</kbd> move <kbd>V</kbd> confirm <kbd>D</kbd> reject <kbd>I</kbd> incident <kbd>P</kbd> video</div>
+          <div className="tq-keys" aria-label="Keyboard shortcuts">
+            <span><kbd>J</kbd><kbd>K</kbd> move</span><span><kbd>V</kbd> confirm</span><span><kbd>D</kbd> reject</span>
+            <span><kbd>I</kbd> incident</span><span><kbd>P</kbd> video</span>
+          </div>
         </Card>
 
         <Card title="Alert details" flush>

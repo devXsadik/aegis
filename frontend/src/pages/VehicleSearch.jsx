@@ -195,6 +195,12 @@ export function VehicleSearch({ ctx }) {
           )}
           <div className="ds-toolbar">
             <button type="submit" className="btn btn-primary" disabled={!ready || busy}><Icons.search /> {busy ? 'Searching…' : 'Search'}</button>
+            {!ready && !busy && (
+              <span className="meta">
+                {q.reason.trim().length < 5 ? 'Enter the reason or case number first (it is logged).'
+                  : mode === 'photo' ? 'Choose a vehicle photo.' : 'Add a plate or pick at least one type, colour, model, area or camera.'}
+              </span>
+            )}
             {mode === 'attrs' && criteria && <button type="button" className="btn" onClick={() => setLookoutSeed({ reason: q.reason, plate: q.plate, vehicle_type: q.vehicle_type[0], color: q.color[0], make_model: q.make_model, jurisdiction_id: q.jurisdiction_id })}><Icons.eye /> Start lookout with these</button>}
           </div>
         </form>

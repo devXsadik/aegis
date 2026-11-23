@@ -10,6 +10,14 @@ import { Badge, EmptyState, ErrorState } from '../components/ds'
 import { CameraStatusBadge } from '../components/CameraRegistry'
 import { fetchCommandMap, fetchJurisdictions, liveStreamUrl } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { eventLabel } from '../lib/events'
+
+const LAYER = {
+  cameras: { label: 'Cameras', icon: Icons.camera },
+  tracks: { label: 'Target paths', icon: Icons.dispatch },
+  officers: { label: 'Officers', icon: Icons.users },
+  alerts: { label: 'Alerts', icon: Icons.alert },
+}
 
 const TILE_URL = import.meta.env.VITE_MAP_TILES || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888'
@@ -109,7 +117,7 @@ export function CommandMap({ ctx }) {
     if (show.alerts) {
       data.alerts.forEach((a) => {
         L.circleMarker([a.lat, a.lng], { radius: 4, color: css(SEV_COLOR[a.severity] || '--warn'), fillOpacity: 0.9 })
-          .bindTooltip(`${a.type.replace(/_/g, ' ')} · ${timeAgo(a.at)}`).addTo(layers.current.alerts)
+          .bindTooltip(`${eventLabel(a.type)} · ${timeAgo(a.at)}`).addTo(layers.current.alerts)
       })
     }
     if (!fitted.current && bounds.length) {
@@ -126,8 +134,11 @@ export function CommandMap({ ctx }) {
           {areas.map((a) => <option key={a.id} value={a.id}>{a.level === 'thana' ? '— ' : a.level === 'district' ? '· ' : ''}{a.name_en}</option>)}
         </select>
         <div className="inc-chipset" role="group" aria-label="Layers">
+          <span className="chip-label" aria-hidden="true">Show</span>
           {Object.keys(show).map((k) => (
-            <button key={k} type="button" className="inc-chip" aria-pressed={show[k]} onClick={() => setShow({ ...show, [k]: !show[k] })}>{k}</button>
+            <button key={k} type="button" className="inc-chip layer-chip" aria-pressed={show[k]} onClick={() => setShow({ ...show, [k]: !show[k] })}>
+              {(() => { const I = LAYER[k].icon; return <I /> })()} {LAYER[k].label}
+            </button>
           ))}
         </div>
         {data && (
@@ -148,7 +159,7 @@ export function CommandMap({ ctx }) {
               <CameraStatusBadge status={picked.status} /> {picked.on_lookout && <Badge tone="orange" size="sm" icon={Icons.eye}>On lookout</Badge>}
               {picked.status === 'online' && <img className="cmd-live" src={liveStreamUrl(picked.camera_id)} alt={`Live view from ${picked.name}`} />}
               {picked.reason && <p className="meta">{picked.reason}</p>}
-              <p className="meta">Recent here: {data?.alerts.filter((a) => a.camera_id === picked.camera_id).slice(0, 5).map((a) => a.type.replace(/_/g, ' ').toLowerCase()).join(', ') || 'nothing in the last hours'}</p>
+              <p className="meta">Recent here: {data?.alerts.filter((a) => a.camera_id === picked.camera_id).slice(0, 5).map((a) => eventLabel(a.type)).join(', ') || 'nothing in the last hours'}</p>
             </Card>
           )}
           {picked?.type === 'point' && (

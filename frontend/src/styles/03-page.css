@@ -7,7 +7,8 @@
   scroll-behavior: smooth;
 }
 /* Each page settles in when you navigate to it. */
-.page-view { animation: pageIn 0.42s var(--ease) both; }
+/* backwards, not both: a transform kept after the animation would trap fixed overlays inside the page */
+.page-view { animation: pageIn 0.42s var(--ease) backwards; }
 @keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* Large title: the one place a page says what it is and what it's for. */

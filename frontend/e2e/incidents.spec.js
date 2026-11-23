@@ -26,7 +26,7 @@ test('operator assigns an in-area officer and marks a false alarm with a note', 
   await signIn(page)
   const drawer = await newIncident(page, 'E2E bag at Lab gate')
 
-  await drawer.getByRole('button', { name: 'Assign' }).click()
+  await drawer.getByRole('button', { name: 'Assign officers' }).click()
   const picker = page.getByRole('dialog', { name: /Assign officers/ })
   const list = picker.getByRole('list', { name: 'Eligible officers' })
   await expect(list.getByRole('listitem')).toHaveCount(2)              // Badda officer is not offered
@@ -52,7 +52,7 @@ test('operator assigns an in-area officer and marks a false alarm with a note', 
 test('supervisor can include a neighbouring area, with a logged reason', async ({ page }) => {
   await signIn(page, 'e2e_supervisor')
   const drawer = await newIncident(page, 'E2E supervisor override')
-  await drawer.getByRole('button', { name: 'Assign' }).click()
+  await drawer.getByRole('button', { name: 'Assign officers' }).click()
   const picker = page.getByRole('dialog', { name: /Assign officers/ })
   await picker.getByText('Show neighbouring jurisdictions').click()
   await expect(picker.getByRole('listitem').filter({ hasText: 'Rafiq Uddin' })).toContainText('Neighbouring area')
