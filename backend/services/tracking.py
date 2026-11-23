@@ -378,6 +378,8 @@ def trail(db: Session, incident_id: int) -> List[dict]:
             c = cams.get(h.camera_id)
             pts.append({"camera_id": h.camera_id, "label": c.name if c else h.camera_id, "lat": c.lat if c else None,
                         "lng": c.lng if c else None, "at": h.seen_at.isoformat() if h.seen_at else None,
-                        "direction": h.direction, "consistent": h.consistent, "bolo": h.bolo_ref})
+                        "direction": h.direction, "consistent": h.consistent, "bolo": h.bolo_ref,
+                        "alert_id": h.alert_id,
+                        "snapshot": f"/api/v1/detections/{h.detection_id}/crop" if h.detection_id else None})
     pts.sort(key=lambda p: p["at"] or "")
     return pts

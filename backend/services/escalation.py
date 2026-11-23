@@ -63,3 +63,39 @@ async def escalation_loop() -> None:
             db.rollback()
         finally:
             db.close()
+
+
+def escalate_notifications(db: Session, now: Optional[datetime] = None) -> int:
+    """Notifications past their acknowledgement deadline: tell the next available officer of the
+    same area (not yet notified) and the supervisors, once. Returns how many were escalated."""
+    import json as _json
+    from backend.models.tracking import Notification
+    from backend.models.user import User
+    from backend.services.jurisdiction import eligible_officers
+    from backend.services.notify import notify
+    now = now or utcnow()
+    due = db.query(Notification).filter(Notification.ack_deadline.isnot(None), Notification.ack_deadline <= now,
+                                        Notification.acked_at.is_(None), Notification.escalated_at.is_(None),
+                                        Notification.kind != "escalation").all()
+    n = 0
+    for note in due:
+        note.escalated_at = now
+        payload = _json.loads(note.payload or "{}")
+        already = {uid for (uid,) in db.query(Notification.user_id).filter(Notification.dedup_key == note.dedup_key)} \
+            if note.dedup_key else {note.user_id}
+        nxt = []
+        if payload.get("camera_id"):
+            res = eligible_officers(db, camera_id=payload["camera_id"])
+            nxt = [o["id"] for o in res["officers"] if o["id"] not in already and o["duty_status"] in ("available", "on_duty")][:1]
+        sups = [u.id for u in db.query(User).filter(User.role == "supervisor", User.is_active == True)]  # noqa: E712
+        late = db.get(User, note.user_id)
+        notify(db, set(nxt) | set(sups), kind="escalation", priority=note.priority,
+               title=f"Not acknowledged: {note.title}",
+               body=f"{late.username if late else 'Officer'} did not acknowledge within the time limit. {note.body or ''}".strip(),
+               incident_id=note.incident_id, alert_id=note.alert_id, payload={**payload, "escalated_from": note.id},
+               dedup_key=f"esc:{note.id}", sms=note.priority == "critical")
+        log_audit(db, None, "NOTIFICATION_ESCALATED", "notification", note.id,
+                  f"to={sorted(set(nxt) | set(sups))}")
+        n += 1
+    db.flush()
+    return n

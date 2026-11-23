@@ -170,3 +170,81 @@ def _officer_state(db: Session, incident_id: int, user: User, state: str, note: 
         add_event(db, inc, "STATUS", f"{cur} → officer_dispatched", user.username, payload={"from": cur, "to": "officer_dispatched", "auto": True})
         inc.status = "officer_dispatched"
     db.commit()
+
+
+# ——— Command-centre map (spec 11) ———
+
+@router.get("/map/command")
+def command_map(jurisdiction_id: Optional[int] = None, hours: float = 2.0, db: Session = Depends(get_db),
+                user: User = Depends(operator_or_admin)):
+    """Everything the live map draws in one call: cameras coloured by status (and lookout),
+    active target trails with direction and predicted next cameras, officer positions, recent
+    alerts. Optional filter by area (division / district / thana)."""
+    from datetime import timedelta as _td
+
+    from backend.api.camera_registry_routes import camera_health
+    from backend.api.system_routes import _pipeline_status
+    from backend.models.alert import Alert
+    from backend.models.bolo import Bolo, BoloCamera
+    from backend.models.jurisdiction import OfficerProfile
+    from backend.services.jurisdiction import _all, ancestors, locate
+
+    cams = db.query(Camera).all()
+    keep = None
+    if jurisdiction_id:
+        by_id = _all(db)
+        inside = {j for j in by_id if jurisdiction_id in ancestors(j, by_id)}
+        keep = set()
+        for c in cams:
+            jid = c.jurisdiction_id
+            if jid is None and c.lat is not None:
+                f = locate(db, c.lat, c.lng, by_id)
+                jid = f.id if f else None
+            if jid in inside:
+                keep.add(c.camera_id)
+    beats = _pipeline_status.get("cameras", {})
+    lookout = {cid for (cid,) in db.query(BoloCamera.camera_id).join(Bolo).filter(Bolo.status == "active")}
+    cam_rows = []
+    pos = {}
+    for c in cams:
+        pos[c.camera_id] = (c.lat, c.lng, c.name)
+        if c.lat is None or (keep is not None and c.camera_id not in keep):
+            continue
+        h = camera_health(c, beats.get(c.camera_id))
+        cam_rows.append({**h, "fov": c.fov, "road_name": c.road_name, "on_lookout": c.camera_id in lookout})
+    track_rows = []
+    for t in db.query(CrossCameraTrack).filter(CrossCameraTrack.status == "active").order_by(CrossCameraTrack.id.desc()).limit(50):
+        pts = tracking.trail(db, t.incident_id) if t.incident_id else []
+        if keep is not None and not any(p["camera_id"] in keep for p in pts):
+            continue
+        b = (db.query(Bolo).filter(Bolo.cross_track_id == t.id, Bolo.status == "active").order_by(Bolo.id.desc()).first())
+        predicted = []
+        if b:
+            for bc in sorted(b.cameras, key=lambda x: x.rank):
+                lat, lng, name = pos.get(bc.camera_id, (None, None, bc.camera_id))
+                predicted.append({"camera_id": bc.camera_id, "name": name, "lat": lat, "lng": lng, "ring": bc.ring,
+                                  "eta_from_s": bc.eta_from_s, "eta_to_s": bc.eta_to_s})
+        info = tracking._target_info(db, t)
+        track_rows.append({"id": t.id, "kind": t.kind, "target_ref": t.target_ref, "label": info.get("name") or info.get("plate") or t.target_ref,
+                           "incident_id": t.incident_id, "verified": t.verified, "direction": t.direction,
+                           "last_camera": t.last_camera, "last_seen": t.last_seen, "trail": pts, "predicted": predicted,
+                           "lookout": b.ref if b else None, "window_end": b.window_end if b else None})
+    officers = []
+    if user.role in ("admin", "supervisor", "operator"):
+        since = utcnow() - _td(hours=12)
+        for p in db.query(OfficerProfile).filter(OfficerProfile.last_lat.isnot(None), OfficerProfile.last_seen_at >= since):
+            u = db.get(User, p.user_id)
+            officers.append({"id": p.user_id, "name": p.full_name or (u.username if u else p.user_id), "rank": p.rank,
+                             "duty_status": p.duty_status, "lat": p.last_lat, "lng": p.last_lng, "seen": p.last_seen_at})
+    alerts = []
+    recent = (db.query(Alert).filter(Alert.timestamp >= utcnow() - _td(hours=hours), Alert.dismissed == False)  # noqa: E712
+              .order_by(Alert.id.desc()).limit(200))
+    for a in recent:
+        lat, lng, name = pos.get(a.camera_id, (None, None, None))
+        if lat is None or (keep is not None and a.camera_id not in keep):
+            continue
+        alerts.append({"id": a.id, "type": a.alert_type, "severity": a.severity, "camera_id": a.camera_id, "lat": lat, "lng": lng,
+                       "at": a.timestamp, "review_status": a.review_status, "message": a.message})
+    return {"cameras": cam_rows, "tracks": track_rows, "officers": officers, "alerts": alerts,
+            "summary": {"cameras": len(cam_rows), "on_lookout": sum(c["on_lookout"] for c in cam_rows),
+                        "offline": sum(c["status"] == "offline" for c in cam_rows), "tracks": len(track_rows)}}

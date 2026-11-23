@@ -176,3 +176,34 @@ def test_graph_api_admin(net):
     e = client.put("/api/v1/camera-graph/edges", headers=net["admin"], json={"from_camera": net["cam"]("C"), "to_camera": net["cam"]("S")}).json()
     assert e["distance_m"] > 2000 and 170 < e["bearing_deg"] < 190
     assert client.delete(f"/api/v1/camera-graph/edges/{e['id']}", headers=net["admin"]).status_code == 200
+
+
+def test_unacknowledged_notification_escalates_once(net):
+    from backend.services.escalation import escalate_notifications
+    from backend.services.notify import notify
+    _, sup_hdr = _user(f"t_sup_{R}", "supervisor")
+    db = SessionLocal()
+    sup_id = db.query(User).filter(User.username == f"t_sup_{R}").one().id
+    rows = notify(db, [net["offs"]["s"][0]], kind="target_detected", title="Test target", priority="critical",
+                  payload={"camera_id": net["cam"]("A")}, dedup_key=f"esc-test-{R}")
+    db.commit()
+    assert rows[0].ack_deadline is not None
+    assert escalate_notifications(db, now=utcnow()) == 0                       # not due yet
+    n = escalate_notifications(db, now=utcnow() + timedelta(minutes=5))
+    db.commit()
+    assert n >= 1
+    esc = db.query(Notification).filter(Notification.kind == "escalation", Notification.dedup_key == f"esc:{rows[0].id}").all()
+    assert sup_id in {e.user_id for e in esc}
+    assert escalate_notifications(db, now=utcnow() + timedelta(minutes=10)) == 0  # once only
+    db.close()
+
+
+def test_command_map_layers(net):
+    see(net, "A", "N", utcnow())
+    m = client.get("/api/v1/map/command", headers=net["op"]).json()
+    mine = [c for c in m["cameras"] if c["camera_id"].endswith(R)]
+    assert any(c["on_lookout"] for c in mine) and all("status" in c for c in mine)
+    t = next(t for t in m["tracks"] if t["target_ref"] == net["ref"])
+    assert t["predicted"] and t["predicted"][0]["camera_id"] == net["cam"]("B") and t["trail"]
+    viewer_like = client.get("/api/v1/map/command?jurisdiction_id=999999", headers=net["op"]).json()
+    assert viewer_like["cameras"] == [] and viewer_like["tracks"] == []
