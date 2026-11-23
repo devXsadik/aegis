@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -16,18 +17,33 @@ def _next_ticket_id(db: Session) -> str:
     return f"INC-{1000 + n}"
 
 
+# Timeline kinds the dashboard knows how to draw (others still show, with a plain dot).
+EVENT_KINDS = ("CREATED", "ALERT", "MATCHED", "VERIFIED", "STATUS", "PRIORITY", "ASSIGNED", "UNASSIGNED",
+               "OFFICER_STATE", "NOTE", "HANDOFF", "EVIDENCE", "OVERRIDE", "BOLO", "NOTIFIED")
+
+SOURCE_BY_ALERT = {"CRIMINAL_DETECTED": "face_match", "PERSON_TRACKED": "face_match",
+                   "SUSPICIOUS_VEHICLE": "vehicle_match", "VEHICLE_MATCH": "vehicle_match"}
+
+
 def add_event(
     db: Session,
     incident: Incident,
     event_type: str,
     message: str,
     actor: Optional[str] = None,
+    *,
+    actor_id: Optional[int] = None,
+    camera_id: Optional[str] = None,
+    payload: Optional[dict] = None,
 ) -> IncidentEvent:
     ev = IncidentEvent(
         incident_id=incident.id,
         event_type=event_type,
         message=message,
         actor=actor or "SYSTEM",
+        actor_id=actor_id,
+        camera_id=camera_id,
+        payload=json.dumps(payload, default=str) if payload else None,
     )
     db.add(ev)
     return ev
@@ -53,6 +69,8 @@ def create_incident_from_alert(
             lat, lng = geo.get("lat"), geo.get("lng")
         except (ValueError, TypeError, AttributeError):         # details not a JSON object
             pass
+    lat = lat if isinstance(lat, (int, float)) else None
+    lng = lng if isinstance(lng, (int, float)) else None
 
     priority = alert.severity if alert.severity in ("critical", "high", "medium", "low", "info") else "high"
     if priority == "info":
@@ -64,7 +82,8 @@ def create_incident_from_alert(
         description=alert.message,
         incident_type=alert.alert_type,
         priority=priority if priority != "info" else "medium",
-        status="open",
+        status="new",
+        source=SOURCE_BY_ALERT.get(alert.alert_type, "alert"),
         camera_id=alert.camera_id,
         camera_location=alert.camera_location,
         lat=lat,
@@ -78,6 +97,14 @@ def create_incident_from_alert(
     )
     db.add(inc)
     db.flush()
-    add_event(db, inc, "CREATED", f"Incident opened from alert #{alert.id}", created_by_name)
-    add_event(db, inc, "ALERT", f"{alert.alert_type}: {alert.message}", "SYSTEM")
+    try:
+        from backend.services.jurisdiction import incident_jurisdiction
+        inc.jurisdiction_id = incident_jurisdiction(db, inc)
+    except Exception:                       # area lookup must never block opening a case
+        inc.jurisdiction_id = None
+    add_event(db, inc, "CREATED", f"Incident opened from alert #{alert.id}", created_by_name,
+              actor_id=created_by, camera_id=alert.camera_id)
+    kind = "MATCHED" if inc.source in ("face_match", "vehicle_match") else "ALERT"
+    add_event(db, inc, kind, f"{alert.alert_type}: {alert.message}", "SYSTEM", camera_id=alert.camera_id,
+              payload={"alert_id": alert.id, "alert_type": alert.alert_type, "severity": alert.severity})
     return inc

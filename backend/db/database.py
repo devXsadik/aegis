@@ -134,10 +134,18 @@ Base = declarative_base()
 def init_db():
     from backend.models import (
         user, face_encoding, evidence, audit_log, known_person, person_image,
-        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan,
+        camera, alert, vehicle, config_entry, incident, custody, recording, calibration, event, camera_officer, capture, shift, push_subscription, floor_plan, jurisdiction,
     )
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
+    _migrate_data()
+
+
+def _migrate_data():
+    """Idempotent data fixes for databases built by create_all (Alembic does the same in 0014)."""
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE incidents SET status = 'new' WHERE status = 'open'"))
+        conn.execute(text("UPDATE incidents SET status = 'in_progress' WHERE status = 'investigating'"))
 
 
 # (table, column, DDL type) — additive changes until Alembic baselines exist.
@@ -162,6 +170,17 @@ _ADDITIVE_COLUMNS = [
     ("users", "totp_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("users", "totp_last_step", "INTEGER"),
     ("users", "token_version", "INTEGER NOT NULL DEFAULT 0"),
+    ("incidents", "source", "VARCHAR(20) NOT NULL DEFAULT 'alert'"),
+    ("incidents", "jurisdiction_id", "INTEGER"),
+    ("incidents", "watchlist_person_id", "INTEGER"),
+    ("incidents", "watchlist_vehicle_id", "INTEGER"),
+    ("incidents", "cross_track_id", "INTEGER"),
+    ("incident_events", "actor_id", "INTEGER"),
+    ("incident_events", "camera_id", "VARCHAR(50)"),
+    ("incident_events", "payload", "TEXT"),
+    ("cameras", "jurisdiction_id", "INTEGER"),
+    ("audit_logs", "prev_hash", "VARCHAR(64)"),
+    ("audit_logs", "record_hash", "VARCHAR(64)"),
 ]
 
 

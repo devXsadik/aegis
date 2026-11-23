@@ -17,6 +17,7 @@ class Camera(Base):
     fov = Column(Float, nullable=True)         # horizontal field of view, degrees
     range_m = Column(Float, nullable=True)     # how far it sees, metres
     active = Column(Boolean, default=True)
+    jurisdiction_id = Column(Integer, nullable=True, index=True)   # thana; else found by point-in-polygon
     # JSON {zones: [...], lines: [...]} in normalized 0-1 coordinates (see core/analysis/zones.py)
     geometry = Column(Text, nullable=True)
     geometry_updated_at = Column(DateTime(timezone=True), nullable=True)

@@ -9,6 +9,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32-chars!!")
 os.environ.setdefault("ENCRYPTION_SALT", "test-salt-value")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-for-ci")
 
+# Never touch the developer's database: .env may set USE_SQLITE / DATABASE_URL, and load_dotenv
+# does not override values already set here. One throwaway SQLite file per test session.
+import tempfile  # noqa: E402
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="aegis_tests_")
+os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/test.db"
+os.environ["USE_SQLITE"] = "0"
+
 try:
     import face_recognition  # noqa: F401
 except BaseException:  # ImportError, RuntimeError (dlib models), or SystemExit (quit())

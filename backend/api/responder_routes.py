@@ -135,8 +135,8 @@ async def set_status(alert_id: int, body: StatusBody, request: Request, db: Sess
         alert.acknowledged, alert.acknowledged_by, alert.acknowledged_at = True, user.id, utcnow()
         if alert.review_status == "pending":
             alert.review_status, alert.reviewed_by, alert.reviewed_at = "confirmed", user.id, utcnow()
-    elif inc.status == "open":
-        inc.status = "investigating"
+    elif inc.status in ("open", "new", "acknowledged", "verified_match"):
+        inc.status = "officer_dispatched"
     log_audit(db, user, EVENT[body.status], "alert", str(alert_id), body.note or "", request)
     db.commit()
     # The control room sees it at once (notifications; info severity, so no alarm).

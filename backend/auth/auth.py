@@ -112,9 +112,13 @@ def get_current_user(
 ROLES_OPS = frozenset({"admin", "supervisor", "operator", "police", "investigator"})
 ROLES_COMMAND = frozenset({"admin", "supervisor"})
 ROLES_ADMIN = frozenset({"admin"})
+# ml_engineer: datasets / model registry only. auditor: read-only audit trail. Neither is an
+# operational role, so neither sees alerts, faces or evidence.
 VALID_ROLES = frozenset({
-    "admin", "supervisor", "operator", "police", "investigator", "viewer",
+    "admin", "supervisor", "operator", "police", "investigator", "viewer", "ml_engineer", "auditor",
 })
+ROLES_AUDIT = frozenset({"admin", "auditor"})
+ROLES_ML = frozenset({"admin", "ml_engineer"})
 
 
 # The viewer role is a wall display: it may look at the live picture (alerts, cameras, map,
@@ -123,6 +127,7 @@ VIEWER_DENIED_PATHS = (
     "/api/v1/faces", "/api/v1/evidence", "/api/v1/captures", "/api/v1/reid", "/api/v1/custody",
     "/api/v1/reports", "/api/v1/incidents", "/api/v1/shift", "/api/v1/vehicles", "/api/v1/audit",
     "/api/v1/calibration", "/api/v1/recordings", "/api/v1/vms", "/api/v1/responder", "/api/v1/auth/assignees",
+    "/api/v1/officers",
 )
 
 
@@ -152,4 +157,16 @@ def supervisor_or_admin(user: User = Depends(get_current_user)) -> User:
 def admin_only(user: User = Depends(get_current_user)) -> User:
     if user.role not in ROLES_ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def auditor_or_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ROLES_AUDIT:
+        raise HTTPException(status_code=403, detail="Auditor or admin access required")
+    return user
+
+
+def ml_or_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ROLES_ML:
+        raise HTTPException(status_code=403, detail="ML engineer or admin access required")
     return user

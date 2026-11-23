@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.db.database import get_db
 from backend.models.audit_log import AuditLog
-from backend.auth.auth import admin_only
+from backend.auth.auth import auditor_or_admin
+from backend.services.audit import verify_chain
 from backend.models.user import User
 from pydantic import BaseModel
 from datetime import datetime
@@ -21,6 +22,7 @@ class AuditLogResponse(BaseModel):
     resource_id: Optional[str]
     details: Optional[str]
     ip_address: Optional[str]
+    record_hash: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -33,7 +35,7 @@ def list_audit_logs(
     action: Optional[str] = None,
     user_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(admin_only)
+    admin: User = Depends(auditor_or_admin)
 ):
     query = db.query(AuditLog)
     if action:
@@ -41,3 +43,9 @@ def list_audit_logs(
     if user_id:
         query = query.filter(AuditLog.user_id == user_id)
     return query.order_by(desc(AuditLog.timestamp)).offset(skip).limit(limit).all()
+
+
+@router.get("/verify")
+def verify_audit_chain(db: Session = Depends(get_db), user: User = Depends(auditor_or_admin)):
+    """Re-compute the hash chain: any edited or removed row breaks it."""
+    return verify_chain(db)

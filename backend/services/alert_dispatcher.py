@@ -243,10 +243,16 @@ async def dispatch_alert(
                 officers = officer_dispatch.officers_for_camera(db, camera_id)
                 if officers and incident is not None:
                     from backend.services.incident_service import add_event
+                    from backend.models.incident import IncidentAssignment
                     incident.assigned_to = officers[0].id
                     incident.assigned_name = officers[0].username
+                    have = {a.user_id for a in incident.assignments}
+                    for u in officers:
+                        if u.id not in have:
+                            db.add(IncidentAssignment(incident_id=incident.id, user_id=u.id, state="assigned"))
                     add_event(db, incident, "ASSIGNED",
-                              f"Auto-assigned to {', '.join(u.username for u in officers)} (camera {camera_id})", "SYSTEM")
+                              f"Auto-assigned to {', '.join(u.username for u in officers)} (camera {camera_id})", "SYSTEM",
+                              camera_id=camera_id, payload={"officer_ids": [u.id for u in officers], "auto": True})
                     db.commit()
                 if officers:
                     text = officer_dispatch.sms_text(alert_type, display_name or person_name, camera_name,

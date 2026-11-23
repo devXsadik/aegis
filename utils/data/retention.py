@@ -15,7 +15,8 @@ from backend.db.database import SessionLocal
 from backend.models.evidence import Evidence
 from clock import utcnow
 
-OPEN_CASE = ("open", "investigating")
+OPEN_CASE = ("open", "investigating", "new", "acknowledged", "verified_match", "officer_dispatched",
+             "in_progress", "target_located")
 
 
 class RetentionPolicy:

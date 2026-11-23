@@ -15,8 +15,15 @@ class AuditLog(Base):
     resource_id = Column(String(50), nullable=True)
     details = Column(Text, nullable=True)
     ip_address = Column(String(45), nullable=True)
+    # Hash chain: each row seals the previous one, so an edit or a deleted row shows up on verify.
+    prev_hash = Column(String(64), nullable=True)
+    record_hash = Column(String(64), nullable=True, index=True)
 
     __table_args__ = (
         Index("idx_audit_timestamp", "timestamp"),
         Index("idx_audit_action", "action"),
     )
+
+
+# Registers the hash-chain / append-only session hooks wherever audit rows can be written.
+import backend.services.audit  # noqa: E402,F401

@@ -54,6 +54,11 @@ async def websocket_alerts(websocket: WebSocket):
     await _serve(websocket, "alerts")
 
 
+@router.websocket("/ws/incidents")
+async def websocket_incidents(websocket: WebSocket):
+    await _serve(websocket, "incidents")
+
+
 @router.websocket("/ws/status")
 async def websocket_status(websocket: WebSocket):
     await _serve(websocket, "status")

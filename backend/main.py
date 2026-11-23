@@ -14,6 +14,7 @@ from backend.api.evidence_routes import router as evidence_router
 from backend.api.camera_routes import router as camera_router
 from backend.api.analytics_routes import router as analytics_router
 from backend.api.ws_routes import router as ws_router
+from backend.api.jurisdiction_routes import router as jurisdiction_router
 from backend.api.system_routes import router as system_router
 from backend.api.report_routes import router as report_router
 from backend.api.stream_routes import router as stream_router
@@ -179,6 +180,7 @@ app.include_router(metrics_router, prefix=API_V1)
 app.include_router(capture_router, prefix=API_V1)
 app.include_router(shift_router, prefix=API_V1)
 app.include_router(responder_router, prefix=API_V1)
+app.include_router(jurisdiction_router, prefix=API_V1)
 
 
 @app.get("/health")
