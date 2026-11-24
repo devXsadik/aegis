@@ -48,6 +48,8 @@ action:
 
 # --- Detection Thresholds ---
 confidence_threshold: 0.4         # 0.5 dropped people who were partly hidden or far away
+person_confirm_conf: 0.6           # ...but a track counts as a person only after one detection this sure
+                                   # (coats on hooks, chairs, posters hover at ~0.4 and never reach it)
 weapon_conf_threshold: 0.4
 # Possible fight (core/analysis/fight.py): two people close together, both moving their arms fast,
 # sustained over several pose passes. A heuristic, OFF until scripts/evaluate_accuracy.py on your
@@ -102,6 +104,19 @@ weapon:
   min_box_side_px: 14              # smaller boxes are mostly guesses
   unheld_min_score: 0.65           # needed when the person's wrists are visible but away from it, or nobody holds it
   hand_reach: 0.25                 # "in hand": a wrist within this fraction of the person's height
+  hands_hidden_min_score: 0.55     # needed when the person's hands cannot be seen (was: any score)
+  # A weapon is a hand-held object. Bigger boxes are the model mistaking a body, a coat or a door for one:
+  max_frame_fraction: 0.25         # box larger than this share of the frame (a body or a door; 0.25 leaves a blade held up to a webcam)
+  max_person_fraction: 0.45        # box larger than this share of the person it is on
+  max_person_iou: 0.5              # box (nearly) the same as the person's box
+  # Classes the model confuses most need more confidence (weak in validation; check after retraining)
+  class_min_score:
+    sickle: 0.6
+    rod: 0.6
+    ramda: 0.55
+    chapati: 0.55
+  confirm_window: 6                # a weapon alert needs hits in confirm_hits of the last
+  confirm_hits: 4                  # confirm_window processed frames (was 3 of 5)
 face_tolerance: 0.45
 
 # --- Recognition ---
@@ -119,7 +134,7 @@ auto_alerts_enabled: true          # Auto-dispatch on criminal (all cameras → 
 behavior:
   speed_threshold_mps: 3.0         # Metres/sec to flag as rapid movement (walking ~1.4, running > 3)
   loiter_radius_m: 0.6             # Staying within this radius counts as standing still
-  loiter_seconds: 15               # Seconds before flagging as loitering
+  loiter_seconds: 120              # Seconds standing in one spot before "loitering" (15 flagged anyone at a desk)
   erratic_angle: 60                # Degrees of direction change to count
 
 # --- Anomaly Detection ---

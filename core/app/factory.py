@@ -16,7 +16,7 @@ from core.pipeline.stages import (
 from utils.system import logger
 from utils.live_names import live_criminal_names
 from core.analysis.behavior import configure_behavior
-from core.analysis.weapon_confirm import WeaponScreen
+from core.analysis.weapon_confirm import WeaponConfirmer, WeaponScreen
 from utils.config import model_path, model_setting, vehicle_mode
 
 
@@ -235,6 +235,7 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     pipeline.add_stage(TrackingStage(
         human_tracker=human_tracker,
         vehicle_tracker=vehicle_tracker,
+        person_confirm_conf=float(cfg.get("person_confirm_conf", 0.6)),
     ))
     pipeline.add_stage(RecognitionStage(
         face_recognizer=face_recognizer,
@@ -264,8 +265,15 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
         weapon_screen=WeaponScreen(
             min_side_px=int(weapon_cfg.get("min_box_side_px", 14)),
             unheld_min_score=float(weapon_cfg.get("unheld_min_score", 0.65)),
+            unknown_min_score=float(weapon_cfg.get("hands_hidden_min_score", 0.55)),
             reach=float(weapon_cfg.get("hand_reach", 0.25)),
+            max_frame_frac=float(weapon_cfg.get("max_frame_fraction", 0.25)),
+            max_person_frac=float(weapon_cfg.get("max_person_fraction", 0.45)),
+            max_person_iou=float(weapon_cfg.get("max_person_iou", 0.5)),
+            class_min_score=weapon_cfg.get("class_min_score") or {},
         ),
+        weapon_confirmer=WeaponConfirmer(window=int(weapon_cfg.get("confirm_window", 6)),
+                                         min_hits=int(weapon_cfg.get("confirm_hits", 4))),
         ptz_follow=bool((cfg.get("ptz_follow") or {}).get("enabled", True)),
     ))
 

@@ -72,6 +72,7 @@ class Target:
     gallery: list = field(default_factory=list)      # appearance vectors
     trail: list = field(default_factory=list)        # [(camera_id, location, time)], one per camera change
     direct: dict = field(default_factory=dict)       # camera_id -> last time the alert itself saw them
+    own: set = field(default_factory=set)            # (camera_id, track_id) the alert itself was on
     sampled: float = 0.0
 
     def seen(self, camera_id: str, location: str, now: float) -> None:
@@ -133,6 +134,7 @@ class CrossCameraTracker:
                     t = self.targets[key] = Target(key, label, alert_type, person_name, camera_id, location)
                 t.seen(camera_id, location, now)
                 t.direct[camera_id] = now
+                t.own.add((camera_id, track_id))
                 if budget and now - t.sampled >= 1.5:
                     emb = self._embed(frame, box)
                     if emb is not None:
@@ -143,11 +145,20 @@ class CrossCameraTracker:
             live = {(camera_id, track_id) for track_id, _ in others}
             for k in [k for k in self._tracks if k[0] == camera_id and k not in live]:
                 del self._tracks[k]
+            alive = {tid for tid, _ in others} | {s[0] for s in subjects}
+            for t in self.targets.values():
+                t.own = {ck for ck in t.own if ck[0] != camera_id or ck[1] in alive}
             # Someone the alert itself sees on this camera right now is not also another track here.
             here = {key for key, t in self.targets.items() if now - t.direct.get(camera_id, -1e9) < 2.0}
 
+            # The subject's own track, on a frame where the alert does not re-fire (the weapon was not
+            # seen in that frame, the face turned away), is the same person still in view: not a
+            # sighting of "them" somewhere else.
+            own = {ck for t in self.targets.values() for ck in t.own}
             found = {}
             for track_id, box in sorted(others, key=lambda o: -(o[1][2] - o[1][0]) * (o[1][3] - o[1][1])):
+                if (camera_id, track_id) in own:
+                    continue
                 st = self._tracks.setdefault((camera_id, track_id), {"target": None, "votes": {}, "fails": 0, "next": 0.0})
                 if st["target"] not in self.targets:
                     st["target"] = None

@@ -95,11 +95,11 @@ def _hand_at(x, y):
     return {7: {"kpts": {"right_wrist": (x, y, 0.9)}}}
 
 
-def test_held_weapon_alerts_on_the_third_of_five_frames(stage):
+def test_held_weapon_alerts_on_the_fourth_of_six_frames(stage):
     now = time.time()
-    for i in range(3):
+    for i in range(4):
         stage.process(ctx(now + i, tracks=[Track(7)], weapon_detections=[_weapon()], poses=_hand_at(160, 200)))
-        assert len(sent(stage)) == (1 if i == 2 else 0)
+        assert len(sent(stage)) == (1 if i == 3 else 0)
     a = sent(stage)[0]
     assert a["alert_type"] == "WEAPON_DETECTED" and a["track_id"] == 7
     assert "(in hand)" in a["message"]
@@ -122,7 +122,7 @@ def test_tiny_weapon_boxes_never_alert(stage):
 
 def test_confident_weapon_on_nobody_alerts_as_unassigned(stage):
     now = time.time()
-    for i in range(3):
+    for i in range(4):
         stage.process(ctx(now + i, weapon_detections=[_weapon((500, 400, 560, 440), 0.8)]))
     (a,) = sent(stage)
     assert a["alert_type"] == "WEAPON_DETECTED" and a["track_id"] == UNASSIGNED

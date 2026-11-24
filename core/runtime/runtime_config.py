@@ -13,7 +13,7 @@ LIMITS = {
     "confidence_threshold": (0.30, 0.90),
     "weapon_conf_threshold": (0.20, 0.90),
     "face_tolerance": (0.35, 0.60),
-    "loiter_seconds": (5, 120),
+    "loiter_seconds": (10, 900),
     "crowd_threshold": (2, 30),
 }
 

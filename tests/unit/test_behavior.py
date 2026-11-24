@@ -17,12 +17,14 @@ class TestSuspiciousBehavior:
         assert reasons == []
 
     def test_loitering_detection(self):
-        """Person in same area for >15 seconds should trigger loitering."""
+        """Person in the same spot for over two minutes is loitering; a short stop is not."""
         now = time.time()
-        history = [(now - 20 + i, 100, 100) for i in range(21)]
+        history = [(now - 130 + i, 100, 100) for i in range(131)]
         is_sus, reasons = is_suspicious_behavior(history)
         assert is_sus is True
         assert "loitering" in reasons
+        short = [(now - 60 + i, 100, 100) for i in range(61)]       # a minute at a desk: normal
+        assert "loitering" not in is_suspicious_behavior(short)[1]
 
     def test_rapid_movement_detection(self):
         """Very fast movement should trigger rapid_movement."""
@@ -87,8 +89,8 @@ class TestMetricThresholds:
         assert "rapid_movement" in is_suspicious_behavior(self._walk(125, 42.5))[1]
 
     def test_loitering_radius_scales_with_distance(self):
-        near = [(float(i), 100 + (i % 2) * 60, 100.0, 340) for i in range(21)]     # 0.3 m sway
-        far = [(float(i), 100 + (i % 2) * 40, 100.0, 42.5) for i in range(21)]     # 1.6 m pacing
+        near = [(float(i), 100 + (i % 2) * 60, 100.0, 340) for i in range(131)]    # 0.3 m sway
+        far = [(float(i), 100 + (i % 2) * 40, 100.0, 42.5) for i in range(131)]    # 1.6 m pacing
         assert "loitering" in is_suspicious_behavior(near)[1]
         assert "loitering" not in is_suspicious_behavior(far)[1]
 

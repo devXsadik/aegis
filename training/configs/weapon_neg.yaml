@@ -1,0 +1,18 @@
+# Weapon detector with "no weapon" images (datasets/weapons_neg: datasets/weapons + ~250 images of
+# people, phones and rooms with empty labels). Without them the model has never been told what is
+# NOT a weapon and fires on bodies, arms and hanging clothes. Hold-out split only for the score.
+#
+#   python -m training.train_detector --data datasets/weapons_neg \
+#       --config training/configs/weapon_neg.yaml --install models/weapon_yolo.pt
+
+weights: yolov8s.pt
+epochs: 60
+imgsz: 640
+batch: 4
+patience: 20
+seed: 13
+device: auto
+mosaic: 1.0
+mixup: 0.1
+degrees: 10
+fliplr: 0.5

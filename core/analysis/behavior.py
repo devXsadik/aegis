@@ -3,7 +3,7 @@ import math
 
 
 SUSPICIOUS_SPEED_THRESHOLD = 150
-SUSPICIOUS_LOITER_SECONDS = 15
+SUSPICIOUS_LOITER_SECONDS = 120   # 15 s flagged anyone who stood (or sat at a desk) briefly
 SUSPICIOUS_ERRATIC_ANGLE = 60
 
 
@@ -16,6 +16,39 @@ PERSON_HEIGHT_M = 1.7
 SUSPICIOUS_SPEED_MPS = 3.0        # walking ~1.4 m/s, running > 3 m/s
 LOITER_RADIUS_M = 0.6
 MIN_STEP_M = 0.04
+
+
+# A reason seen in one frame is not behaviour: raising a phone to the camera is "raised arms" for
+# a moment, a tracker jump is "rapid movement" for a frame. These must hold this long (gaps up to
+# SUSTAIN_GAP tolerated) before they count. Loitering and erratic movement are judged over time already.
+SUSTAIN_SECONDS = {"raised_arms": 3.0, "rapid_movement": 1.5}
+SUSTAIN_GAP = 1.0
+
+
+class ReasonSustain:
+    def __init__(self, hold=None, gap: float = SUSTAIN_GAP):
+        self.hold = dict(SUSTAIN_SECONDS if hold is None else hold)
+        self.gap = gap
+        self._seen = {}                  # (track_id, reason) -> [first, last]
+
+    def update(self, track_id, reasons, now: float) -> list:
+        kept = []
+        for r in reasons:
+            need = self.hold.get(r)
+            if need is None:
+                kept.append(r)
+                continue
+            span = self._seen.get((track_id, r))
+            if span is None or now - span[1] > self.gap:
+                span = self._seen[(track_id, r)] = [now, now]
+            span[1] = now
+            if now - span[0] >= need:
+                kept.append(r)
+        return kept
+
+    def prune(self, live_ids) -> None:
+        for k in [k for k in self._seen if k[0] not in live_ids]:
+            del self._seen[k]
 
 
 def configure_behavior(cfg=None) -> None:

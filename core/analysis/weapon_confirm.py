@@ -84,33 +84,72 @@ def held_in_hand(weapon_bbox, person_bbox, kpts: Optional[dict], reach: float = 
     return any(_gap(p, weapon_bbox) <= limit for p in wrists)
 
 
+def _area(b) -> float:
+    return max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+
+
 class WeaponScreen:
     """Per-frame checks before a weapon hit counts towards confirmation.
 
-    Phones, tools, umbrellas and clothing patterns are the usual false weapons. Two cheap cues:
+    Phones, tools, umbrellas, clothing and whole bodies are the usual false weapons. Cheap cues:
     - tiny boxes: below `min_side_px` the model mostly guesses;
+    - huge boxes: a weapon is a hand-held object. A box over `max_frame_frac` of the frame, over
+      `max_person_frac` of the person it is on, or nearly the same box as that person (IoU over
+      `max_person_iou`) is the model mistaking a body, a coat or a door for a blade;
+    - per class: `class_min_score` raises the bar for classes the model confuses most;
     - not in a hand: if the person's wrists are visible but away from the box (or there is no
-      person), the hit must reach `unheld_min_score`. A holstered or dropped weapon still counts
-      when the model is sure of it; hidden hands change nothing.
+      person), the hit must reach `unheld_min_score`; if the hands cannot be seen, `unknown_min_score`.
     Each kept detection gets `held` (True / False / None) for the alert text.
     """
 
-    def __init__(self, min_side_px: int = 14, unheld_min_score: float = 0.65, reach: float = 0.25):
+    def __init__(self, min_side_px: int = 14, unheld_min_score: float = 0.65, reach: float = 0.25,
+                 unknown_min_score: float = 0.55, max_frame_frac: float = 0.25, max_person_frac: float = 0.45,
+                 max_person_iou: float = 0.5, class_min_score: Optional[dict] = None):
         self.min_side_px = min_side_px
         self.unheld_min_score = unheld_min_score
+        self.unknown_min_score = unknown_min_score
         self.reach = reach
+        self.max_frame_frac = max_frame_frac
+        self.max_person_frac = max_person_frac
+        self.max_person_iou = max_person_iou
+        self.class_min_score = {str(k): float(v) for k, v in (class_min_score or {}).items()}
 
     def big_enough(self, w: dict) -> bool:
         x1, y1, x2, y2 = w["bbox"]
         return min(x2 - x1, y2 - y1) >= self.min_side_px
+
+    def fits_frame(self, w: dict, frame_shape) -> bool:
+        """Not a box covering a large part of the picture, and sure enough for its class."""
+        if w["score"] < self.class_min_score.get(str(w.get("class_name")), 0.0):
+            return False
+        if frame_shape is None:
+            return True
+        return _area(w["bbox"]) <= self.max_frame_frac * frame_shape[0] * frame_shape[1]
+
+    def fits_person(self, w: dict, person_box) -> bool:
+        """A hand-held object is a small part of the person holding it."""
+        p = _area(person_box)
+        if p <= 0:
+            return True
+        a = _area(w["bbox"])
+        x1, y1 = max(w["bbox"][0], person_box[0]), max(w["bbox"][1], person_box[1])
+        x2, y2 = min(w["bbox"][2], person_box[2]), min(w["bbox"][3], person_box[3])
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        iou = inter / (a + p - inter) if a + p - inter > 0 else 0.0
+        return a <= self.max_person_frac * p and iou <= self.max_person_iou
 
     def screen(self, assigned: dict, tracks, poses: Optional[dict] = None) -> dict:
         """`assigned` from associate() → the hits that count this frame, each with `held`."""
         boxes = {t.track_id: tuple(map(int, t.to_ltrb())) for t in tracks if t.is_confirmed()}
         kept = {}
         for key, w in assigned.items():
+            if key != UNASSIGNED and not self.fits_person(w, boxes[key]):
+                continue
             held = (None if key == UNASSIGNED
                     else held_in_hand(w["bbox"], boxes[key], (poses or {}).get(key, {}).get("kpts"), self.reach))
-            if held is True or (held is None and key != UNASSIGNED) or w["score"] >= self.unheld_min_score:
+            need = (0.0 if held is True
+                    else self.unknown_min_score if (held is None and key != UNASSIGNED)
+                    else self.unheld_min_score)
+            if w["score"] >= need:
                 kept[key] = {**w, "held": held}
         return kept

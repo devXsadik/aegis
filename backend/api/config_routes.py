@@ -20,7 +20,7 @@ THRESHOLD_SPECS = {
     "threshold.confidence_threshold": (0.30, 0.90, 0.50),    # person detection
     "threshold.weapon_conf_threshold": (0.20, 0.90, 0.40),   # weapon detection
     "threshold.face_tolerance": (0.35, 0.60, 0.45),          # lower = stricter match
-    "threshold.loiter_seconds": (5, 120, 15),
+    "threshold.loiter_seconds": (10, 900, 120),
     "threshold.crowd_threshold": (2, 30, 5),
     # Watchlist face matching (cosine similarity of ArcFace-family embeddings; higher = stricter)
     "threshold.face_alert_similarity": (0.30, 0.90, 0.50),      # "Possible match" alert, critical

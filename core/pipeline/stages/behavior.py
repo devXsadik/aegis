@@ -7,7 +7,7 @@ Runs pose-based behavior analysis, anomaly detection, and ANPR.
 import logging
 from collections import defaultdict
 from core.pipeline.base import PipelineStage, FrameContext
-from core.analysis.behavior import is_suspicious_behavior
+from core.analysis.behavior import ReasonSustain, is_suspicious_behavior
 from core.analysis.anpr import PlateVoter
 from core.analysis.fall import FallDetector
 from core.analysis.pose import assign_poses
@@ -34,6 +34,7 @@ class BehaviorStage(PipelineStage):
         # core/analysis/scene_events.py, each off unless configured (scene_events: in config.yaml)
         self.wrong_way, self.abandoned, self.crowd_surge = wrong_way, abandoned, crowd_surge
         self._fighting = set()
+        self._sustain = ReasonSustain()
         self._actions = {}                   # track id → (reason, NTU label, probability)
         self.pose_every_n = max(1, pose_every_n)   # pose is the costliest per-frame step
         self._frames = 0
@@ -72,6 +73,7 @@ class BehaviorStage(PipelineStage):
         poses = {k: v for k, v in self._last_poses.items() if k in live}
         ctx.poses = poses          # the output stage checks whether a weapon is in someone's hand
         self.fall_detector.prune(live)
+        self._sustain.prune(live)
 
         # --- Per-person behavior analysis ---
         for track in ctx.tracks:
@@ -103,6 +105,8 @@ class BehaviorStage(PipelineStage):
             is_suspicious, reasons = is_suspicious_behavior(
                 self._track_history[track_id], pose_landmarks
             )
+            reasons = self._sustain.update(track_id, reasons, now)
+            is_suspicious = bool(reasons)
 
             # Learned actions (ST-GCN): a fall joins the rule-based fall alert, the rest are reasons
             action = self._actions.get(track_id)

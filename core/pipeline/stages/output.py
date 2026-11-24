@@ -23,6 +23,7 @@ class OutputStage(PipelineStage):
                  evidence_throttle_seconds: float = 10.0,
                  alarm_interval_seconds: float = 5.0,
                  alarm_callback=None, enabled: bool = True, weapon_screen: WeaponScreen | None = None,
+                 weapon_confirmer: WeaponConfirmer | None = None,
                  ptz_follow: bool = False):
         super().__init__(name="output", enabled=enabled)
         self.camera_location = camera_location
@@ -37,7 +38,7 @@ class OutputStage(PipelineStage):
         self.cross_camera = shared_tracker()
         self.ptz_follow = ptz_follow          # core/analysis/ptz_follow.py; the backend gates it per camera
         self._followers: dict = {}
-        self.weapon_confirmer = WeaponConfirmer(window=5, min_hits=3)
+        self.weapon_confirmer = weapon_confirmer or WeaponConfirmer(window=6, min_hits=4)
         self.weapon_screen = weapon_screen or WeaponScreen()
         # Fire/smoke flickers more than weapons do: demand a longer persistence.
         self.fire_confirmer = WeaponConfirmer(window=8, min_hits=5)
@@ -54,7 +55,9 @@ class OutputStage(PipelineStage):
         )
 
         # Weapon evidence must be attached to a person track and persist over frames.
-        sized = [w for w in ctx.weapon_detections if self.weapon_screen.big_enough(w)]
+        shape = ctx.frame.shape if ctx.frame is not None else None
+        sized = [w for w in ctx.weapon_detections
+                 if self.weapon_screen.big_enough(w) and self.weapon_screen.fits_frame(w, shape)]
         assigned = self.weapon_screen.screen(associate(sized, ctx.tracks), ctx.tracks, ctx.poses)
         confirmed_keys = self.weapon_confirmer.update(assigned)
         ctx.confirmed_weapons = {k: assigned[k] for k in confirmed_keys}

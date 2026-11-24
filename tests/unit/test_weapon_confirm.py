@@ -76,9 +76,11 @@ def test_tiny_boxes_are_dropped():
 def test_screen_keeps_held_and_unknown_hits_and_marks_them():
     s = WeaponScreen(unheld_min_score=0.65)
     tracks = [T(1, PERSON), T(2, (300, 0, 400, 200))]
-    got = s.screen({1: det((40, 90, 70, 110), 0.45), 2: det((340, 90, 370, 110), 0.45)}, tracks,
+    got = s.screen({1: det((40, 90, 70, 110), 0.45), 2: det((340, 90, 370, 110), 0.6)}, tracks,
                    {1: pose(right_wrist=(50, 100))})
     assert got[1]["held"] is True and got[2]["held"] is None
+    # Hands not visible: no longer kept at any score (a body or coat at 0.45 counted before)
+    assert 2 not in s.screen({2: det((340, 90, 370, 110), 0.45)}, tracks)
 
 
 def test_screen_needs_higher_score_when_not_in_hand_or_unassigned():
