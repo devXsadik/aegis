@@ -68,4 +68,4 @@ cd frontend && npm run dev
 - `alembic/env.py` must import every model module (same list as `init_db`), or `alembic check` fails on foreign keys
 - WebSocket broadcasts on shared channels carry ids only for anything personal (e.g. `INCIDENT_MESSAGE`); clients re-fetch through the API, which applies visibility
 - Production deployment: `docs/PRODUCTION.md`
-
+- Weapon detection: `core/detectors/weapon_detector.py` `mode` (`config.yaml` `weapon.mode`: full | person_crop | both) also runs the model on enlarged person crops; it needs `people=` (ctx.human_detections). Train for CCTV distance with `training/synth_weapons.py` + `configs/weapon_cctv.yaml`, score with `training/evaluate_weapons.py`. Never validate on training images (`datasets/weapons_all` has val == train)

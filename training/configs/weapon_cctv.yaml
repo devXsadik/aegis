@@ -1,0 +1,26 @@
+# Weapon detector for CCTV distance: 3 classes (blade, firearm, blunt) on the real photos plus
+# synthetic composites from training/synth_weapons.py (weapons pasted small into camera frames,
+# and the same frames as enlarged person crops, the way weapon.mode: person_crop looks).
+#
+#   python -m training.synth_weapons --crops <BD_Deshi>/classification_crops --real datasets/weapons \
+#       --backgrounds <your camera clips> datasets/_bg/coco128/images/train2017 --classes 3
+#   python -m training.train_detector --data datasets/weapons_cctv \
+#       --config training/configs/weapon_cctv.yaml --install models/weapon_yolo.pt
+#   python -m training.evaluate_weapons models/weapon_yolo.pt --data datasets/weapons_cctv
+#
+# Never validate on the training images: the score is then memory, not detection.
+
+weights: yolov8s.pt
+# arch: yolov8s-p2.yaml  # extra high-resolution head for tiny objects; ~1.5x slower. Use on a GPU.
+epochs: 30               # 60-100 on a GPU
+imgsz: 640               # 960-1280 on a GPU: small weapons keep their pixels
+batch: 4                 # 16 on a GPU
+patience: 12
+seed: 13
+device: auto
+mosaic: 1.0              # mosaic also shrinks objects: more small-weapon practice
+mixup: 0.05
+degrees: 10
+fliplr: 0.5
+scale: 0.7               # random zoom 0.3x-1.7x (default 0.5)
+hsv_v: 0.5               # dark / IR / overexposed frames

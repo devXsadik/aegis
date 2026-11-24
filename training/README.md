@@ -4,6 +4,7 @@ Three models, all trained on our cameras' data after pre-training on public sets
 
 | Task | Script | Public pre-training | Output the runtime loads | Metric |
 |---|---|---|---|---|
+| Weapon detector (BD deshi blades + firearms) | `train_detector.py` + `configs/weapon.yaml` | COCO YOLO; `datasets/weapons` (BD_Deshi_Weapon_Dataset_v1) | `models/weapon_yolo.pt` | mAP50, mAP50-95, per-class AP |
 | Vehicle detector + BD classes (CNG, leguna, easy-bike…) | `train_detector.py` (Ultralytics YOLOv8 / YOLO11) | COCO weights; BD road datasets (e.g. "Dhaka-AI", "BadODD") where licences allow | `models/vehicle_detect.onnx` | mAP50, mAP50-95, per-class AP |
 | Colour + type + make/model (one backbone, three heads) | `train_attributes.py` (EfficientNet-B0 / ConvNeXt-T) | ImageNet | `models/vehicle_attr.onnx` + `vehicle_attr.labels.json` | per-class accuracy, confusion matrix, day vs night |
 | Vehicle re-identification | `train_reid.py` (ResNet-50 + BNNeck, CE + batch-hard triplet) | VeRi-776 (`--format veri`) | `models/vehicle_reid.onnx` | Rank-1, mAP |
@@ -26,6 +27,36 @@ python -m training.train_reid --data VeRi/ --format veri            # pre-train
 python -m training.train_reid --data reid_v2_reid.zip --init runs/reid/<run>/model.pt
 python -m training.train_detector --data det_v4_yolo.zip
 ```
+
+### Weapons at CCTV distance
+
+The labelled weapon photos are close-ups (weapon ~110 px); on a camera the same weapon is 15-40 px.
+A model trained only on the photos finds ~1 % of weapons at that size. Three parts fix it:
+
+1. **Synthetic data** — `training/synth_weapons.py` pastes the weapon cut-outs into camera frames, at
+   a person's wrist, sized to the person, blurred and compressed like CCTV, plus weapon-free frames as
+   hard negatives and the same frames as enlarged person crops. Splits never share a cut-out or a
+   frame. Your own camera footage as `--backgrounds` matters most.
+2. **3 classes** (blade / firearm / blunt) instead of 10 with 12-30 examples each; the alert does not
+   use the type.
+3. **Person crops at run time** — `weapon.mode: both` in `config/config.yaml` also looks at each
+   person enlarged to 640 px (`core/detectors/weapon_detector.py`).
+
+```sh
+python -m training.synth_weapons --crops <BD_Deshi_Weapon_Dataset_v1>/classification_crops \
+    --real datasets/weapons --backgrounds <your clips> datasets/_bg/coco128/images/train2017 \
+    --classes 3 --out datasets/weapons_cctv
+python -m training.train_detector --data datasets/weapons_cctv \
+    --config training/configs/weapon_cctv.yaml --install models/weapon_yolo.pt
+python -m training.evaluate_weapons models/weapon_yolo.pt --data datasets/weapons_cctv
+```
+
+Never validate on the training images (`datasets/weapons_all` does): the score is then memory.
+`evaluate_weapons` reports, on held-out data only, the share of weapons found as photographed,
+shrunk to CCTV size, and in synthetic camera frames with and without person crops, plus false alarms
+on weapon-free frames. Synthetic frames are not real footage: before relying on weapon alerts,
+record staged footage (props, your cameras, day and night) and check it with
+`scripts/evaluate_accuracy.py`.
 
    Each run writes `runs/<task>/<time>/` with `config.json` (incl. git commit), `metrics.json`,
    `model.onnx` (and `labels.json`). Same data + config + seed → same split and comparable numbers.

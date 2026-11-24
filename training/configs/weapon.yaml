@@ -1,9 +1,20 @@
-# Weapon detector: classes handgun, rifle, knife (+ machete / stick if you label them).
-# Include hard negatives (phones, umbrellas, tools, rejected weapon alerts from the review queue)
-# as images with empty label files: they are what keeps false alerts down.
-weights: yolov8s.pt      # or yolo11s.pt
-epochs: 150
-imgsz: 960               # weapons are small in CCTV frames
-batch: 16
-patience: 40
+# BD Deshi weapon detector (ramda, chapati, churi, boti, sickle, sword, axe, rod, pistol, rifle).
+# Train on datasets/weapons (it keeps a hold-out split). Do NOT use datasets/weapons_all: its
+# val set is its training set, so the score it reports is memory, not detection.
+# For CCTV distance use training/configs/weapon_cctv.yaml instead.
+# Hard negatives (phones, umbrellas, tools, rejected alerts) → images with empty .txt labels.
+#
+#   python -m training.train_detector --data datasets/weapons \
+#       --config training/configs/weapon.yaml --install models/weapon_yolo.pt
+
+weights: yolov8s.pt
+epochs: 80
+imgsz: 640               # 960 when training on CUDA with more VRAM
+batch: 4                 # raise to 8–16 on GPU
+patience: 25
 seed: 13
+device: auto             # cuda → mps → cpu
+mosaic: 1.0
+mixup: 0.1
+degrees: 10
+fliplr: 0.5

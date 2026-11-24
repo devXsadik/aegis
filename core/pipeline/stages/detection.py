@@ -48,7 +48,7 @@ class DetectionStage(PipelineStage):
         # Weapon detection
         if self.weapon_detector is not None:
             try:
-                ctx.weapon_detections = self.weapon_detector.detect(ctx.frame)
+                ctx.weapon_detections = self.weapon_detector.detect(ctx.frame, people=ctx.human_detections)
                 ctx.weapon_present = len(ctx.weapon_detections) > 0
             except Exception as e:
                 logger.warning(f"Weapon detection error: {e}")

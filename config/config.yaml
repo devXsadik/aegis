@@ -89,8 +89,16 @@ tamper:
   dark_level: 18                   # mean brightness (0-255) below this = covered
   cooldown: 300                    # the same condition is reported again only after this
 
-# Before a weapon hit counts towards the 3-of-5-frames confirmation (core/analysis/weapon_confirm.py):
 weapon:
+  # Where the weapon model looks (core/detectors/weapon_detector.py). On CCTV a knife is 15-40 px:
+  #   full         whole frame only (cheapest; misses small weapons)
+  #   person_crop  each person cut out and enlarged to crop_size (weapons in hands at CCTV distance)
+  #   both         full frame + person crops (default; one batched pass, ~1 + max_crops images)
+  mode: full                       # switch to both only with a model trained on person crops (weapon_cctv.yaml)
+  crop_size: 640
+  max_crops: 4                     # people looked at closely per frame (most confident first)
+  min_person_px: 40                # people shorter than this are too far away even enlarged
+  # Before a weapon hit counts towards the 3-of-5-frames confirmation (core/analysis/weapon_confirm.py):
   min_box_side_px: 14              # smaller boxes are mostly guesses
   unheld_min_score: 0.65           # needed when the person's wrists are visible but away from it, or nobody holds it
   hand_reach: 0.25                 # "in hand": a wrist within this fraction of the person's height

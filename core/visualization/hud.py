@@ -238,7 +238,7 @@ def render_full_hud(frame, ctx: FrameContext, start_time: float,
     # Weapon boxes
     for w in ctx.weapon_detections:
         wx1, wy1, wx2, wy2 = w["bbox"]
-        frame = draw_box(frame, wx1, wy1, wx2, wy2, f"WEAPON {w['score']:.0%}", (0, 0, 255))
+        frame = draw_box(frame, wx1, wy1, wx2, wy2, f"{w.get('class_name', 'weapon').upper()} {w['score']:.0%}", (0, 0, 255))
 
     # Vehicle boxes + plate annotations
     for v in ctx.vehicle_detections:

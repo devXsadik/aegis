@@ -1,0 +1,16 @@
+{
+  "version": "det-20261124-120822",
+  "names": {
+    "0": "ramda",
+    "1": "chapati",
+    "2": "churi",
+    "3": "boti",
+    "4": "sickle",
+    "5": "sword",
+    "6": "axe",
+    "7": "rod",
+    "8": "pistol",
+    "9": "rifle"
+  },
+  "task": "detect"
+}

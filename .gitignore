@@ -57,5 +57,6 @@ data/eval/civilians/
 presentation/
 runs/
 data/datasets/
+datasets/
 models/registry/
 evidence/items/

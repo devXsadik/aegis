@@ -18,10 +18,10 @@ models:
     name: "Weapon YOLO"
     path: "models/weapon_yolo.pt"
     type: yolo
-    version: "custom"
+    version: "bd-deshi-v1"
     device: "auto"
-    description: "Weapon detection (handgun, rifle, knife)"
-    # Upgrade path: Fine-tune YOLOv11 on weapon datasets
+    description: "BD deshi weapons (ramda, chapati, churi, boti, sickle, sword, axe, rod, pistol, rifle)"
+    # Train: python -m training.train_detector --data datasets/weapons --config training/configs/weapon.yaml --install models/weapon_yolo.pt
 
   vehicle_detector:
     name: "YOLOv8l"

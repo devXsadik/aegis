@@ -83,13 +83,20 @@ def build_pipeline(cfg, base_dir, camera_location=None, zones=None, lines=None):
     logger.info(f"Inference device: {device} (cpu threads: {threads or 'n/a'}, imgsz: {imgsz})")
 
     weapon_detector = None
+    weapon_opts = cfg.get("weapon") or {}
     if os.path.exists(weapon_model_path):
         try:
             weapon_detector = _shared(
                 ("weapon", weapon_model_path),
-                lambda: WeaponDetector(weapon_model_path, weapon_conf, device),
+                lambda: WeaponDetector(
+                    weapon_model_path, weapon_conf, device,
+                    mode=str(weapon_opts.get("mode", "both")),
+                    crop_size=int(weapon_opts.get("crop_size", 640)),
+                    max_crops=int(weapon_opts.get("max_crops", 4)),
+                    min_person_px=int(weapon_opts.get("min_person_px", 40)),
+                ),
             )
-            logger.info("Weapon detector: ENABLED")
+            logger.info(f"Weapon detector: ENABLED ({weapon_detector.mode})")
         except Exception as e:
             logger.warning(f"Weapon detector DISABLED: {e}")
     else:
